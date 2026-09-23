@@ -1,13 +1,38 @@
 {
-  "description": "Opt-in glassbox hooks: mark edited files stale and refresh the AGENTS.md block. They do nothing unless enable_hooks (or GLASSBOX_HOOKS=1) is set and the repo has a glassbox graph.",
+  "description": "Opt-in glassbox hooks. UserPromptSubmit adds graph context to code prompts (ambient option). Stop checks the turn's diff once and can ask for one more look at High risk lines (gate option). PostToolUse and SessionStart keep the graph and the AGENTS.md block fresh (enable_hooks option). All of them do nothing in a repo without a glassbox graph, and they never fail the turn.",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh", "prompt"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh", "stop"],
+            "timeout": 60
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh\" post-edit",
+            "command": "sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh", "post-edit"],
             "timeout": 5
           }
         ]
@@ -18,7 +43,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh\" session-start",
+            "command": "sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh", "session-start"],
             "timeout": 30
           }
         ]

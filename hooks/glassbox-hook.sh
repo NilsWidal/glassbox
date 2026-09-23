@@ -1,15 +1,25 @@
 #!/bin/sh
-# glassbox plugin hook: post-edit | session-start.
-# Opt-in. Exits 0 at once, without starting node, unless all of these hold:
-#   - GLASSBOX_HOOKS=1, or the plugin's enable_hooks option is on (GLASSBOX_HOOKS=0 turns it off);
-#   - this is not a nested glassbox model call (GLASSBOX_NESTED=1);
-#   - the project has a glassbox graph (.glassbox/graph.db, made by `glassbox init`).
-# Hooks never fail the tool call: every error is swallowed.
+# glassbox plugin hook: prompt | stop | post-edit | session-start.
+# Claude Code runs it in exec form (no shell string): sh <this file> <event>.
+# It exits 0 at once, without starting node, when:
+#   - this is a nested glassbox model call (GLASSBOX_NESTED=1);
+#   - the project has no glassbox graph (.glassbox/graph.db, made by `glassbox init`);
+#   - post-edit and session-start only: neither GLASSBOX_HOOKS=1 nor the plugin's
+#     enable_hooks option is on (GLASSBOX_HOOKS=0 turns them off).
+# prompt and stop can also be turned on in .glassbox/config.json, so node reads
+# that and decides. The hook JSON on stdin goes straight to `glassbox hook`.
+# Hooks never fail the turn: errors are swallowed and the exit code is always 0.
 
 event="$1"
 [ "${GLASSBOX_NESTED:-}" = "1" ] && exit 0
-case "${GLASSBOX_HOOKS:-${CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS:-}}" in
-  1 | true) ;;
+case "$event" in
+  prompt | stop) ;;
+  post-edit | session-start)
+    case "${GLASSBOX_HOOKS:-${CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS:-}}" in
+      1 | true) ;;
+      *) exit 0 ;;
+    esac
+    ;;
   *) exit 0 ;;
 esac
 dir="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -20,18 +30,6 @@ dir="${CLAUDE_PROJECT_DIR:-$PWD}"
 # plugin checkout.
 bundle="${CLAUDE_PLUGIN_ROOT:-}/plugin-dist/glassbox.mjs"
 [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$bundle" ] || exit 0
-set -- node "$bundle"
 
-case "$event" in
-  post-edit)
-    # The hook input is JSON on stdin; take tool_input.file_path.
-    file=$(node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{try{const p=JSON.parse(s).tool_input?.file_path;if(typeof p==="string")process.stdout.write(p)}catch{}})' 2>/dev/null)
-    [ -n "$file" ] || exit 0
-    # --files=<path> so a name starting with "-" is never read as a flag.
-    "$@" refresh --root "$dir" --files="$file" --quiet >/dev/null 2>&1
-    ;;
-  session-start)
-    "$@" refresh --root "$dir" --sync-md --no-claude-md --quiet >/dev/null 2>&1
-    ;;
-esac
+node "$bundle" hook "$event" --host claude-code --root "$dir" 2>/dev/null
 exit 0

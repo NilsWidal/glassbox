@@ -11667,6 +11667,115 @@ var init_store = __esm({
   }
 });
 
+// src/project-config.ts
+import { readFileSync as readFileSync2, realpathSync as realpathSync2 } from "node:fs";
+import { dirname as dirname8, join as join12 } from "node:path";
+function isObj(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function pick(src, spec) {
+  if (!isObj(src)) return void 0;
+  const out2 = {};
+  for (const [key, type] of Object.entries(spec)) {
+    const v = src[key];
+    if (type === "number" ? typeof v === "number" && Number.isFinite(v) && v >= 0 : typeof v === type) out2[key] = v;
+  }
+  return Object.keys(out2).length ? out2 : void 0;
+}
+function parseProjectConfig(value) {
+  if (!isObj(value)) return {};
+  const out2 = {};
+  if (typeof value.mode === "string") out2.mode = value.mode;
+  if (typeof value.conciseRules === "boolean") out2.conciseRules = value.conciseRules;
+  const ambient = pick(value.ambient, {
+    enabled: "boolean",
+    maxChars: "number",
+    minScore: "number",
+    maxHits: "number"
+  });
+  if (ambient) out2.ambient = ambient;
+  const gate2 = pick(value.gate, { enabled: "boolean", mode: "string", timeoutMs: "number" });
+  if (gate2) out2.gate = gate2;
+  const worker = pick(value.worker, {
+    enabled: "boolean",
+    dailyCalls: "number",
+    minIntervalSec: "number",
+    maxNodesPerRun: "number"
+  });
+  if (worker) out2.worker = worker;
+  return out2;
+}
+function loadProjectConfig(root2) {
+  const file2 = join12(root2, STORE_DIR2, PROJECT_CONFIG_FILE);
+  let text2;
+  try {
+    assertNotSymlinkSync(join12(root2, STORE_DIR2));
+    assertNotSymlinkSync(file2);
+    text2 = readFileSync2(file2, "utf8");
+  } catch (err2) {
+    if (err2.code === "ENOENT") return {};
+    throw err2;
+  }
+  if (!within(realpathSync2(root2), realpathSync2(dirname8(file2)))) throw new Error(`refusing to read ${file2}: it resolves outside ${root2}`);
+  try {
+    return parseProjectConfig(JSON.parse(text2));
+  } catch {
+    throw new Error(`${file2} is not valid JSON`);
+  }
+}
+function loadProjectConfigSafe(root2) {
+  try {
+    return loadProjectConfig(root2);
+  } catch {
+    return {};
+  }
+}
+function envFlag(v) {
+  const t = v?.trim().toLowerCase();
+  if (!t) return void 0;
+  if (["1", "true", "yes", "on"].includes(t)) return true;
+  if (["0", "false", "no", "off"].includes(t)) return false;
+  return void 0;
+}
+function featureEnabled(env, names, project, fallback) {
+  return envFlag(env[names.env]) ?? project ?? envFlag(env[names.plugin]) ?? fallback;
+}
+var STORE_DIR2, PROJECT_CONFIG_FILE;
+var init_project_config = __esm({
+  "src/project-config.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_safefs();
+    STORE_DIR2 = ".glassbox";
+    PROJECT_CONFIG_FILE = "config.json";
+  }
+});
+
+// src/style/concise.ts
+function conciseSection() {
+  return [CONCISE_HEADING, ...CONCISE_RULES.map((r) => `- ${r}`)];
+}
+function conciseRulesEnabled(env, config2) {
+  return featureEnabled(env, { env: "GLASSBOX_CONCISE_RULES", plugin: "CLAUDE_PLUGIN_OPTION_CONCISE_RULES" }, config2.conciseRules, false);
+}
+var CONCISE_RULES, CONCISE_HEADING;
+var init_concise = __esm({
+  "src/style/concise.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_project_config();
+    CONCISE_RULES = [
+      "Lead with the answer or the result. No preamble.",
+      "Cite code as `file:line` (or `file:start-end`) instead of pasting it.",
+      "Never paste code that did not change. When a snippet helps, show only the changed lines.",
+      "Give each reason in one line.",
+      "No closing recap of what you did, and no restating the request.",
+      "Say in one line what you did not check, when it matters."
+    ];
+    CONCISE_HEADING = "### Answer style";
+  }
+});
+
 // src/agents-md/render.ts
 function clean2(text2, max = MAX_TEXT) {
   const flat = text2.replace(/<!--|-->/g, "").replace(/\s+/g, " ").trim();
@@ -11711,7 +11820,7 @@ function tagsSection(tags) {
   const extra = uniq2.length - MAX_TAGS;
   return ["### Tags", shown.join(", ") + (extra > 0 ? ` ${more(extra)}` : "")];
 }
-function assemble(s, areaLimit, riskyLimit) {
+function assemble(s, areaLimit, riskyLimit, conciseRules) {
   const risky = [...s.riskyNodes].sort((a, b) => b.p - a.p || a.file.localeCompare(b.file) || a.line - b.line).map(riskyLine);
   const areas = [...s.areas].sort((a, b) => b.nodeCount - a.nodeCount || a.name.localeCompare(b.name)).map(areaLine);
   return [
@@ -11727,17 +11836,21 @@ function assemble(s, areaLimit, riskyLimit) {
     ...tagsSection(s.availableTags),
     "",
     ...USAGE,
+    ...conciseRules ? ["", ...conciseSection()] : [],
     END_MARKER
   ];
 }
-function renderBlock(summary, maxLines = DEFAULT_MAX_LINES) {
+function renderBlock(summary, opts = {}) {
+  const o = typeof opts === "number" ? { maxLines: opts } : opts;
+  const maxLines = o.maxLines ?? DEFAULT_MAX_LINES;
+  const concise = o.conciseRules === true;
   let areaLimit = summary.areas.length;
   let riskyLimit = summary.riskyNodes.length;
-  let lines = assemble(summary, areaLimit, riskyLimit);
+  let lines = assemble(summary, areaLimit, riskyLimit, concise);
   while (lines.length > maxLines && (areaLimit > 0 || riskyLimit > 0)) {
     if (riskyLimit >= areaLimit && riskyLimit > 0) riskyLimit--;
     else areaLimit--;
-    lines = assemble(summary, areaLimit, riskyLimit);
+    lines = assemble(summary, areaLimit, riskyLimit, concise);
   }
   const tagsCut = uniqueTags(summary.availableTags).length > MAX_TAGS;
   const truncated = areaLimit < summary.areas.length || riskyLimit < summary.riskyNodes.length || tagsCut;
@@ -11751,6 +11864,7 @@ var init_render2 = __esm({
   "src/agents-md/render.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
+    init_concise();
     START_MARKER = "<!-- glassbox:start -->";
     END_MARKER = "<!-- glassbox:end -->";
     DEFAULT_MAX_LINES = 60;
@@ -11774,7 +11888,7 @@ var init_render2 = __esm({
 });
 
 // src/agents-md/sync.ts
-import { join as join12 } from "node:path";
+import { join as join13 } from "node:path";
 function markerLines(text2, marker) {
   const out2 = [];
   let offset = 0;
@@ -11834,9 +11948,10 @@ function addAgentsImport(existing) {
   return `${trimmed}${sep3}${IMPORT_LINE}${eol}`;
 }
 async function syncAgentsMd(repoRoot, summary, opts = {}) {
-  const agentsMdPath = join12(repoRoot, "AGENTS.md");
-  const claudeMdPath = join12(repoRoot, "CLAUDE.md");
-  const rendered = renderBlock(summary, opts.maxLines);
+  const agentsMdPath = join13(repoRoot, "AGENTS.md");
+  const claudeMdPath = join13(repoRoot, "CLAUDE.md");
+  const conciseRules = opts.conciseRules ?? conciseRulesEnabled(process.env, loadProjectConfigSafe(repoRoot));
+  const rendered = renderBlock(summary, { ...opts.maxLines !== void 0 ? { maxLines: opts.maxLines } : {}, conciseRules });
   const agentsOld = await readInsideOrNull(repoRoot, agentsMdPath);
   const agentsNew = upsertBlock(agentsOld, rendered.text);
   let agentsMd = "unchanged";
@@ -11873,6 +11988,8 @@ var init_sync = __esm({
   "src/agents-md/sync.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
+    init_project_config();
+    init_concise();
     init_safefs();
     init_render2();
     AGENTS_HEADER = "# AGENTS.md\n\nInstructions for coding agents working in this repository.\n";
@@ -11891,7 +12008,7 @@ __export(git_exports, {
 });
 import { execFile } from "node:child_process";
 import { readFile as readFile9 } from "node:fs/promises";
-import { join as join13 } from "node:path";
+import { join as join14 } from "node:path";
 function git(cwd, args2, okCodes = [0]) {
   return new Promise((ok, fail) => {
     execFile("git", args2, { cwd, maxBuffer: MAX_BUFFER }, (err2, stdout, stderr) => {
@@ -11916,7 +12033,7 @@ async function workingDiff(cwd) {
   }
   return withoutGlassboxChanges(parts2.filter(Boolean).join(""), {
     head: (file2) => git(cwd, ["show", `HEAD:${file2}`]).catch(() => null),
-    work: (file2) => readFile9(join13(cwd, file2), "utf8").catch(() => null)
+    work: (file2) => readFile9(join14(cwd, file2), "utf8").catch(() => null)
   });
 }
 function splitDiff(diff) {
@@ -12046,7 +12163,7 @@ __export(source_exports, {
   tagLabel: () => tagLabel
 });
 import { readFile as readFile10 } from "node:fs/promises";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 async function indexRepo(root2, store, opts = {}) {
   const graph = await buildGraph(root2, opts);
   const sync = store.sync(graph);
@@ -12072,7 +12189,7 @@ var init_source = __esm({
       lines(file2) {
         let p = this.files.get(file2);
         if (!p) {
-          p = readFile10(join14(this.root, file2), "utf8").then(
+          p = readFile10(join15(this.root, file2), "utf8").then(
             (t) => t.replace(/\r\n?/g, "\n").split("\n"),
             () => void 0
           );
@@ -12487,7 +12604,7 @@ var init_where = __esm({
 });
 
 // src/query/decide.ts
-import { join as join15 } from "node:path";
+import { join as join16 } from "node:path";
 function relatedNodes(question, options, hint, store, limit) {
   const terms = queryTerms([question, ...options, hint ?? ""].join(" "));
   return whereCandidates(store.getNodes()).map((node2) => ({ node: node2, s: lexicalScore(terms, { node: node2, tags: store.getTags(node2.id) }) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s || (a.node.id < b.node.id ? -1 : 1)).slice(0, Math.max(0, limit)).map((x) => x.node.id);
@@ -12563,7 +12680,7 @@ async function decide2(question, options, contextHint, opts) {
     if (nodes.length || contextHint?.trim()) {
       record2.scope = { ...nodes.length ? { nodes } : {}, ...contextHint?.trim() ? { context: contextHint } : {} };
     }
-    logFile = typeof opts.log === "string" ? opts.log : join15(opts.root, STORE_DIR, DECISION_LOG);
+    logFile = typeof opts.log === "string" ? opts.log : join16(opts.root, STORE_DIR, DECISION_LOG);
     await appendDecisionLog(logFile, record2);
   }
   const result = {
@@ -12614,7 +12731,7 @@ __export(triage_exports, {
   DEFAULT_TRIAGE_BUDGET: () => DEFAULT_TRIAGE_BUDGET,
   triage: () => triage
 });
-import { join as join16 } from "node:path";
+import { join as join17 } from "node:path";
 function riskQuestion(instructions) {
   return { type: "score", instructions, criteria: [...RISK_LEVELS] };
 }
@@ -12737,7 +12854,7 @@ ${ctx.map((l) => `- ${l}`).join("\n")}` : "";
   if (opts.log !== false) {
     record2.id = decisionId(record2);
     record2.scope = logDiff(diff);
-    logFile = typeof opts.log === "string" ? opts.log : join16(opts.root, STORE_DIR, DECISION_LOG);
+    logFile = typeof opts.log === "string" ? opts.log : join17(opts.root, STORE_DIR, DECISION_LOG);
     await appendDecisionLog(logFile, record2);
   }
   const result = {
@@ -12777,7 +12894,7 @@ var init_triage = __esm({
 });
 
 // src/query/explain.ts
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 async function explainDecideState(question, scope, store, root2, backend, budget) {
   const segments = await decideSegments(scope.context, scope.nodes ?? [], { root: root2, store });
   const chunks = segments.map((s) => s.chunk);
@@ -12835,7 +12952,7 @@ function findDecision(records, id) {
   return hits[hits.length - 1];
 }
 async function explainDecision(id, opts) {
-  const logFile = opts.logFile ?? join17(opts.root, STORE_DIR, DECISION_LOG);
+  const logFile = opts.logFile ?? join18(opts.root, STORE_DIR, DECISION_LOG);
   const record2 = findDecision(await readDecisionLog(logFile), id);
   if (!record2) throw new Error(`no decision with id "${id}" in ${logFile}`);
   if (hasContent(record2.explain) && !opts.refresh) {
@@ -12978,89 +13095,6 @@ var init_render3 = __esm({
     init_define_GLASSBOX_BUNDLE();
     init_render();
     init_scope();
-  }
-});
-
-// src/project-config.ts
-import { readFileSync as readFileSync2, realpathSync as realpathSync2 } from "node:fs";
-import { dirname as dirname8, join as join18 } from "node:path";
-function isObj(v) {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-function pick(src, spec) {
-  if (!isObj(src)) return void 0;
-  const out2 = {};
-  for (const [key, type] of Object.entries(spec)) {
-    const v = src[key];
-    if (type === "number" ? typeof v === "number" && Number.isFinite(v) && v >= 0 : typeof v === type) out2[key] = v;
-  }
-  return Object.keys(out2).length ? out2 : void 0;
-}
-function parseProjectConfig(value) {
-  if (!isObj(value)) return {};
-  const out2 = {};
-  if (typeof value.mode === "string") out2.mode = value.mode;
-  const ambient = pick(value.ambient, {
-    enabled: "boolean",
-    maxChars: "number",
-    minScore: "number",
-    maxHits: "number"
-  });
-  if (ambient) out2.ambient = ambient;
-  const gate2 = pick(value.gate, { enabled: "boolean", mode: "string", timeoutMs: "number" });
-  if (gate2) out2.gate = gate2;
-  const worker = pick(value.worker, {
-    enabled: "boolean",
-    dailyCalls: "number",
-    minIntervalSec: "number",
-    maxNodesPerRun: "number"
-  });
-  if (worker) out2.worker = worker;
-  return out2;
-}
-function loadProjectConfig(root2) {
-  const file2 = join18(root2, STORE_DIR2, PROJECT_CONFIG_FILE);
-  let text2;
-  try {
-    assertNotSymlinkSync(join18(root2, STORE_DIR2));
-    assertNotSymlinkSync(file2);
-    text2 = readFileSync2(file2, "utf8");
-  } catch (err2) {
-    if (err2.code === "ENOENT") return {};
-    throw err2;
-  }
-  if (!within(realpathSync2(root2), realpathSync2(dirname8(file2)))) throw new Error(`refusing to read ${file2}: it resolves outside ${root2}`);
-  try {
-    return parseProjectConfig(JSON.parse(text2));
-  } catch {
-    throw new Error(`${file2} is not valid JSON`);
-  }
-}
-function loadProjectConfigSafe(root2) {
-  try {
-    return loadProjectConfig(root2);
-  } catch {
-    return {};
-  }
-}
-function envFlag(v) {
-  const t = v?.trim().toLowerCase();
-  if (!t) return void 0;
-  if (["1", "true", "yes", "on"].includes(t)) return true;
-  if (["0", "false", "no", "off"].includes(t)) return false;
-  return void 0;
-}
-function featureEnabled(env, names, project, fallback) {
-  return envFlag(env[names.env]) ?? project ?? envFlag(env[names.plugin]) ?? fallback;
-}
-var STORE_DIR2, PROJECT_CONFIG_FILE;
-var init_project_config = __esm({
-  "src/project-config.ts"() {
-    "use strict";
-    init_define_GLASSBOX_BUNDLE();
-    init_safefs();
-    STORE_DIR2 = ".glassbox";
-    PROJECT_CONFIG_FILE = "config.json";
   }
 });
 
@@ -58346,6 +58380,7 @@ async function status(root2, env, now = Date.now()) {
     mode: mode2,
     ambient: ambientEnabled(env, config2),
     gate: gateEnabled(env, config2),
+    conciseRules: conciseRulesEnabled(env, config2),
     worker: {
       enabled: workerEnabled(env, config2),
       ...lock && lockHeld(lock, now, limits.lockMaxAgeMs) ? { running: lock } : {},
@@ -58372,7 +58407,7 @@ function renderStatus(s, now = Date.now()) {
   } else if (s.graphError) out2.push(`graph    unreadable: ${s.graphError}`);
   else out2.push("graph    none (run `glassbox init`)");
   out2.push("mode" in s.mode ? `mode     ${s.mode.mode} (${s.mode.source === "default" ? "default" : `from ${s.mode.source}`})` : `mode     error: ${s.mode.error}`);
-  out2.push(`hooks    ambient ${s.ambient ? "on" : "off"}, gate ${s.gate ? "on" : "off"}, worker ${s.worker.enabled ? "on" : "off"}`);
+  out2.push(`hooks    ambient ${s.ambient ? "on" : "off"}, gate ${s.gate ? "on" : "off"}, concise rules ${s.conciseRules ? "on" : "off"}, worker ${s.worker.enabled ? "on" : "off"}`);
   const w = s.worker;
   out2.push(
     `worker   ${w.running ? `running (pid ${w.running.pid}, since ${time3(w.running.startedAt)})` : "idle"}; today ${w.state.callsToday}/${w.limits.dailyCalls} model runs` + (w.nextRunAt > now ? `; next run allowed ${time3(w.nextRunAt)}` : "")
@@ -58395,6 +58430,7 @@ var init_status = __esm({
     "use strict";
     init_define_GLASSBOX_BUNDLE();
     init_sync();
+    init_concise();
     init_modes();
     init_project_config();
     init_worker();
@@ -58551,7 +58587,9 @@ function gateFile(root2) {
 function readGateState(root2) {
   try {
     const v = JSON.parse(readFileSync6(gateFile(root2), "utf8"));
-    return typeof v.lastHash === "string" && typeof v.at === "number" ? v : void 0;
+    if (typeof v.lastHash !== "string" || typeof v.at !== "number") return void 0;
+    const flagged = Array.isArray(v.flagged) ? v.flagged.filter((k) => typeof k === "string").slice(-MAX_FLAGGED) : [];
+    return { lastHash: v.lastHash, at: v.at, ...v.outcome !== void 0 ? { outcome: v.outcome } : {}, ...flagged.length ? { flagged } : {} };
   } catch {
     return void 0;
   }
@@ -58578,8 +58616,11 @@ async function stopHook(input2, ctx) {
   if (!diff.trim()) return "";
   const hash2 = sha256(diff);
   const now = ctx.now ?? Date.now;
-  if (readGateState(root2)?.lastHash === hash2) return "";
-  writeGateState(root2, { lastHash: hash2, at: now() });
+  const prev = readGateState(root2);
+  if (prev?.lastHash === hash2) return "";
+  const flagged = prev?.flagged ?? [];
+  const keep = flagged.length ? { flagged } : {};
+  writeGateState(root2, { lastHash: hash2, at: now(), ...keep });
   const mode2 = config2.gate?.mode === "balanced" ? "balanced" : "fast";
   const settings = MODE_SETTINGS[mode2];
   const timeoutMs = Math.max(1e3, Math.min(config2.gate?.timeoutMs ?? envMs(ctx.env.GLASSBOX_GATE_TIMEOUT_MS) ?? DEFAULT_GATE_TIMEOUT_MS, 6e5));
@@ -58592,11 +58633,12 @@ async function stopHook(input2, ctx) {
     }, timeoutMs);
   });
   try {
-    const reason = await Promise.race([gate(root2, diff, ctx, settings, abort2.signal), timeout]);
-    writeGateState(root2, { lastHash: hash2, at: now(), outcome: reason ? "block" : "pass" });
-    return reason ? JSON.stringify({ decision: "block", reason }) : "";
+    const r = await Promise.race([gate(root2, diff, ctx, settings, abort2.signal, new Set(flagged)), timeout]);
+    const all = [...flagged, ...r.flagged].slice(-MAX_FLAGGED);
+    writeGateState(root2, { lastHash: hash2, at: now(), outcome: r.reason ? "block" : "pass", ...all.length ? { flagged: all } : {} });
+    return r.reason ? JSON.stringify({ decision: "block", reason: r.reason }) : "";
   } catch (err2) {
-    writeGateState(root2, { lastHash: hash2, at: now(), outcome: err2 instanceof GateTimeout ? "timeout" : "error" });
+    writeGateState(root2, { lastHash: hash2, at: now(), outcome: err2 instanceof GateTimeout ? "timeout" : "error", ...keep });
     return "";
   } finally {
     clearTimeout(timer);
@@ -58606,12 +58648,13 @@ function envMs(v) {
   const n = v === void 0 ? NaN : Number(v);
   return Number.isFinite(n) && n > 0 ? n : void 0;
 }
-async function gate(root2, diff, ctx, settings, signal) {
-  if (!ctx.backend) return "";
+async function gate(root2, diff, ctx, settings, signal, seen) {
+  const none = { reason: "", flagged: [] };
+  if (!ctx.backend) return none;
   const [{ GraphStore: GraphStore2 }, { triage: triage2 }] = await Promise.all([Promise.resolve().then(() => (init_store2(), store_exports)), Promise.resolve().then(() => (init_triage(), triage_exports))]);
   const store = GraphStore2.open(root2);
   try {
-    if (store.getNodes({ kind: "file" }).length === 0) return "";
+    if (store.getNodes({ kind: "file" }).length === 0) return none;
     const backend = ctx.backend({ env: hostEnv(ctx), ...settings.samples !== void 0 ? { samples: settings.samples } : {} });
     const r = await triage2(diff, {
       store,
@@ -58620,25 +58663,27 @@ async function gate(root2, diff, ctx, settings, signal) {
       explain: false,
       decide: { ...settings.permutations !== void 0 ? { permutations: settings.permutations } : {}, signal }
     });
-    const risky = r.hunks.filter((h) => h.level === "High" && h.answer.band === "act");
-    if (risky.length === 0) return "";
+    const keyOf = (h) => `${h.file}#${[...h.nodes].sort().join(",")}`;
+    const risky = r.hunks.filter((h) => h.level === "High" && h.answer.band === "act" && !seen.has(keyOf(h)));
+    if (risky.length === 0) return none;
     const lines = risky.slice(0, MAX_REASON_HUNKS).map((h) => {
       const names = h.nodes.map((id) => store.getNode(id)?.name ?? id).slice(0, 3).join(", ");
       return `- ${h.file}:${h.startLine}-${h.endLine} (${names}) High risk, p=${h.p.toFixed(2)}`;
     });
     if (risky.length > MAX_REASON_HUNKS) lines.push(`- and ${risky.length - MAX_REASON_HUNKS} more`);
     const callers = r.affected.slice(0, 5).map((a) => `${a.name} (${a.file}:${a.line})`);
-    return [
+    const reason = [
       `glassbox gate: ${risky.length} changed hunk${risky.length === 1 ? "" : "s"} rated High risk with high confidence (decision ${r.record.id ?? "unlogged"}):`,
       ...lines,
       ...callers.length ? [`Direct callers: ${callers.join(", ")}.`] : [],
-      "Check these lines (and their tests) before finishing, or state why they are safe. This check runs once per diff."
+      "Check these lines (and their tests) before finishing, or state why they are safe. glassbox asks once per change."
     ].join("\n");
+    return { reason, flagged: [...new Set(risky.map(keyOf))] };
   } finally {
     store.close();
   }
 }
-var STORE_DIR6, STORE_FILE5, GATE_STATE_FILE, MAX_HOOK_INPUT, MAX_PROMPT, DEFAULT_GATE_TIMEOUT_MS, MAX_REASON_HUNKS, GateTimeout;
+var STORE_DIR6, STORE_FILE5, GATE_STATE_FILE, MAX_HOOK_INPUT, MAX_PROMPT, DEFAULT_GATE_TIMEOUT_MS, MAX_REASON_HUNKS, MAX_FLAGGED, GateTimeout;
 var init_hooks = __esm({
   "src/hooks/index.ts"() {
     "use strict";
@@ -58657,6 +58702,7 @@ var init_hooks = __esm({
     MAX_PROMPT = 2e4;
     DEFAULT_GATE_TIMEOUT_MS = 45e3;
     MAX_REASON_HUNKS = 6;
+    MAX_FLAGGED = 200;
     GateTimeout = class extends Error {
     };
   }

@@ -301,3 +301,52 @@ describe('How to query hints', () => {
     }
   });
 });
+
+describe('concise answer rules section', () => {
+  it('is absent by default and added when asked, inside the markers', async () => {
+    const { CONCISE_HEADING, CONCISE_RULES } = await import('../../src/style/concise.js');
+    expect(renderBlock(summary).text).not.toContain(CONCISE_HEADING);
+    const r = renderBlock(summary, { conciseRules: true });
+    const inner = r.text.slice(r.text.indexOf(START_MARKER), r.text.indexOf(END_MARKER));
+    expect(inner).toContain(CONCISE_HEADING);
+    for (const rule of CONCISE_RULES) expect(inner).toContain(`- ${rule}`);
+    expect(r.lines).toBeLessThanOrEqual(60);
+  });
+
+  it('keeps the line cap by cutting areas and risky nodes, not the rules', async () => {
+    const { CONCISE_RULES } = await import('../../src/style/concise.js');
+    const big: AgentsMdSummary = {
+      ...summary,
+      areas: Array.from({ length: 40 }, (_, i) => ({ name: `area${i}`, entryPoints: [`src/a${i}.ts:1`], nodeCount: i })),
+    };
+    const r = renderBlock(big, { maxLines: 40, conciseRules: true });
+    expect(r.lines).toBeLessThanOrEqual(40);
+    expect(r.truncated).toBe(true);
+    expect(r.text).toContain(CONCISE_RULES.at(-1));
+  });
+
+  it('syncAgentsMd reads the switch from .glassbox/config.json when not given', async () => {
+    const { CONCISE_HEADING } = await import('../../src/style/concise.js');
+    await syncAgentsMd(dir, summary, { claudeMd: false });
+    expect(await read('AGENTS.md')).not.toContain(CONCISE_HEADING);
+    await mkdir(join(dir, '.glassbox'));
+    await writeFile(join(dir, '.glassbox', 'config.json'), JSON.stringify({ conciseRules: true }));
+    const r = await syncAgentsMd(dir, summary, { claudeMd: false });
+    expect(r.agentsMd).toBe('updated');
+    expect(await read('AGENTS.md')).toContain(CONCISE_HEADING);
+    // An explicit option wins over the config.
+    await syncAgentsMd(dir, summary, { claudeMd: false, conciseRules: false });
+    expect(await read('AGENTS.md')).not.toContain(CONCISE_HEADING);
+  });
+});
+
+describe('conciseRulesEnabled', () => {
+  it('is off by default; env beats project config beats plugin option', async () => {
+    const { conciseRulesEnabled } = await import('../../src/style/concise.js');
+    expect(conciseRulesEnabled({}, {})).toBe(false);
+    expect(conciseRulesEnabled({ CLAUDE_PLUGIN_OPTION_CONCISE_RULES: 'true' }, {})).toBe(true);
+    expect(conciseRulesEnabled({ CLAUDE_PLUGIN_OPTION_CONCISE_RULES: 'true' }, { conciseRules: false })).toBe(false);
+    expect(conciseRulesEnabled({ GLASSBOX_CONCISE_RULES: '1' }, { conciseRules: false })).toBe(true);
+    expect(conciseRulesEnabled({ GLASSBOX_CONCISE_RULES: '0' }, { conciseRules: true })).toBe(false);
+  });
+});

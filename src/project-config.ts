@@ -32,6 +32,8 @@ export interface ProjectConfig {
     /** Longest the gate may take before it gives up and lets the turn end. Default 45000. */
     timeoutMs?: number;
   };
+  /** Adds the concise answer rules to the AGENTS.md block. Default false. */
+  conciseRules?: boolean;
   worker?: {
     /** false stops hooks and the launcher from starting the background re-tagging worker. Default true. */
     enabled?: boolean;
@@ -65,6 +67,7 @@ export function parseProjectConfig(value: unknown): ProjectConfig {
   if (!isObj(value)) return {};
   const out: ProjectConfig = {};
   if (typeof value.mode === 'string') out.mode = value.mode;
+  if (typeof value.conciseRules === 'boolean') out.conciseRules = value.conciseRules;
   const ambient = pick<NonNullable<ProjectConfig['ambient']>>(value.ambient, {
     enabled: 'boolean',
     maxChars: 'number',

@@ -6,7 +6,7 @@ Three parts, each optional:
 
 1. the **MCP server**, which gives Codex the seven tools (`ask`, `where`, `triage`, `decide`, `explain`, `graph`, `refresh`);
 2. the **skill**, which teaches Codex when to use them and how to read the numbers;
-3. the **AGENTS.md block**, a short summary of the codebase that Codex reads at the start of every session.
+3. the **AGENTS.md block**, a short summary of the codebase that Codex reads at the start of every session, optionally with concise answer rules.
 
 ## 1. Add the MCP server
 
@@ -83,7 +83,57 @@ node /path/to/glassbox/plugin-dist/glassbox.mjs refresh --sync-md   # re-parse c
 node /path/to/glassbox/plugin-dist/glassbox.mjs index               # also re-ask tags for changed nodes (model calls)
 ```
 
-The Claude Code plugin can do the first of these for you with opt-in hooks. This Codex setup has no such hooks, so run `refresh` or `index` yourself, or from a git hook.
+The Claude Code plugin can do the first of these for you with opt-in hooks. In Codex, use the launcher below, the hooks in the next section, or run `refresh` yourself (for example from a git hook).
+
+## Ambient mode in Codex
+
+### The zero-setup path: AGENTS.md and the launcher
+
+Codex reads `AGENTS.md` once at the start of each session, so the glassbox block is always in context without any hook. Two things keep it useful:
+
+- **The launcher.** Start Codex through glassbox, and the graph and the block are brought up to date first when files changed (no model calls):
+
+  ```sh
+  node /path/to/glassbox/plugin-dist/glassbox.mjs run codex                       # interactive
+  node /path/to/glassbox/plugin-dist/glassbox.mjs run --mode auto codex exec "fix the failing test"
+  ```
+
+  Everything after `codex` is passed to Codex untouched, as an argument list without a shell. The launcher also sets `GLASSBOX_HOST=codex` (and `GLASSBOX_MODE` with `--mode`) for the session, and may start the background re-tagging worker.
+- **Concise answer rules.** Set `"conciseRules": true` in `.glassbox/config.json` (or `GLASSBOX_CONCISE_RULES=1`), and the block gets an `### Answer style` section: lead with the answer, cite `file:line` instead of pasting code, never paste unchanged code, one line per reason, no closing recap, one line on what was not checked. It is written the next time the block is (the launcher, `refresh --sync-md` or `sync-md`). It is the same text as the Claude Code output style `glassbox:concise`.
+
+Two limits of AGENTS.md in Codex:
+- Codex stops reading project docs at 32 KiB in total (`project_doc_max_bytes`). The glassbox block is at most 60 lines, but a very long AGENTS.md above it can push it out.
+- In any directory, an `AGENTS.override.md` is read instead of `AGENTS.md`, which hides the glassbox block.
+
+### Ambient mode hooks
+
+Codex 0.154 has hooks (on by default), and `glassbox hook` speaks their format too: `prompt` prints `hookSpecificOutput.additionalContext` for `UserPromptSubmit`, and `stop` prints `{"decision":"block","reason":...}` for `Stop` or nothing. Pass `--host codex` so the gate asks `codex exec`. Turn the features on in `.glassbox/config.json` (`"ambient": {"enabled": true}`, `"gate": {"enabled": true}`) or with `GLASSBOX_AMBIENT=1` and `GLASSBOX_GATE=1`.
+
+A `~/.codex/hooks.json` (or `.codex/hooks.json` in a trusted project) could look like this:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node /path/to/glassbox/plugin-dist/glassbox.mjs hook prompt --host codex", "timeout": 5 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node /path/to/glassbox/plugin-dist/glassbox.mjs hook stop --host codex", "timeout": 60 }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "node /path/to/glassbox/plugin-dist/glassbox.mjs hook post-edit --host codex", "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+Things to know:
+
+- **Trust.** Codex asks you to review and trust each hook in `/hooks`, and asks again whenever a hook's definition changes. Keep the command string stable.
+- **Loops.** Codex turns a Stop block into a new prompt and documents no limit on repeated blocks. The gate guards itself: it does nothing when `stop_hook_active` is set, rates each diff once, and never blocks twice for the same hunk.
+- **Edits.** `post-edit` reads Codex `apply_patch` input (the `*** Update File:` headers) as well as Claude Code's `file_path`. It only acts with `GLASSBOX_HOOKS=1`.
+- **`notify`.** Codex's `notify` setting is separate, fires only after a turn and cannot block. glassbox does not use or change it.
+- **Not yet checked end to end.** These hooks have unit tests against the documented format, but have not yet been run in a real Codex session, and it is not yet known whether `codex exec` runs hooks you have not trusted in the interactive UI. The AGENTS.md path above is the one to rely on for now.
 
 ## How glassbox calls the model in Codex
 

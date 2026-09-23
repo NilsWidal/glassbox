@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { blockLineRange } from './agents-md/sync.js';
+import { conciseRulesEnabled } from './style/concise.js';
 import { resolveMode, type ResolvedMode } from './modes.js';
 import { featureEnabled, loadProjectConfig, type ProjectConfig } from './project-config.js';
 import { lockHeld, readLock, readWorkerState, workerEnabled, workerLimits, type WorkerLimits, type WorkerLock, type WorkerState } from './worker/index.js';
@@ -29,6 +30,8 @@ export interface StatusReport {
   mode: ResolvedMode | { error: string };
   ambient: boolean;
   gate: boolean;
+  /** The AGENTS.md block carries the concise answer rules. */
+  conciseRules: boolean;
   worker: {
     enabled: boolean;
     running?: WorkerLock;
@@ -117,6 +120,7 @@ export async function status(root: string, env: NodeJS.ProcessEnv, now = Date.no
     mode,
     ambient: ambientEnabled(env, config),
     gate: gateEnabled(env, config),
+    conciseRules: conciseRulesEnabled(env, config),
     worker: {
       enabled: workerEnabled(env, config),
       ...(lock && lockHeld(lock, now, limits.lockMaxAgeMs) ? { running: lock } : {}),
@@ -146,7 +150,7 @@ export function renderStatus(s: StatusReport, now = Date.now()): string {
   } else if (s.graphError) out.push(`graph    unreadable: ${s.graphError}`);
   else out.push('graph    none (run `glassbox init`)');
   out.push('mode' in s.mode ? `mode     ${s.mode.mode} (${s.mode.source === 'default' ? 'default' : `from ${s.mode.source}`})` : `mode     error: ${s.mode.error}`);
-  out.push(`hooks    ambient ${s.ambient ? 'on' : 'off'}, gate ${s.gate ? 'on' : 'off'}, worker ${s.worker.enabled ? 'on' : 'off'}`);
+  out.push(`hooks    ambient ${s.ambient ? 'on' : 'off'}, gate ${s.gate ? 'on' : 'off'}, concise rules ${s.conciseRules ? 'on' : 'off'}, worker ${s.worker.enabled ? 'on' : 'off'}`);
   const w = s.worker;
   out.push(
     `worker   ${w.running ? `running (pid ${w.running.pid}, since ${time(w.running.startedAt)})` : 'idle'}; ` +

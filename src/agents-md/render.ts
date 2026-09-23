@@ -1,3 +1,4 @@
+import { conciseSection } from '../style/concise.js';
 import type { AgentsMdSummary, AreaSummary, RiskyNode } from './types.js';
 
 export const START_MARKER = '<!-- glassbox:start -->';
@@ -91,7 +92,13 @@ function tagsSection(tags: string[]): string[] {
   return ['### Tags', shown.join(', ') + (extra > 0 ? ` ${more(extra)}` : '')];
 }
 
-function assemble(s: AgentsMdSummary, areaLimit: number, riskyLimit: number): string[] {
+export interface RenderOptions {
+  maxLines?: number;
+  /** Add the concise answer rules section. Default false. */
+  conciseRules?: boolean;
+}
+
+function assemble(s: AgentsMdSummary, areaLimit: number, riskyLimit: number, conciseRules: boolean): string[] {
   // Riskiest first; ties by location so output is stable.
   const risky = [...s.riskyNodes]
     .sort((a, b) => b.p - a.p || a.file.localeCompare(b.file) || a.line - b.line)
@@ -112,20 +119,24 @@ function assemble(s: AgentsMdSummary, areaLimit: number, riskyLimit: number): st
     ...tagsSection(s.availableTags),
     '',
     ...USAGE,
+    ...(conciseRules ? ['', ...conciseSection()] : []),
     END_MARKER,
   ];
 }
 
 /** Renders the managed block, cutting areas and risky nodes until it fits maxLines. */
-export function renderBlock(summary: AgentsMdSummary, maxLines = DEFAULT_MAX_LINES): RenderedBlock {
+export function renderBlock(summary: AgentsMdSummary, opts: number | RenderOptions = {}): RenderedBlock {
+  const o = typeof opts === 'number' ? { maxLines: opts } : opts;
+  const maxLines = o.maxLines ?? DEFAULT_MAX_LINES;
+  const concise = o.conciseRules === true;
   let areaLimit = summary.areas.length;
   let riskyLimit = summary.riskyNodes.length;
-  let lines = assemble(summary, areaLimit, riskyLimit);
+  let lines = assemble(summary, areaLimit, riskyLimit, concise);
   // Shrink the longer list first; each cut adds a "+N more" line, handled by re-rendering.
   while (lines.length > maxLines && (areaLimit > 0 || riskyLimit > 0)) {
     if (riskyLimit >= areaLimit && riskyLimit > 0) riskyLimit--;
     else areaLimit--;
-    lines = assemble(summary, areaLimit, riskyLimit);
+    lines = assemble(summary, areaLimit, riskyLimit, concise);
   }
   const tagsCut = uniqueTags(summary.availableTags).length > MAX_TAGS;
   const truncated =

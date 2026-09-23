@@ -1,4 +1,6 @@
 import { join } from 'node:path';
+import { loadProjectConfigSafe } from '../project-config.js';
+import { conciseRulesEnabled } from '../style/concise.js';
 import { readInsideOrNull, writeInside } from '../util/safefs.js';
 import { END_MARKER, START_MARKER, renderBlock, withoutStamp } from './render.js';
 import type {
@@ -104,7 +106,8 @@ export async function syncAgentsMd(
 ): Promise<SyncAgentsMdResult> {
   const agentsMdPath = join(repoRoot, 'AGENTS.md');
   const claudeMdPath = join(repoRoot, 'CLAUDE.md');
-  const rendered = renderBlock(summary, opts.maxLines);
+  const conciseRules = opts.conciseRules ?? conciseRulesEnabled(process.env, loadProjectConfigSafe(repoRoot));
+  const rendered = renderBlock(summary, { ...(opts.maxLines !== undefined ? { maxLines: opts.maxLines } : {}), conciseRules });
 
   const agentsOld = await readInsideOrNull(repoRoot, agentsMdPath);
   const agentsNew = upsertBlock(agentsOld, rendered.text);

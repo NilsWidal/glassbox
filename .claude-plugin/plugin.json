@@ -11,13 +11,27 @@
   "homepage": "https://github.com/NilsWidal/glassbox",
   "repository": "https://github.com/NilsWidal/glassbox",
   "license": "MIT",
-  "keywords": ["mcp", "code-review", "risk", "decisions", "calibration", "explainability", "agents-md"],
+  "keywords": [
+    "mcp",
+    "code-review",
+    "risk",
+    "decisions",
+    "calibration",
+    "explainability",
+    "agents-md"
+  ],
   "userConfig": {
     "backend": {
       "type": "string",
       "title": "Backend",
       "description": "Which model glassbox asks. auto (default) uses the host agent's own CLI (claude -p in Claude Code), so no key is needed. anthropic and openai-compat are optional API backends for CI or headless use.",
-      "options": ["auto", "claude-cli", "codex-cli", "anthropic", "openai-compat"],
+      "options": [
+        "auto",
+        "claude-cli",
+        "codex-cli",
+        "anthropic",
+        "openai-compat"
+      ],
       "default": "auto"
     },
     "model": {
@@ -30,13 +44,37 @@
       "type": "string",
       "title": "Mode",
       "description": "How much work each glassbox call does. fast: 1 sample, 1 option order, no evidence. balanced (default): the standard checks. explained: adds evidence and a one-line why. strict: more samples and higher bands. auto: fast first, then explained when the answer is not in the act band. GLASSBOX_MODE and .glassbox/config.json override it.",
-      "options": ["fast", "balanced", "explained", "strict", "auto"],
+      "options": [
+        "fast",
+        "balanced",
+        "explained",
+        "strict",
+        "auto"
+      ],
       "default": "balanced"
     },
     "enable_hooks": {
       "type": "boolean",
       "title": "Enable hooks",
-      "description": "Mark edited files stale after Edit, Write and MultiEdit, and refresh the AGENTS.md block at session start. Only acts in repos where you ran `glassbox init`.",
+      "description": "Mark edited files stale after Edit, Write and MultiEdit (a background worker re-tags them within a daily budget), and refresh the AGENTS.md block at session start. Only acts in repos where you ran `glassbox init`.",
+      "default": false
+    },
+    "ambient": {
+      "type": "boolean",
+      "title": "Ambient context",
+      "description": "Before each prompt that looks like it is about code, add up to about 1,500 characters of matching file:line locations and tags from the glassbox graph. No model call, typically well under 300 ms. Only acts in repos where you ran `glassbox init`. GLASSBOX_AMBIENT and .glassbox/config.json override it.",
+      "default": false
+    },
+    "gate": {
+      "type": "boolean",
+      "title": "End-of-turn gate",
+      "description": "When a turn changed code, rate the diff with glassbox triage in fast mode (on your Claude Code model). If a hunk is High risk with high confidence, ask Claude once to check those lines before finishing. Runs once per diff, gives up after 45 seconds and never blocks twice in a row. GLASSBOX_GATE and .glassbox/config.json override it.",
+      "default": false
+    },
+    "concise_rules": {
+      "type": "boolean",
+      "title": "Concise rules in AGENTS.md",
+      "description": "Add the concise answer rules (cite file:line, one-line reasons, no recap, no pasted unchanged code) to the glassbox block in AGENTS.md, for Codex and other agents. In Claude Code, select the output style with /output-style glassbox:concise instead.",
       "default": false
     },
     "anthropic_api_key": {

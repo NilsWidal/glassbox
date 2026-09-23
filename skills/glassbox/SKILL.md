@@ -57,6 +57,11 @@ src/auth/session.ts:42-47   Δp -0.61  # TTL is read from process.env with no de
 
 Keep each comment to one line, base it on the code you read at that span, and say so when you are unsure.
 
+## Messages from glassbox hooks
+
+- **Graph matches before a prompt** ("glassbox code graph matches for this prompt") are a static index lookup, no model call. Use the `file:line` spans as a starting point and read the code before relying on them.
+- **A "glassbox gate" message at the end of a turn** names changed lines rated High risk with high confidence. Read those lines and their tests, fix what is wrong, or say in one line why they are safe. It asks once per change; do not loop on it.
+
 ## When not to use it
 
 - Facts a tool can compute exactly (counts, dates, whether a symbol exists): use grep or the compiler.

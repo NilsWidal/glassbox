@@ -47,13 +47,44 @@ describe('plugin manifests', () => {
     }
   });
 
-  it('hooks.json wires opt-in edit and session hooks with short timeouts', async () => {
-    const h = await readJson<{ hooks: Record<string, { matcher?: string; hooks: { command: string; timeout: number }[] }[]> }>('hooks/hooks.json');
-    const post = h.hooks.PostToolUse![0]!;
-    expect(post.matcher).toBe('Edit|Write|MultiEdit');
-    expect(post.hooks[0]!.command).toContain('glassbox-hook.sh" post-edit');
-    expect(post.hooks[0]!.timeout).toBeLessThanOrEqual(5);
-    expect(h.hooks.SessionStart![0]!.hooks[0]!.command).toContain('session-start');
+  it('hooks.json wires all four hooks in exec form (no shell string) with bounded timeouts', async () => {
+    type Handler = { type: string; command: string; args?: string[]; timeout: number };
+    const h = await readJson<{ hooks: Record<string, { matcher?: string; hooks: Handler[] }[]> }>('hooks/hooks.json');
+    const want: Record<string, [string, number]> = {
+      UserPromptSubmit: ['prompt', 5],
+      Stop: ['stop', 60],
+      PostToolUse: ['post-edit', 5],
+      SessionStart: ['session-start', 30],
+    };
+    expect(Object.keys(h.hooks).sort()).toEqual(Object.keys(want).sort());
+    for (const [event, [arg, maxTimeout]] of Object.entries(want)) {
+      const handler = h.hooks[event]![0]!.hooks[0]!;
+      expect(handler.type, event).toBe('command');
+      expect(handler.command, event).toBe('sh');
+      expect(handler.args, event).toEqual(['${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh', arg]);
+      expect(handler.timeout, event).toBeLessThanOrEqual(maxTimeout);
+    }
+    expect(h.hooks.PostToolUse![0]!.matcher).toBe('Edit|Write|MultiEdit');
+    // The Stop hook must outlive the gate's own default timeout, so the gate (not Claude Code) ends a slow check.
+    const { DEFAULT_GATE_TIMEOUT_MS } = await import('../src/hooks/index.js');
+    expect(h.hooks.Stop![0]!.hooks[0]!.timeout * 1000).toBeGreaterThan(DEFAULT_GATE_TIMEOUT_MS);
+  });
+
+  it('plugin.json offers ambient, gate and concise_rules options, all off by default', async () => {
+    const p = await readJson<{ userConfig: Record<string, { type: string; default?: unknown }> }>('.claude-plugin/plugin.json');
+    for (const key of ['ambient', 'gate', 'concise_rules', 'enable_hooks']) {
+      expect(p.userConfig[key], key).toMatchObject({ type: 'boolean', default: false });
+    }
+  });
+
+  it('ships the concise output style with the same rules as the AGENTS.md section, not forced on', async () => {
+    const { CONCISE_RULES } = await import('../src/style/concise.js');
+    const text = await readFile(join(REPO, 'output-styles/concise.md'), 'utf8');
+    const fm = /^---\n([\s\S]*?)\n---\n/.exec(text)![1]!;
+    expect(fm).toMatch(/^name: concise$/m);
+    expect(fm).toMatch(/^keep-coding-instructions: true$/m);
+    expect(fm).not.toMatch(/force-for-plugin/);
+    for (const rule of CONCISE_RULES) expect(text).toContain(`- ${rule}`);
   });
 
   it('SKILL.md has spec-only frontmatter and a short description', async () => {
@@ -73,6 +104,7 @@ describe('plugin manifests', () => {
       '.mcp.json',
       'hooks/hooks.json',
       'hooks/glassbox-hook.sh',
+      'output-styles/concise.md',
       'skills/glassbox/SKILL.md',
       'docs/codex.md',
       'docs/claude-code.md',
@@ -142,18 +174,38 @@ describe('hook script', () => {
     const r = await runHook('post-edit', { CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS: 'true' }, edit);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
-    expect(r.calls).toBe(`refresh --root ${project} --files=/p/src/a.ts --quiet`);
+    expect(r.calls).toBe(`hook post-edit --host claude-code --root ${project}`);
   });
 
-  it('passes a file name that starts with "-" as a value, not a flag', async () => {
+  it('passes the hook JSON through stdin, never as arguments', async () => {
     const odd = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: '--sync-md' } });
     const r = await runHook('post-edit', { GLASSBOX_HOOKS: '1' }, odd);
-    expect(r.calls).toBe(`refresh --root ${project} --files=--sync-md --quiet`);
+    expect(r.calls).toBe(`hook post-edit --host claude-code --root ${project}`);
+  });
+
+  it('runs prompt and stop without the edit-hooks switch (node reads the project config), but not nested or without a graph', async () => {
+    for (const event of ['prompt', 'stop']) {
+      expect((await runHook(event, {}, '{}')).calls, event).toBe(`hook ${event} --host claude-code --root ${project}`);
+      expect((await runHook(event, { GLASSBOX_NESTED: '1' }, '{}')).calls, event).toBe('');
+      const none = await runHook(event, {}, '{}', tmp);
+      expect(none.calls, event).toBe('');
+      expect(none.ms, event).toBeLessThan(1000);
+    }
+    expect((await runHook('unknown', {}, '{}')).calls).toBe('');
+  });
+
+  it('forwards the hook output and always exits 0', async () => {
+    const failing = join(tmp, 'failing');
+    await mkdir(join(failing, 'plugin-dist'), { recursive: true });
+    await writeFile(join(failing, 'plugin-dist', 'glassbox.mjs'), `process.stdout.write('{"decision":"block","reason":"x"}');\nprocess.stderr.write('noise');\nprocess.exit(3);\n`);
+    const r = await runHook('stop', { CLAUDE_PLUGIN_ROOT: failing }, '{}');
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe('{"decision":"block","reason":"x"}');
   });
 
   it('runs only the plugin bundle: never npx or a `glassbox` from PATH, and nothing without the bundle', async () => {
     const r = await runHook('session-start', { GLASSBOX_HOOKS: '1' });
-    expect(r.calls).toBe(`refresh --root ${project} --sync-md --no-claude-md --quiet`);
+    expect(r.calls).toBe(`hook session-start --host claude-code --root ${project}`);
     const missing = await runHook('session-start', { GLASSBOX_HOOKS: '1', CLAUDE_PLUGIN_ROOT: join(tmp, 'no-plugin') });
     expect(missing.code).toBe(0);
     expect(missing.calls).toBe('');
@@ -176,17 +228,17 @@ describe('hook script', () => {
     expect(r.calls).toBe('');
   });
 
-  it('ignores hook input without a file path', async () => {
+  it('exits 0 on unreadable input (node, not the script, parses it)', async () => {
     const r = await runHook('post-edit', { GLASSBOX_HOOKS: '1' }, 'not json');
     expect(r.code).toBe(0);
-    expect(r.calls).toBe('');
+    expect(r.stdout).toBe('');
   });
 
   it('refreshes the AGENTS.md block at session start without creating CLAUDE.md', async () => {
     const r = await runHook('session-start', { GLASSBOX_HOOKS: '1' });
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
-    expect(r.calls).toBe(`refresh --root ${project} --sync-md --no-claude-md --quiet`);
+    expect(r.calls).toBe(`hook session-start --host claude-code --root ${project}`);
   });
 });
 

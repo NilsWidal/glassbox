@@ -206,6 +206,96 @@ describe('stop hook (end-of-turn gate)', () => {
   });
 });
 
+describe('stop hook: more gate cases', () => {
+  const RISKY = (text: string) => text.replace('session.expiresAt < Date.now()', 'session.expiresAt <= Date.now()');
+
+  it('fails open when the backend errors, records it, and does not retry that diff', async () => {
+    const copy = await indexedFixture({ git: true });
+    try {
+      const file = join(copy, 'src/auth/session.ts');
+      writeFileSync(file, RISKY(readFileSync(file, 'utf8')));
+      const broken = new FakeBackend({ rules, failCalls: [0, 1, 2, 3, 4, 5] });
+      const c: HookContext = { env: { GLASSBOX_GATE: '1' }, cwd: copy, backend: () => broken };
+      expect(await stopHook({ cwd: copy }, c)).toBe('');
+      expect(readGateState(copy)?.outcome).toBe('error');
+      const calls = broken.calls.length;
+      expect(await stopHook({ cwd: copy }, c)).toBe('');
+      expect(broken.calls.length).toBe(calls);
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+
+  it('runs again when the diff changes, uses balanced mode from config, and does nothing on a clean tree', async () => {
+    const copy = await indexedFixture({ git: true });
+    try {
+      const backend = new FakeBackend({ rules });
+      const seen: (number | undefined)[] = [];
+      const c: HookContext = {
+        env: {},
+        cwd: copy,
+        backend: ({ samples }) => ((seen.push(samples), backend)),
+      };
+      await writeFile(join(copy, '.glassbox', 'config.json'), JSON.stringify({ gate: { enabled: true, mode: 'balanced' } }));
+      expect(await stopHook({ cwd: copy }, c)).toBe('');
+      expect(backend.calls).toHaveLength(0);
+      const file = join(copy, 'src/auth/session.ts');
+      writeFileSync(file, RISKY(readFileSync(file, 'utf8')));
+      const first = JSON.parse(await stopHook({ cwd: copy }, c)) as { decision: string };
+      expect(first.decision).toBe('block');
+      // balanced: the backend's own samples (none forced) and 2 option orders.
+      expect(seen).toEqual([undefined]);
+      expect(backend.calls.length).toBeGreaterThanOrEqual(2);
+      writeFileSync(file, `${readFileSync(file, 'utf8')}\n// reviewed\n`);
+      const again = await stopHook({ cwd: copy }, c);
+      expect(again === '' || (JSON.parse(again) as { decision: string }).decision === 'block').toBe(true);
+      expect(seen).toHaveLength(2);
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+
+  it('does not block again in a later turn for a hunk it already flagged', async () => {
+    const copy = await indexedFixture({ git: true });
+    try {
+      const file = join(copy, 'src/auth/session.ts');
+      writeFileSync(file, RISKY(readFileSync(file, 'utf8')));
+      const backend = new FakeBackend({ rules });
+      const c: HookContext = { env: { GLASSBOX_GATE: '1' }, cwd: copy, backend: () => backend };
+      expect((JSON.parse(await stopHook({ cwd: copy }, c)) as { decision: string }).decision).toBe('block');
+      expect(readGateState(copy)?.flagged).toEqual(['src/auth/session.ts#src/auth/session.ts#verifySession']);
+      // Next turn: another edit in the same function changes the diff; the flagged change is still in it.
+      writeFileSync(file, readFileSync(file, 'utf8').replace('store.revoke(token);', 'store.revoke(token); // expired'));
+      expect(await stopHook({ cwd: copy }, c)).toBe('');
+      expect(backend.calls.length).toBeGreaterThanOrEqual(2);
+      expect(readGateState(copy)).toMatchObject({ outcome: 'pass', flagged: ['src/auth/session.ts#src/auth/session.ts#verifySession'] });
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+
+  it('can be switched on by the plugin option alone', async () => {
+    const copy = await indexedFixture({ git: true });
+    try {
+      const file = join(copy, 'src/auth/session.ts');
+      writeFileSync(file, RISKY(readFileSync(file, 'utf8')));
+      const backend = new FakeBackend({ rules });
+      const out = await stopHook({ cwd: copy }, { env: { CLAUDE_PLUGIN_OPTION_GATE: 'true' }, cwd: copy, backend: () => backend });
+      expect((JSON.parse(out) as { decision: string }).decision).toBe('block');
+      const off = await indexedFixture({ git: true });
+      try {
+        writeFileSync(join(off, 'src/auth/session.ts'), RISKY(readFileSync(join(off, 'src/auth/session.ts'), 'utf8')));
+        await writeFile(join(off, '.glassbox', 'config.json'), JSON.stringify({ gate: { enabled: false } }));
+        expect(await stopHook({ cwd: off }, { env: { CLAUDE_PLUGIN_OPTION_GATE: 'true' }, cwd: off, backend: () => backend })).toBe('');
+      } finally {
+        await rm(off, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('glassbox hook (CLI entry)', () => {
   it('prints the prompt hook JSON and exits 0', async () => {
     const r = await cli(root, ['hook', 'prompt'], {

@@ -206,7 +206,14 @@ export interface GateState {
   at: number;
   /** pass, block, timeout or error. */
   outcome?: string;
+  /**
+   * Hunks the gate already blocked on, as `file#node,node` keys. A later turn
+   * whose diff still holds one of them is not blocked again for it.
+   */
+  flagged?: string[];
 }
+
+const MAX_FLAGGED = 200;
 
 function gateFile(root: string): string {
   const dir = join(root, STORE_DIR);
@@ -219,7 +226,9 @@ function gateFile(root: string): string {
 export function readGateState(root: string): GateState | undefined {
   try {
     const v = JSON.parse(readFileSync(gateFile(root), 'utf8')) as Partial<GateState>;
-    return typeof v.lastHash === 'string' && typeof v.at === 'number' ? (v as GateState) : undefined;
+    if (typeof v.lastHash !== 'string' || typeof v.at !== 'number') return undefined;
+    const flagged = Array.isArray(v.flagged) ? v.flagged.filter((k): k is string => typeof k === 'string').slice(-MAX_FLAGGED) : [];
+    return { lastHash: v.lastHash, at: v.at, ...(v.outcome !== undefined ? { outcome: v.outcome } : {}), ...(flagged.length ? { flagged } : {}) };
   } catch {
     return undefined;
   }
@@ -256,9 +265,12 @@ export async function stopHook(input: HookInput, ctx: HookContext): Promise<stri
   if (!diff.trim()) return '';
   const hash = sha256(diff);
   const now = ctx.now ?? Date.now;
-  if (readGateState(root)?.lastHash === hash) return '';
+  const prev = readGateState(root);
+  if (prev?.lastHash === hash) return '';
+  const flagged = prev?.flagged ?? [];
+  const keep = flagged.length ? { flagged } : {};
   // Recorded before the check, so a slow or failing check is not retried on the same diff.
-  writeGateState(root, { lastHash: hash, at: now() });
+  writeGateState(root, { lastHash: hash, at: now(), ...keep });
 
   const mode = config.gate?.mode === 'balanced' ? 'balanced' : 'fast';
   const settings = MODE_SETTINGS[mode];
@@ -272,11 +284,12 @@ export async function stopHook(input: HookInput, ctx: HookContext): Promise<stri
     }, timeoutMs);
   });
   try {
-    const reason = await Promise.race([gate(root, diff, ctx, settings, abort.signal), timeout]);
-    writeGateState(root, { lastHash: hash, at: now(), outcome: reason ? 'block' : 'pass' });
-    return reason ? JSON.stringify({ decision: 'block', reason }) : '';
+    const r = await Promise.race([gate(root, diff, ctx, settings, abort.signal, new Set(flagged)), timeout]);
+    const all = [...flagged, ...r.flagged].slice(-MAX_FLAGGED);
+    writeGateState(root, { lastHash: hash, at: now(), outcome: r.reason ? 'block' : 'pass', ...(all.length ? { flagged: all } : {}) });
+    return r.reason ? JSON.stringify({ decision: 'block', reason: r.reason }) : '';
   } catch (err) {
-    writeGateState(root, { lastHash: hash, at: now(), outcome: err instanceof GateTimeout ? 'timeout' : 'error' });
+    writeGateState(root, { lastHash: hash, at: now(), outcome: err instanceof GateTimeout ? 'timeout' : 'error', ...keep });
     return '';
   } finally {
     clearTimeout(timer);
@@ -294,13 +307,15 @@ async function gate(
   ctx: HookContext,
   settings: (typeof MODE_SETTINGS)[keyof typeof MODE_SETTINGS],
   signal: AbortSignal,
-): Promise<string> {
-  if (!ctx.backend) return '';
+  seen: ReadonlySet<string>,
+): Promise<{ reason: string; flagged: string[] }> {
+  const none = { reason: '', flagged: [] };
+  if (!ctx.backend) return none;
   const [{ GraphStore }, { triage }] = await Promise.all([import('../memory/store.js'), import('../query/triage.js')]);
   const store = GraphStore.open(root);
   try {
     // The gate never indexes: an empty graph means `glassbox init` has not run here.
-    if (store.getNodes({ kind: 'file' }).length === 0) return '';
+    if (store.getNodes({ kind: 'file' }).length === 0) return none;
     const backend = ctx.backend({ env: hostEnv(ctx), ...(settings.samples !== undefined ? { samples: settings.samples } : {}) });
     const r = await triage(diff, {
       store,
@@ -309,20 +324,23 @@ async function gate(
       explain: false,
       decide: { ...(settings.permutations !== undefined ? { permutations: settings.permutations } : {}), signal },
     });
-    const risky = r.hunks.filter((h) => h.level === 'High' && h.answer.band === 'act');
-    if (risky.length === 0) return '';
+    const keyOf = (h: (typeof r.hunks)[number]) => `${h.file}#${[...h.nodes].sort().join(',')}`;
+    // Only hunks not blocked on before: a risky change the agent already looked at does not stop every later turn.
+    const risky = r.hunks.filter((h) => h.level === 'High' && h.answer.band === 'act' && !seen.has(keyOf(h)));
+    if (risky.length === 0) return none;
     const lines = risky.slice(0, MAX_REASON_HUNKS).map((h) => {
       const names = h.nodes.map((id) => store.getNode(id)?.name ?? id).slice(0, 3).join(', ');
       return `- ${h.file}:${h.startLine}-${h.endLine} (${names}) High risk, p=${h.p.toFixed(2)}`;
     });
     if (risky.length > MAX_REASON_HUNKS) lines.push(`- and ${risky.length - MAX_REASON_HUNKS} more`);
     const callers = r.affected.slice(0, 5).map((a) => `${a.name} (${a.file}:${a.line})`);
-    return [
+    const reason = [
       `glassbox gate: ${risky.length} changed hunk${risky.length === 1 ? '' : 's'} rated High risk with high confidence (decision ${r.record.id ?? 'unlogged'}):`,
       ...lines,
       ...(callers.length ? [`Direct callers: ${callers.join(', ')}.`] : []),
-      'Check these lines (and their tests) before finishing, or state why they are safe. This check runs once per diff.',
+      'Check these lines (and their tests) before finishing, or state why they are safe. glassbox asks once per change.',
     ].join('\n');
+    return { reason, flagged: [...new Set(risky.map(keyOf))] };
   } finally {
     store.close();
   }

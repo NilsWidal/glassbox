@@ -216,7 +216,7 @@ describe('runWorker', () => {
     const s = await cli(root, ['status'], { now });
     expect(s.out).toMatch(/^graph {4}17 files, \d+ nodes, \d+ edges, 0 stale; (\d+)\/\1 tag targets tagged; parsed /);
     expect(s.out).toContain('mode     balanced (default)');
-    expect(s.out).toContain('hooks    ambient off, gate off, worker on');
+    expect(s.out).toContain('hooks    ambient off, gate off, concise rules off, worker on');
     expect(s.out).toMatch(/worker {3}idle; today \d+\/100 model runs; next run allowed/);
     expect(s.out).toMatch(/last run .*: \d+ nodes asked/);
     const j = JSON.parse((await cli(root, ['status', '--json'], { now })).out) as { worker: { budgetLeft: number } };

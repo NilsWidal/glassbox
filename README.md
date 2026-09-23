@@ -2,7 +2,7 @@
 
 Fast typed decisions about code, with probabilities, confidence and checked reasons. Built for Claude Code and Codex.
 
-> Status: early development (v0.1 in progress). The decision engine, host CLI backends, explanations, memory graph, MCP server and Claude Code plugin work. The npm package is not published yet, so until it is, install from a clone (see the docs linked below).
+> Status: early development (v0.2 in progress). The decision engine, host CLI backends, explanations, memory graph, MCP server and Claude Code plugin work, and so do the v0.2 modes, ambient context, end-of-turn gate, concise output style and launcher. The npm package is not published yet, so until it is, install from a clone (see the docs linked below).
 
 ## What it does
 
@@ -37,6 +37,8 @@ Configuration:
 | `GLASSBOX_HOOKS` | `1` turns the Claude Code plugin hooks on, `0` off |
 | `GLASSBOX_MODE` | `fast`, `balanced` (default), `explained`, `strict` or `auto`; see [Modes](#modes) |
 | `GLASSBOX_AMBIENT`, `GLASSBOX_GATE`, `GLASSBOX_WORKER` | `1` or `0`: turn the ambient context hook, the end-of-turn gate and the background re-tagging worker on or off (see [Ambient mode](#ambient-mode)) |
+| `GLASSBOX_CONCISE_RULES` | `1` or `0`: add the concise answer rules to the AGENTS.md block (see [Concise answers](#concise-answers)) |
+| `GLASSBOX_GATE_TIMEOUT_MS` | Longest the end-of-turn gate may take before it lets the turn end (default 45000) |
 | `GLASSBOX_WORKER_DAILY_CALLS`, `GLASSBOX_WORKER_MIN_INTERVAL_SEC`, `GLASSBOX_WORKER_MAX_NODES` | Worker limits: model runs per day (default 100), seconds between runs (default 60), nodes re-tagged per run (default 24) |
 | `GLASSBOX_SAMPLES` | Samples averaged per call on the CLI and Anthropic backends (1 to 16, default 3) |
 | `GLASSBOX_TIMEOUT_MS` | Timeout per model call in milliseconds (default 120000) |
@@ -59,7 +61,7 @@ The nested `codex exec` call runs with a read-only sandbox, in an empty temp dir
 
 The plugin runs a self-contained bundle committed in `plugin-dist/` with `node`, so it works straight from the git repository: no npm package and no `npm install`. It needs Node 22.13 or newer.
 
-The plugin adds the MCP tools, a skill that teaches Claude when to use them, and opt-in hooks that keep the graph fresh as you edit. The backend defaults to `auto` (your Claude Code login), and API keys are optional fields stored in your keychain. Details: [docs/claude-code.md](docs/claude-code.md).
+The plugin adds the MCP tools, a skill that teaches Claude when to use them, the `glassbox:concise` output style, and opt-in hooks: graph context before each prompt, an end-of-turn risk check, and keeping the graph fresh as you edit. The backend defaults to `auto` (your Claude Code login), and API keys are optional fields stored in your keychain. Details: [docs/claude-code.md](docs/claude-code.md).
 
 ### Codex
 
@@ -111,12 +113,59 @@ The first one set wins: the call itself (`mode` in MCP, `--mode` on the CLI), `G
 
 ## Ambient mode
 
-These parts run next to the agent instead of being called by it. All of them are off by default, and none adds a model call to the prompt path.
+These parts run next to the agent instead of being called by it. All of them are off by default. None adds a model call to the prompt path: only the end-of-turn gate calls the model, and only after a turn that changed code.
 
-- **`glassbox context --prompt "<text>"`** (or `-` for stdin) prints graph matches for a prompt: `file:line`, node name, stored tags and direct callers, at most about 1,500 characters. It uses only the stored graph: a rule-based check first skips prompts that are not about code, and nothing is printed when there is no graph, when no node clears the match floor, or when most matching files changed after the last parse. On the sample repo it takes about 10 ms in process, and about 50 ms as a separate `node` process.
-- **`glassbox hook prompt|stop|post-edit|session-start`** are the entry points for agent hooks. Each reads the hook's JSON on stdin, always exits 0, and prints nothing on any error, inside a nested glassbox call (`GLASSBOX_NESTED=1`) or in a repo without `.glassbox/`. `prompt` prints the context as `additionalContext` (on with `GLASSBOX_AMBIENT=1` or `"ambient": {"enabled": true}` in `.glassbox/config.json`). `stop` rates the working diff with `triage` in `fast` mode when it changed since the last check, and blocks the end of the turn once if a hunk scores High risk in the `act` band (on with `GLASSBOX_GATE=1` or `"gate": {"enabled": true}`). `post-edit` and `session-start` keep the graph fresh, as the v0.1 hooks did (`GLASSBOX_HOOKS=1`). Wiring these into the plugin's hook config comes in a later release.
-- **Background re-tagging.** After an edit marks nodes stale, a detached worker (`glassbox worker run`) re-parses the changed files and re-tags stale nodes in `fast` mode. It holds a lock file so only one runs, waits at least 60 s between runs, re-tags at most 24 nodes per run, and stops at a daily budget of 100 model runs. Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
-- **`glassbox status`** shows the graph (nodes, stale nodes, tagged share, last parse), the mode and where it came from, which hooks are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
+In Claude Code the plugin wires them up (see [docs/claude-code.md](docs/claude-code.md#ambient-mode)); turn each one on in `/plugin` or in `.glassbox/config.json`. In Codex, see [Codex](#ambient-mode-in-codex) below.
+
+### Ambient context (before each prompt)
+
+`glassbox context --prompt "<text>"` (or `-` for stdin) prints graph matches for a prompt: `file:line`, node name, stored tags and direct callers, at most about 1,500 characters.
+
+- It uses only the stored graph. A rule-based check first skips prompts that are not about code.
+- It prints nothing when there is no graph, when no node clears the match floor, or when most matching files changed after the last parse.
+- On the sample repo it takes about 10 ms in process, and about 100 ms as a hook (starting `node` is most of it).
+
+The `UserPromptSubmit` hook adds this text to the prompt as extra context. On with the plugin's `ambient` option, `GLASSBOX_AMBIENT=1` or `"ambient": {"enabled": true}` in `.glassbox/config.json`.
+
+### End-of-turn gate
+
+The `Stop` hook runs when the agent is about to finish a turn:
+
+1. It hashes the working diff (`git diff HEAD` plus untracked files). No diff, or the same hash as the last check, means it does nothing.
+2. Otherwise it rates the diff with `triage` in `fast` mode (one sample, one option order), or `balanced` when `"gate": {"mode": "balanced"}` is set.
+3. If a hunk is rated High risk and its answer is in the `act` band, it blocks the stop once. The agent gets a short reason that names the lines, for example:
+
+   ```
+   glassbox gate: 1 changed hunk rated High risk with high confidence (decision 430f797e09d5):
+   - src/auth/session.ts:38-41 (verifySession) High risk, p=0.95
+   Direct callers: requireAuth (src/auth/middleware.ts:11).
+   Check these lines (and their tests) before finishing, or state why they are safe. glassbox asks once per change.
+   ```
+
+It never blocks twice in a row: it does nothing when the host says the turn already continued because of a Stop hook (`stop_hook_active`), and it records each diff hash before rating it, so a diff is checked once whatever the outcome. It gives up after 45 s (`"gate": {"timeoutMs": ...}` or `GLASSBOX_GATE_TIMEOUT_MS`), and a timeout or any error lets the turn end normally. On with the plugin's `gate` option, `GLASSBOX_GATE=1` or `"gate": {"enabled": true}`. The last outcome is in `.glassbox/gate.json`.
+
+The `act` band needs the model to put about 0.9 or more on High, so the gate stays quiet on most diffs. Near that line a `fast` rating can go either way between runs: in a test on the sample repo, the same diff (deleting a session expiry check) blocked on one run and passed on the next. Use `"mode": "balanced"` for steadier ratings at about twice the model runs.
+
+### Concise answers
+
+Six rules for shorter replies: lead with the answer, cite `file:line` instead of pasting code, never paste unchanged code, one line per reason, no closing recap, and one line on what was not checked. They come in two forms, both off by default:
+
+- **Claude Code output style.** The plugin ships `output-styles/concise.md`. Select it with `/output-style glassbox:concise`, in `/config`, or with `"outputStyle": "glassbox:concise"` in a settings file. For one run: `claude --settings '{"outputStyle":"glassbox:concise"}'`. It keeps Claude Code's coding instructions and changes only how replies are written. Claude Code's built-in Concise style is similar; this one adds the `file:line` and no-unchanged-code rules.
+- **AGENTS.md section.** An `### Answer style` section with the same rules inside the glassbox block, for Codex and any other agent that reads AGENTS.md. On with the plugin's `concise_rules` option, `GLASSBOX_CONCISE_RULES=1` or `"conciseRules": true` in `.glassbox/config.json`; the block is rewritten on the next `sync-md`, `refresh --sync-md`, `init`, launcher start or session-start hook.
+
+### Background re-tagging
+
+After an edit marks nodes stale, a detached worker (`glassbox worker run`) re-parses the changed files and re-tags stale nodes in `fast` mode.
+
+- It holds a lock file so only one runs.
+- It waits at least 60 s between runs and re-tags at most 24 nodes per run.
+- It stops at a daily budget of 100 model runs.
+
+Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
+
+### Status and settings
+
+`glassbox status` shows the graph (nodes, stale nodes, tagged share, last parse), the mode and where it came from, which hooks and the concise rules are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
 
 `.glassbox/config.json` is local to your checkout (the folder is git-ignored). Every field is optional:
 
@@ -125,9 +174,20 @@ These parts run next to the agent instead of being called by it. All of them are
   "mode": "auto",
   "ambient": { "enabled": true, "maxChars": 1500, "minScore": 3, "maxHits": 6 },
   "gate": { "enabled": true, "mode": "fast", "timeoutMs": 45000 },
+  "conciseRules": true,
   "worker": { "enabled": true, "dailyCalls": 100, "minIntervalSec": 60, "maxNodesPerRun": 24 }
 }
 ```
+
+For each switch the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else off.
+
+### Hook entry points
+
+`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin and prints what the host expects (`additionalContext` for `prompt`, `{"decision":"block","reason":...}` for `stop`, nothing for the others). It always exits 0 and prints nothing on any error, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/`. `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
+
+### Ambient mode in Codex
+
+Codex reads the AGENTS.md block at the start of every session, so that is the zero-setup path: the code map, and the concise rules when they are on. `glassbox run codex ...` keeps the block and the graph fresh before each session. Codex 0.154 also has hooks, and the same `glassbox hook` commands can serve them; see [docs/codex.md](docs/codex.md#ambient-mode-hooks).
 
 ## Launcher
 
@@ -164,6 +224,8 @@ Read these numbers with care:
 - **The set is nearly saturated.** Both backends get almost everything right with p close to 1, partly because the fixture has short files and hint comments. So these numbers cannot yet tell good calibration from bad.
 - **n is small.** One wrong answer moves accuracy by more than a point, and faithfulness ran on only 4 items per backend.
 - **Still open:** the planned benchmark of about 200 human-labeled questions over 2 or 3 real open-source repos, and harder items that no comment gives away.
+
+**Ambient mode is not measured yet.** An A/B comparison of agent runs with ambient mode on and off (success, tokens, tool calls, time, answer length) is planned. Until it reports, glassbox makes no claim that ambient context, the gate or the concise style make answers better or shorter.
 
 ## Library use
 

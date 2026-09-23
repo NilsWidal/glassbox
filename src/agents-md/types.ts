@@ -30,6 +30,11 @@ export interface SyncAgentsMdOptions {
   claudeMd?: boolean;
   /** Hard cap on block lines, markers included. Default 60. */
   maxLines?: number;
+  /**
+   * Add the concise answer rules section. Default: read from GLASSBOX_CONCISE_RULES,
+   * .glassbox/config.json `conciseRules` and the plugin's concise_rules option (off).
+   */
+  conciseRules?: boolean;
 }
 
 export type FileAction = 'created' | 'updated' | 'unchanged' | 'skipped';
