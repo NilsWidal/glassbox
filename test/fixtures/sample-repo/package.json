@@ -1,0 +1,6 @@
+{
+  "name": "sample-repo",
+  "private": true,
+  "type": "module",
+  "description": "Small fixture app used by glassbox tests and the benchmark."
+}

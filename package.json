@@ -52,5 +52,10 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.1",
     "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "ignore": "^7.0.10",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "~0.25.10"
   }
 }
