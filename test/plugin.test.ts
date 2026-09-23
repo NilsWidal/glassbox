@@ -47,7 +47,7 @@ describe('plugin manifests', () => {
     }
   });
 
-  it('hooks.json wires all four hooks in exec form (no shell string) with bounded timeouts', async () => {
+  it('hooks.json wires all five hooks in exec form (no shell string) with bounded timeouts', async () => {
     type Handler = { type: string; command: string; args?: string[]; timeout: number };
     const h = await readJson<{ hooks: Record<string, { matcher?: string; hooks: Handler[] }[]> }>('hooks/hooks.json');
     const want: Record<string, [string, number]> = {
@@ -55,6 +55,7 @@ describe('plugin manifests', () => {
       Stop: ['stop', 60],
       PostToolUse: ['post-edit', 5],
       SessionStart: ['session-start', 30],
+      PostModelSwitch: ['model-switch', 5],
     };
     expect(Object.keys(h.hooks).sort()).toEqual(Object.keys(want).sort());
     for (const [event, [arg, maxTimeout]] of Object.entries(want)) {

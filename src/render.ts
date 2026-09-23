@@ -87,7 +87,7 @@ export function renderPretty(r: AskResult): string {
   if (r.calls.why) parts.push(`${r.calls.why} why`);
   const stats = r.explainStats;
   const tested = stats ? `, ${stats.tested}/${stats.candidates} spans tested` : '';
-  out.push(`cost  ${parts.join(' + ')}${tested}, ${(r.latencyMs / 1000).toFixed(1)} s, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
+  out.push(`cost  ${parts.join(' + ')}${tested}, ${(r.latencyMs / 1000).toFixed(1)} s, ${modelText(r)}`);
   if (r.record.id) out.push(`id    ${r.record.id}   (glassbox explain ${r.record.id})`);
   return out.join('\n');
 }
@@ -105,6 +105,7 @@ export function renderJson(r: AskResult): string {
       latencyMs: r.latencyMs,
       backend: r.backend,
       ...(r.model ? { model: r.model } : {}),
+      ...(r.modelSource ? { modelSource: r.modelSource } : {}),
       stateHash: r.record.stateHash,
       ...(r.record.id ? { id: r.record.id } : {}),
       scope: r.chunks.map((c) => spanLabel(c.file, c.startLine, c.endLine)),
@@ -113,4 +114,10 @@ export function renderJson(r: AskResult): string {
     null,
     2,
   );
+}
+
+/** "claude-cli, opus[1m] from ~/.claude/settings.json" for the cost line. */
+function modelText(r: { backend: string; model?: string; modelSource?: string }): string {
+  if (r.modelSource) return `${r.backend}, ${r.modelSource}`;
+  return `${r.backend}${r.model ? ` (${r.model})` : ''}`;
 }

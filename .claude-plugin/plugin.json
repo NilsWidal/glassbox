@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "glassbox",
   "displayName": "glassbox",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Fast typed decisions about code, with probabilities, confidence and checked reasons. Runs on your Claude Code model through the claude CLI, so no extra keys.",
   "author": {
     "name": "Nils Widal",
@@ -37,7 +37,7 @@
     "model": {
       "type": "string",
       "title": "Model",
-      "description": "Model id for the chosen backend. Leave empty for the default (haiku for claude-cli).",
+      "description": "Model id for the chosen backend. Empty = the model you selected in Claude Code / Codex (for claude-cli: the session's model, else ANTHROPIC_MODEL, else the model in your Claude Code settings, else Claude Code's own default).",
       "default": ""
     },
     "mode": {

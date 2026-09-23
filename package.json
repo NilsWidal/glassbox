@@ -1,6 +1,6 @@
 {
   "name": "@nilswidal/glassbox",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Fast typed decisions about code, with probabilities, confidence and checked reasons. Runs on the host agent's own model in Claude Code and Codex.",
   "type": "module",
   "license": "MIT",

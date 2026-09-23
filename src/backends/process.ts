@@ -190,8 +190,12 @@ export function cliChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return out;
 }
 
-/** Model ids are names, never flags: letters, digits and . _ : / @ - only, not starting with -. */
-export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/;
+/**
+ * Model ids are names, never flags: letters, digits and . _ : / @ - only, not
+ * starting with -, with an optional bracketed suffix such as Claude Code's
+ * `opus[1m]`.
+ */
+export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*(?:\[[A-Za-z0-9]+\])?$/;
 
 export function checkModelId(model: string): string {
   if (!MODEL_ID.test(model)) throw new Error(`invalid model id "${model}"`);

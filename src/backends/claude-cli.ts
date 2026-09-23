@@ -1,4 +1,5 @@
 import { tmpdir } from 'node:os';
+import { describeChoice, resolveClaudeModel, type ModelChoice } from '../model-choice.js';
 import { buildBatchRequest, parseBatchAnswer } from '../engine/prompt.js';
 import type { Backend, BackendCapabilities, BatchQuestion, GenerateOptions, LabelDistribution, State } from '../types.js';
 import {
@@ -15,8 +16,16 @@ import {
 import { averageSamples, resolveSamples, resolveTimeoutMs, runSamples } from './sampling.js';
 
 export interface ClaudeCliOptions {
-  /** Model alias or id. Default 'haiku'. */
+  /**
+   * Model alias or id, fixed for this backend (a --model flag or an API
+   * caller's choice). Default: none, so each call mirrors the model the user
+   * selected in Claude Code (see resolveClaudeModel).
+   */
   model?: string;
+  /** Claude Code project dir for its settings and the session file. Default CLAUDE_PROJECT_DIR, else the current directory. */
+  projectDir?: string;
+  /** Managed settings file path (tests). */
+  managedSettings?: string;
   /** Parallel samples averaged per call (K). Default GLASSBOX_SAMPLES or 3. */
   samples?: number;
   timeoutMs?: number;
@@ -65,7 +74,6 @@ interface ClaudeEnvelope {
 /** Runs on the Claude Code login via `claude -p` (no API key needed). Default inside Claude Code. */
 export class ClaudeCliBackend implements Backend {
   readonly name = 'claude-cli';
-  readonly model: string;
   readonly capabilities: BackendCapabilities = { hasLogprobs: false, batch: true, generate: true };
   readonly samples: number;
   private readonly timeoutMs: number;
@@ -74,10 +82,18 @@ export class ClaudeCliBackend implements Backend {
   private readonly cwd: string;
   private readonly run: ProcessRunner;
   private readonly dropped = new Set<string>();
+  private readonly fixed: ModelChoice | undefined;
+  private readonly parentEnv: NodeJS.ProcessEnv;
+  private readonly projectDir: string | undefined;
+  private readonly managedSettings: string | undefined;
+  private last: ModelChoice | undefined;
 
   constructor(opts: ClaudeCliOptions = {}) {
     const env = opts.env ?? process.env;
-    this.model = checkModelId(opts.model ?? 'haiku');
+    this.fixed = opts.model !== undefined ? { model: checkModelId(opts.model), source: 'the model option' } : undefined;
+    this.parentEnv = env;
+    this.projectDir = opts.projectDir;
+    this.managedSettings = opts.managedSettings;
     this.samples = opts.samples ?? resolveSamples(env);
     this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
     this.bin = opts.bin ?? env.GLASSBOX_CLAUDE_BIN ?? 'claude';
@@ -87,9 +103,36 @@ export class ClaudeCliBackend implements Backend {
     this.run = opts.run ?? runProcess;
   }
 
-  /** Argument list for one call (exported for tests and debugging). */
-  args(schema?: Record<string, unknown>): string[] {
-    const args = ['-p', '--model', this.model, '--output-format', 'json'];
+  /**
+   * The model for the next call and where it came from, resolved fresh each
+   * time: a /model switch or a settings edit applies to the next call.
+   */
+  modelChoice(): ModelChoice {
+    if (this.fixed) return this.fixed;
+    const c = resolveClaudeModel({
+      env: this.parentEnv,
+      ...(this.projectDir !== undefined ? { projectDir: this.projectDir } : {}),
+      ...(this.managedSettings !== undefined ? { managedSettings: this.managedSettings } : {}),
+    });
+    if (c.model !== undefined) checkModelId(c.model);
+    return c;
+  }
+
+  /** Model of the last call (or the one the next call would use); undefined means Claude Code's own default. */
+  get model(): string | undefined {
+    return (this.last ?? this.modelChoice()).model;
+  }
+
+  /** Where the model came from, e.g. "opus[1m] from ~/.claude/settings.json". */
+  get modelSource(): string {
+    return describeChoice(this.last ?? this.modelChoice());
+  }
+
+  /** Argument list for one call (exported for tests and debugging). No --model when nothing resolves. */
+  args(schema?: Record<string, unknown>, choice: ModelChoice = this.modelChoice()): string[] {
+    const args = ['-p'];
+    if (choice.model !== undefined) args.push('--model', choice.model);
+    args.push('--output-format', 'json');
     if (schema) args.push('--json-schema', JSON.stringify(schema));
     for (const group of REQUIRED_FLAGS) args.push(...group);
     for (const group of OPTIONAL_FLAGS) if (!this.dropped.has(group[0]!)) args.push(...group);
@@ -117,10 +160,12 @@ export class ClaudeCliBackend implements Backend {
   }
 
   private async call(prompt: string, schema: Record<string, unknown> | undefined, signal?: AbortSignal): Promise<ClaudeEnvelope> {
+    const choice = this.modelChoice();
+    this.last = choice;
     for (let attempt = 0; ; attempt++) {
       let res;
       try {
-        res = await this.run(this.bin, this.args(schema), {
+        res = await this.run(this.bin, this.args(schema, choice), {
           input: prompt,
           env: this.env,
           cwd: this.cwd,

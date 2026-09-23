@@ -1,6 +1,6 @@
 # glassbox reference
 
-Everything the [README](../README.md) leaves out: configuration, auto-init rules, MCP tools, modes, ambient mode, the launcher, how the numbers are made, and library use. Written for glassbox 0.3.0.
+Everything the [README](../README.md) leaves out: configuration, auto-init rules, MCP tools, modes, ambient mode, the launcher, how the numbers are made, and library use. Written for glassbox 0.3.1.
 
 ## Configuration
 
@@ -8,8 +8,12 @@ glassbox runs on the model of the agent you are already using, through that agen
 
 | Where you run it | Backend | How it calls the model |
 |---|---|---|
-| Claude Code | `claude-cli` | `claude -p ... --json-schema ...` (default model `haiku`) |
+| Claude Code | `claude-cli` | `claude -p ... --json-schema ...` (with the model you selected in Claude Code) |
 | Codex | `codex-cli` | `codex exec --output-schema ...` (uses your Codex default model) |
+
+glassbox has no model default of its own for these: `claude-cli` passes the model you selected in Claude Code (an override in `GLASSBOX_MODEL` or the plugin `model` option, else the running session's model, else `ANTHROPIC_MODEL`, else `model` from your Claude Code settings, else no `--model` flag at all; details in [Claude Code](claude-code.md#which-model-it-uses)), and `codex-cli` passes no `-m` and no reasoning effort unless you set `GLASSBOX_MODEL` or `GLASSBOX_CODEX_EFFORT`. `glassbox status` and the `cost` line show the model and where it came from.
+
+The optional `anthropic` API backend must name a model in every request. It uses `GLASSBOX_MODEL`, else `ANTHROPIC_MODEL` or your Claude Code settings `model` when that is a full API id such as `claude-opus-4-8` (an alias like `opus` is not; a `[1m]` suffix is dropped), else `claude-haiku-4-5-20251001`.
 
 `auto` (the default) picks the backend from the host agent. Your existing Claude or ChatGPT login is used. Optional API backends (`anthropic`, `openai-compat`) exist for CI and headless use.
 
@@ -18,7 +22,7 @@ Configuration:
 | Variable | Meaning |
 |---|---|
 | `GLASSBOX_BACKEND` | `auto`, `claude-cli`, `codex-cli`, `anthropic`, `openai-compat` |
-| `GLASSBOX_MODEL` | Model id for the chosen backend |
+| `GLASSBOX_MODEL` | Model id override for the chosen backend. Leave it unset to use the model you selected in Claude Code or Codex |
 | `GLASSBOX_HOST` | `claude-code` or `codex`: which agent started the MCP server, so `auto` picks its CLI (set by the plugin and the Codex setup) |
 | `GLASSBOX_ROOT` | Repo the MCP server works on (default: the project directory, else the current directory) |
 | `GLASSBOX_ALLOWED_ROOTS` | Extra directories (separated by `:`, or `;` on Windows) that an MCP tool call's `root` may point at. By default a tool call can only use the project directory and folders inside it |
@@ -32,7 +36,7 @@ Configuration:
 | `GLASSBOX_WORKER_DAILY_CALLS`, `GLASSBOX_WORKER_MIN_INTERVAL_SEC`, `GLASSBOX_WORKER_MAX_NODES` | Worker limits: model runs per day (default 100, at most 1000), seconds between runs (default 60, at least 10), nodes re-tagged per run (default 24, at most 100) |
 | `GLASSBOX_SAMPLES` | Samples averaged per call on the CLI and Anthropic backends (1 to 16, default 3) |
 | `GLASSBOX_TIMEOUT_MS` | Timeout per model call in milliseconds (default 120000) |
-| `GLASSBOX_CODEX_EFFORT` | Reasoning effort for `codex-cli` (default `low`, since these are quick judgments) |
+| `GLASSBOX_CODEX_EFFORT` | Reasoning effort override for `codex-cli`. Unset (the default): no override, so Codex uses the effort you configured |
 | `GLASSBOX_CLAUDE_BIN`, `GLASSBOX_CODEX_BIN` | Path to the `claude` or `codex` binary (default: found on PATH) |
 | `ANTHROPIC_API_KEY` or `GLASSBOX_ANTHROPIC_API_KEY` | Only for the optional `anthropic` backend. The plugin stores its key as `GLASSBOX_ANTHROPIC_API_KEY`, which is never passed to the nested `claude -p`, so that call keeps using your Claude Code login |
 | `GLASSBOX_OPENAI_API_KEY` or `OPENAI_API_KEY` | Only for the optional `openai-compat` backend |

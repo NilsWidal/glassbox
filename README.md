@@ -22,7 +22,7 @@ id    07a2d2cbb919   (glassbox explain 07a2d2cbb919)
 
 This is the real output format, run on the bundled sample repo with the test backend, so the numbers are illustrative. `Δp` is how much the answer's probability changes when glassbox hides those lines and asks again. The highlights are measured, not the model's say-so. `escalate` is the confidence band: `act`, `confirm` or `escalate`.
 
-> Status (v0.3.0, 2026-09-23): early, working, tested (597 unit tests, plus live runs against the real `claude` and `codex` CLIs). Not yet published to npm. The plugin runs from this repository, so you do not need npm.
+> Status (v0.3.1, 2026-09-23): early, working, tested (610 unit tests, plus live runs against the real `claude` and `codex` CLIs). Not yet published to npm. The plugin runs from this repository, so you do not need npm.
 
 ## Install
 
@@ -68,9 +68,9 @@ Requires Node 22.13 or newer. Details: [docs/claude-code.md](docs/claude-code.md
 
 ## Where the model calls come from
 
-glassbox never needs its own API key. In Claude Code it asks `claude -p` (default model haiku). In Codex it asks `codex exec`. It uses your existing subscription, and nothing else. The nested calls run without tools, so code in your repo cannot make them act.
+glassbox never needs its own API key. In Claude Code it asks `claude -p` with the model you selected. In Codex it asks `codex exec` with your configured model and effort. glassbox has no model default of its own; `glassbox status` shows which model it uses and where that came from. It uses your existing subscription, and nothing else. The nested calls run without tools, so code in your repo cannot make them act.
 
-The tradeoff is speed. TypeSafe's Jev, the model that inspired the answer format, answers in about 100 ms. A host CLI call takes seconds (12 s median per batched decision with haiku, measured below). glassbox makes up for it by asking all questions about one piece of code in one call and caching the answers in the graph. The prompt-time map and context use the graph only and take about 60 to 100 ms.
+The tradeoff is speed. TypeSafe's Jev, the model that inspired the answer format, answers in about 100 ms. A host CLI call takes seconds (12 s median per batched decision, measured below with haiku, the fixed model glassbox used before 0.3.1; a larger model you select is slower). glassbox makes up for it by asking all questions about one piece of code in one call and caching the answers in the graph. The prompt-time map and context use the graph only and take about 60 to 100 ms.
 
 ## Does it help
 

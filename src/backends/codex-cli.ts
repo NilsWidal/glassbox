@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { describeChoice, resolveCodexModel } from '../model-choice.js';
 import { buildBatchRequest, parseBatchAnswer } from '../engine/prompt.js';
 import type { Backend, BackendCapabilities, BatchQuestion, GenerateOptions, LabelDistribution, State } from '../types.js';
 import {
@@ -19,7 +20,7 @@ import { averageSamples, resolveSamples, resolveTimeoutMs, runSamples } from './
 export interface CodexCliOptions {
   /** Model id passed with -m. Default: none, so Codex uses its configured model. */
   model?: string;
-  /** Reasoning effort override. Default GLASSBOX_CODEX_EFFORT or 'low' (these are quick judgments). */
+  /** Reasoning effort override. Default GLASSBOX_CODEX_EFFORT, else none, so Codex uses the effort you configured. */
   reasoningEffort?: string;
   samples?: number;
   timeoutMs?: number;
@@ -58,17 +59,25 @@ export class CodexCliBackend implements Backend {
   readonly model: string | undefined;
   readonly capabilities: BackendCapabilities = { hasLogprobs: false, batch: true, generate: true };
   readonly samples: number;
-  private readonly effort: string;
+  private readonly effort: string | undefined;
   private readonly timeoutMs: number;
   private readonly bin: string;
   private readonly env: NodeJS.ProcessEnv;
   private readonly run: ProcessRunner;
   private readonly dropped = new Set<string>();
+  private readonly parentEnv: NodeJS.ProcessEnv;
+
+  /** The model and where it came from: -m when set, else what Codex's config.toml names (display only). */
+  get modelSource(): string {
+    return this.model ? `${this.model} from GLASSBOX_MODEL or the model option` : describeChoice(resolveCodexModel(this.parentEnv));
+  }
 
   constructor(opts: CodexCliOptions = {}) {
     const env = opts.env ?? process.env;
     this.model = opts.model === undefined ? undefined : checkModelId(opts.model);
-    this.effort = opts.reasoningEffort ?? env.GLASSBOX_CODEX_EFFORT ?? 'low';
+    const effort = opts.reasoningEffort ?? env.GLASSBOX_CODEX_EFFORT?.trim();
+    this.effort = effort || undefined;
+    this.parentEnv = env;
     this.samples = opts.samples ?? resolveSamples(env);
     this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
     this.bin = opts.bin ?? env.GLASSBOX_CODEX_BIN ?? 'codex';
@@ -81,9 +90,10 @@ export class CodexCliBackend implements Backend {
     const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', dir, '-o', outFile];
     if (schemaFile) args.push('--output-schema', schemaFile);
     if (this.model) args.push('-m', this.model);
-    // Keep the nested run lean: low effort, no user MCP servers, notify hooks or AGENTS.md.
+    // The user's own model and effort, unless GLASSBOX_CODEX_EFFORT overrides it.
+    if (this.effort) args.push('-c', `model_reasoning_effort=${JSON.stringify(this.effort)}`);
+    // Keep the nested run lean: no user MCP servers, notify hooks or AGENTS.md.
     args.push(
-      '-c', `model_reasoning_effort=${JSON.stringify(this.effort)}`,
       '-c', 'mcp_servers={}',
       '-c', 'notify=[]',
       '-c', 'project_doc_max_bytes=0',

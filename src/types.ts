@@ -120,6 +120,8 @@ export interface Backend {
   readonly name: string;
   /** Model id in use, if known. */
   readonly model?: string;
+  /** The model and where it came from, for status and cost lines, e.g. "opus[1m] from ~/.claude/settings.json". */
+  readonly modelSource?: string;
   /** Model runs averaged per call (host CLIs start one process each), when more than one. */
   readonly samples?: number;
   /** Most requests one call can send, retries included (HTTP backends that retry). Default 1. */

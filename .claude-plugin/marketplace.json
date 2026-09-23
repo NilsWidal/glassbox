@@ -11,7 +11,7 @@
       "name": "glassbox",
       "source": "./",
       "description": "Fast typed decisions about code, with probabilities, confidence and checked reasons. Runs on your Claude Code model, no extra keys.",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": { "name": "Nils Widal" },
       "homepage": "https://github.com/NilsWidal/glassbox",
       "repository": "https://github.com/NilsWidal/glassbox",

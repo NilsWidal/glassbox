@@ -28,7 +28,8 @@ describe('CodexCliBackend', () => {
     expect(flag(c, '--sandbox')).toBe('read-only');
     expect(c.args.at(-1)).toBe('-');
     expect(c.args).not.toContain('-m');
-    expect(c.args).toContain('model_reasoning_effort="low"');
+    // No forced effort: Codex uses the reasoning effort the user configured.
+    expect(c.args.some((a) => a.startsWith('model_reasoning_effort'))).toBe(false);
     expect(c.opts.input).toContain('const x = 1');
     expect(c.opts.env?.GLASSBOX_NESTED).toBe('1');
     expect(schema.required).toEqual(['q1', 'q2']);

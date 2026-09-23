@@ -39,7 +39,7 @@ export function renderTriage(r: TriageResult): string {
   out.push(...explainLines(r.explain));
   const explainCost = r.calls.explain ? ` + ${r.calls.explain} explain` : '';
   const runs = r.samples && r.samples > 1 ? ` (x ${r.samples} samples = ${(r.calls.decide + r.calls.explain) * r.samples} model runs)` : '';
-  out.push(`cost  ${r.calls.decide} calls${explainCost}${runs}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
+  out.push(`cost  ${r.calls.decide} calls${explainCost}${runs}, ${secs(r.latencyMs)}, ${modelText(r)}`);
   if (r.record.id) out.push(`id    ${r.record.id}`);
   return out.join('\n');
 }
@@ -51,7 +51,7 @@ export function renderDecide(r: DecideQueryResult): string {
     'advice only: the choice stays with you',
   ];
   if (r.context.length) out.push(`context  ${r.context.map(safeIdText).join(', ')}`);
-  out.push(`cost  ${callsText(r.calls, r.samples)}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
+  out.push(`cost  ${callsText(r.calls, r.samples)}, ${secs(r.latencyMs)}, ${modelText(r)}`);
   if (r.record.id) out.push(`id    ${r.record.id}`);
   return out.join('\n');
 }
@@ -87,4 +87,10 @@ export function renderGraph(v: GraphView): string {
   edges('out', v.out, (e) => safeNodeId(e.to));
   edges('in', v.in, (e) => safeNodeId(e.from));
   return out.join('\n');
+}
+
+/** "claude-cli, opus[1m] from ~/.claude/settings.json" for the cost line. */
+function modelText(r: { backend: string; model?: string; modelSource?: string }): string {
+  if (r.modelSource) return `${r.backend}, ${r.modelSource}`;
+  return `${r.backend}${r.model ? ` (${r.model})` : ''}`;
 }

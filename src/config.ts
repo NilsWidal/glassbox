@@ -1,14 +1,18 @@
+import { ANTHROPIC_API_FALLBACK_MODEL } from './model-choice.js';
 import type { BackendName } from './types.js';
 
 /**
- * Default model per backend. Model ids are config values: GLASSBOX_MODEL
- * overrides them. codex-cli has no default, so the Codex CLI's own configured
- * model is used (no -m flag).
+ * Fixed default model per backend. The host CLIs have none: claude-cli mirrors
+ * the model selected in Claude Code (resolveClaudeModel, at each call) and
+ * codex-cli passes no -m, so Codex uses its configured model. Only the
+ * anthropic API backend keeps a fallback, because an API call must name a
+ * model; it prefers ANTHROPIC_MODEL or the Claude Code settings model
+ * (resolveAnthropicModel). GLASSBOX_MODEL overrides all of them.
  */
 export const DEFAULT_MODELS: Readonly<Record<Exclude<BackendName, 'auto'>, string | undefined>> = Object.freeze({
-  'claude-cli': 'haiku',
+  'claude-cli': undefined,
   'codex-cli': undefined,
-  anthropic: 'claude-haiku-4-5-20251001',
+  anthropic: ANTHROPIC_API_FALLBACK_MODEL,
   'openai-compat': undefined,
   fake: 'fake-1',
 });

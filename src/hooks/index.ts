@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { ambientContext } from '../ambient/context.js';
+import { claudeProjectDir, recordSessionModel } from '../model-choice.js';
 import { MODE_SETTINGS } from '../modes.js';
 import { editHooksEnabled, loadProjectConfigSafe } from '../project-config.js';
 import { ambientEnabled, gateEnabled } from '../status.js';
@@ -41,6 +42,10 @@ export interface HookInput {
   stop_hook_active?: boolean;
   tool_name?: string;
   tool_input?: unknown;
+  /** SessionStart: the model the session starts with (Claude Code does not always send it). */
+  model?: string;
+  /** PostModelSwitch: the model the session switched to. */
+  to_model?: string;
 }
 
 /** Parses hook JSON; anything unreadable is an empty input. */
@@ -51,7 +56,7 @@ export function parseHookInput(text: string): HookInput {
     if (typeof v !== 'object' || v === null || Array.isArray(v)) return {};
     const o = v as Record<string, unknown>;
     const out: HookInput = {};
-    for (const k of ['hook_event_name', 'session_id', 'cwd', 'prompt', 'tool_name'] as const) {
+    for (const k of ['hook_event_name', 'session_id', 'cwd', 'prompt', 'tool_name', 'model', 'to_model'] as const) {
       if (typeof o[k] === 'string') out[k] = o[k];
     }
     // Only a real true (or the string "true") means the turn already continued because of a Stop hook.
@@ -217,6 +222,33 @@ function startDir(input: HookInput, ctx: HookContext): string {
  */
 export async function sessionStartHook(input: HookInput, ctx: HookContext): Promise<string> {
   if (ctx.env.GLASSBOX_NESTED === '1') return '';
+  try {
+    return await sessionStartWork(input, ctx);
+  } finally {
+    // After auto-init, which may just have created .glassbox/.
+    rememberSessionModel(input, ctx, input.model);
+  }
+}
+
+/**
+ * Keeps the live Claude Code session's model in .glassbox/sessions/<id>.json,
+ * so claude-cli calls from this session use it (see resolveClaudeModel).
+ * Claude Code hosts only; only into an existing .glassbox directory.
+ */
+function rememberSessionModel(input: HookInput, ctx: HookContext, model: string | undefined): void {
+  if (!model || (ctx.host !== undefined && ctx.host !== 'claude-code')) return;
+  const project = claudeProjectDir(ctx.env, startDir(input, ctx));
+  recordSessionModel(project, input.session_id ?? ctx.env.CLAUDE_CODE_SESSION_ID, model, ctx.now?.() ?? Date.now());
+}
+
+/** PostModelSwitch: the session now runs on `to_model`; later glassbox calls from it follow. */
+export function modelSwitchHook(input: HookInput, ctx: HookContext): string {
+  if (ctx.env.GLASSBOX_NESTED === '1') return '';
+  rememberSessionModel(input, ctx, input.to_model);
+  return '';
+}
+
+async function sessionStartWork(input: HookInput, ctx: HookContext): Promise<string> {
   const now = ctx.now?.() ?? Date.now();
   const start = startDir(input, ctx);
   const autoinit = await import('../autoinit/index.js');

@@ -1,13 +1,16 @@
 #!/bin/sh
-# glassbox plugin hook: prompt | stop | post-edit | session-start.
+# glassbox plugin hook: prompt | stop | post-edit | session-start | model-switch.
 # Claude Code runs it in exec form (no shell string): sh <this file> <event>.
 # It exits 0 at once, without starting node, when:
 #   - this is a nested glassbox model call (GLASSBOX_NESTED=1);
 #   - post-edit only: neither GLASSBOX_HOOKS=1 nor the plugin's enable_hooks
 #     option is on (GLASSBOX_HOOKS=0 turns it off);
-#   - session-start only: GLASSBOX_AUTO_INIT=0 and the edit hooks are off.
-#     The plugin's auto_init option is left to node, because a local
-#     .glassbox/config.json ("autoInit") wins over it;
+#   - session-start only: GLASSBOX_AUTO_INIT=0, the edit hooks are off and
+#     the project has no .glassbox folder (so there is no session model to
+#     note either). The plugin's auto_init option is left to node, because a
+#     local .glassbox/config.json ("autoInit") wins over it;
+#   - model-switch: the project has no .glassbox folder (the session's model
+#     is only noted where glassbox already keeps its files);
 #   - prompt, stop and post-edit: the project has no glassbox graph
 #     (.glassbox/graph.db). session-start runs without one, because that is
 #     where auto-init starts building it (node checks for a git repo, the
@@ -33,11 +36,16 @@ case "$event" in
     [ -f "$dir/.glassbox/graph.db" ] || exit 0
     ;;
   session-start)
-    if [ "$hooks_on" != 1 ]; then
+    # Besides auto-init, node notes the model the session starts with (when
+    # Claude Code sends one) in .glassbox/sessions.
+    if [ "$hooks_on" != 1 ] && [ ! -d "$dir/.glassbox" ]; then
       case "${GLASSBOX_AUTO_INIT:-}" in
         0 | false | no | off) exit 0 ;;
       esac
     fi
+    ;;
+  model-switch)
+    [ -d "$dir/.glassbox" ] || exit 0
     ;;
   *) exit 0 ;;
 esac

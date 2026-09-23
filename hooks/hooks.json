@@ -1,5 +1,5 @@
 {
-  "description": "Opt-in glassbox hooks. UserPromptSubmit adds graph context to code prompts (ambient option). Stop checks the turn's diff once and can ask for one more look at High risk lines (gate option). PostToolUse and SessionStart keep the graph and the AGENTS.md block fresh (enable_hooks option). SessionStart also runs auto-init (auto_init option, on by default): in a git repo without a glassbox graph it starts building the code graph in the background (parsing only, no model calls), and in a repo with one it adds a short code map. Auto-init skips your home directory and /, repos with more than 5,000 source files, a .glassbox folder that git tracks, and repos where auto_init, GLASSBOX_AUTO_INIT or .glassbox/config.json turn it off. The other hooks do nothing in a repo without a graph. None of them ever fails the turn.",
+  "description": "Opt-in glassbox hooks. UserPromptSubmit adds graph context to code prompts (ambient option). Stop checks the turn's diff once and can ask for one more look at High risk lines (gate option). PostToolUse and SessionStart keep the graph and the AGENTS.md block fresh (enable_hooks option). SessionStart also runs auto-init (auto_init option, on by default): in a git repo without a glassbox graph it starts building the code graph in the background (parsing only, no model calls), and in a repo with one it adds a short code map. Auto-init skips your home directory and /, repos with more than 5,000 source files, a .glassbox folder that git tracks, and repos where auto_init, GLASSBOX_AUTO_INIT or .glassbox/config.json turn it off. The other hooks do nothing in a repo without a graph. SessionStart and PostModelSwitch also note the session's model in .glassbox/sessions (only where .glassbox exists), so glassbox's own claude -p calls use the model you selected. None of them ever fails the turn.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -33,6 +33,18 @@
             "type": "command",
             "command": "sh",
             "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh", "post-edit"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh", "model-switch"],
             "timeout": 5
           }
         ]

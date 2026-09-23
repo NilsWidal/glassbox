@@ -3,12 +3,13 @@ import { DEFAULT_MODELS, isBackendName, resolveBackendName, resolveModel, sha256
 
 describe('config', () => {
   it('has host-CLI defaults', () => {
-    expect(DEFAULT_MODELS['claude-cli']).toBe('haiku');
+    // No glassbox default for the host CLIs: they mirror the model selected in Claude Code / Codex.
+    expect(DEFAULT_MODELS['claude-cli']).toBeUndefined();
     expect(DEFAULT_MODELS.anthropic).toBe('claude-haiku-4-5-20251001');
     expect(DEFAULT_MODELS['codex-cli']).toBeUndefined();
   });
   it('GLASSBOX_MODEL overrides the default', () => {
-    expect(resolveModel('claude-cli', {})).toBe('haiku');
+    expect(resolveModel('claude-cli', {})).toBeUndefined();
     expect(resolveModel('claude-cli', { GLASSBOX_MODEL: 'sonnet' })).toBe('sonnet');
     expect(resolveModel('codex-cli', { GLASSBOX_MODEL: ' ' })).toBeUndefined();
   });

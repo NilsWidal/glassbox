@@ -67,7 +67,7 @@ export interface CliIo {
 }
 
 /** The events `glassbox hook` handles; any other event exits 0 without output. */
-export const HOOK_EVENTS = ['prompt', 'stop', 'post-edit', 'session-start'] as const;
+export const HOOK_EVENTS = ['prompt', 'stop', 'post-edit', 'session-start', 'model-switch'] as const;
 
 /** This file, which `node <entry> worker run` starts again as the background worker. */
 export const CLI_ENTRY = fileURLToPath(import.meta.url);
@@ -355,7 +355,7 @@ function addModeOption(cmd: Command): Command {
 function addBackendOptions(cmd: Command): Command {
   return cmd
     .option('-b, --backend <name>', 'auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)')
-    .option('-m, --model <id>', 'model id (default GLASSBOX_MODEL or the backend default)')
+    .option('-m, --model <id>', 'model id override (default: GLASSBOX_MODEL, else the model you selected in Claude Code or Codex)')
     .option('--samples <k>', 'samples averaged per call on sampling backends', int('samples', 1))
     .option('--permutations <n>', 'option orders averaged per question (default 2)', int('permutations', 1));
 }
@@ -385,7 +385,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     .option('--top-k <n>', 'spans to hide and re-ask, most relevant first (default 12)', int('top-k', 0))
     .option('--min-delta <p>', 'smallest |delta p| kept as a highlight (default 0.05)', fraction)
     .option('-b, --backend <name>', 'auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)')
-    .option('-m, --model <id>', 'model id (default GLASSBOX_MODEL or the backend default)')
+    .option('-m, --model <id>', 'model id override (default: GLASSBOX_MODEL, else the model you selected in Claude Code or Codex)')
     .option('--samples <k>', 'samples averaged per call on sampling backends', int('samples', 1))
     .option('--permutations <n>', 'option orders averaged per question (default 2)', int('permutations', 1))
     .option('--chunk-lines <n>', 'longest span in lines (default 8)', int('chunk-lines', 1))
@@ -858,6 +858,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
         if (event === 'prompt') out = hooks.promptHook(input, ctx);
         else if (event === 'stop') out = await hooks.stopHook(input, ctx);
         else if (event === 'post-edit') out = await hooks.postEditHook(input, ctx);
+        else if (event === 'model-switch') out = hooks.modelSwitchHook(input, ctx);
         else out = await hooks.sessionStartHook(input, ctx);
         if (out) io.stdout(`${out}\n`);
       } catch {

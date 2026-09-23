@@ -76,6 +76,8 @@ export interface TriageResult {
   latencyMs: number;
   backend: string;
   model?: string;
+  /** The model and where it came from, e.g. "opus[1m] from ~/.claude/settings.json". */
+  modelSource?: string;
   /** Model runs per call (processes started for each call). */
   samples?: number;
   logFile?: string;
@@ -251,6 +253,7 @@ export async function triage(diff: string, opts: TriageOptions): Promise<TriageR
     ...(backend.samples && backend.samples > 1 ? { samples: backend.samples } : {}),
   };
   if (backend.model !== undefined) result.model = backend.model;
+  if (backend.modelSource !== undefined) result.modelSource = backend.modelSource;
   if (logFile) result.logFile = logFile;
   return result;
 }

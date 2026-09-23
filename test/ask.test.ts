@@ -90,6 +90,10 @@ describe('ask', () => {
     const json = JSON.parse(renderJson(r)) as { label: string; explain: { highlights: unknown[] } };
     expect(json.label).toBe('YES');
     expect(json.explain.highlights).toHaveLength(1);
+    // The cost line names the model and where it came from, when the backend says.
+    const withSource = renderPretty({ ...r, backend: 'claude-cli', model: 'opus[1m]', modelSource: 'opus[1m] from ~/.claude/settings.json' });
+    expect(withSource).toMatch(/^cost .*, claude-cli, opus\[1m\] from ~\/\.claude\/settings\.json$/m);
+    expect(JSON.parse(renderJson({ ...r, modelSource: 'x from y' })).modelSource).toBe('x from y');
   });
 
   it('keeps the decision the same with and without explain', async () => {

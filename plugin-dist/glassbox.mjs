@@ -53,7 +53,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var define_GLASSBOX_BUNDLE_default;
 var init_define_GLASSBOX_BUNDLE = __esm({
   "<define:__GLASSBOX_BUNDLE__>"() {
-    define_GLASSBOX_BUNDLE_default = { version: "0.3.0" };
+    define_GLASSBOX_BUNDLE_default = { version: "0.3.1" };
   }
 });
 
@@ -3960,6 +3960,333 @@ var init_render = __esm({
   }
 });
 
+// src/backends/process.ts
+import { spawn, spawnSync } from "node:child_process";
+import { accessSync, constants as constants2 } from "node:fs";
+import { delimiter, join as join4 } from "node:path";
+function descendantPids(pid) {
+  if (process.platform === "win32") return [];
+  const out2 = [];
+  let level = [pid];
+  for (let depth = 0; depth < 16 && level.length && out2.length < MAX_TREE; depth++) {
+    const next = [];
+    for (const p of level) {
+      const r = spawnSync("pgrep", ["-P", String(p)], { encoding: "utf8", timeout: 2e3, windowsHide: true });
+      if (r.status !== 0 || typeof r.stdout !== "string") continue;
+      for (const line of r.stdout.split("\n")) {
+        const n = Number(line.trim());
+        if (Number.isInteger(n) && n > 0 && !out2.includes(n)) next.push(n);
+      }
+    }
+    out2.push(...next.slice(0, MAX_TREE - out2.length));
+    level = next;
+  }
+  return out2;
+}
+function signalPid(pid, sig) {
+  try {
+    process.kill(pid, sig);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function killTree(pid, graceMs = 1500) {
+  if (pid === void 0) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    return;
+  }
+  const tree = [pid, ...descendantPids(pid)];
+  for (const p of tree) signalPid(p, "SIGTERM");
+  setTimeout(() => {
+    for (const p of tree) if (signalPid(p, 0)) signalPid(p, "SIGKILL");
+  }, graceMs);
+}
+function isNotFound(e) {
+  return e?.code === "ENOENT";
+}
+function findOnPath(cmd, env = process.env) {
+  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  const dirs = /[\\/]/.test(cmd) ? [""] : (env.PATH ?? env.Path ?? "").split(delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const full = dir ? join4(dir, cmd + ext) : cmd + ext;
+      try {
+        accessSync(full, constants2.X_OK);
+        return full;
+      } catch {
+      }
+    }
+  }
+  return void 0;
+}
+function tail(text2, lines = 5) {
+  return text2.trim().split("\n").filter(Boolean).slice(-lines).join("\n");
+}
+function unknownFlag(stderr) {
+  const m = /unknown (?:option|argument)\s+'?(--[a-z0-9-]+)/i.exec(stderr) ?? /unexpected argument '(--[a-z0-9-]+)'/i.exec(stderr);
+  return m?.[1];
+}
+function cliChildEnv(env) {
+  const out2 = {};
+  for (const [k, v] of Object.entries(env)) if (!GLASSBOX_ONLY_KEYS.test(k)) out2[k] = v;
+  out2.GLASSBOX_NESTED = "1";
+  return out2;
+}
+function checkModelId(model) {
+  if (!MODEL_ID.test(model)) throw new Error(`invalid model id "${model}"`);
+  return model;
+}
+var CliNotFoundError, CliTimeoutError, CliCallError, MAX_TREE, runProcess, GLASSBOX_ONLY_KEYS, MODEL_ID;
+var init_process = __esm({
+  "src/backends/process.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    CliNotFoundError = class extends Error {
+      constructor(command, hint) {
+        super(`"${command}" was not found on PATH. ${hint}`);
+        this.command = command;
+        this.name = "CliNotFoundError";
+      }
+      command;
+    };
+    CliTimeoutError = class extends Error {
+      constructor(command, timeoutMs) {
+        super(`"${command}" did not finish within ${timeoutMs} ms`);
+        this.command = command;
+        this.timeoutMs = timeoutMs;
+        this.name = "CliTimeoutError";
+      }
+      command;
+      timeoutMs;
+    };
+    CliCallError = class extends Error {
+      constructor(message, stderr = "") {
+        super(message);
+        this.stderr = stderr;
+        this.name = "CliCallError";
+      }
+      stderr;
+    };
+    MAX_TREE = 256;
+    runProcess = (cmd, args2, opts = {}) => new Promise((resolve8, reject) => {
+      if (opts.signal?.aborted) return reject(opts.signal.reason ?? new Error("aborted"));
+      const child = spawn(cmd, [...args2], {
+        cwd: opts.cwd,
+        env: opts.env ?? process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true
+      });
+      const out2 = [];
+      const err2 = [];
+      let settled = false;
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        opts.signal?.removeEventListener("abort", onAbort);
+        fn();
+      };
+      const timer = opts.timeoutMs ? setTimeout(() => {
+        killTree(child.pid);
+        finish(() => reject(new CliTimeoutError(cmd, opts.timeoutMs)));
+      }, opts.timeoutMs) : void 0;
+      const onAbort = () => {
+        killTree(child.pid);
+        finish(() => reject(opts.signal?.reason ?? new Error("aborted")));
+      };
+      opts.signal?.addEventListener("abort", onAbort, { once: true });
+      child.stdout.on("data", (b) => out2.push(b));
+      child.stderr.on("data", (b) => err2.push(b));
+      child.on("error", (e) => finish(() => reject(e)));
+      child.on(
+        "close",
+        (code) => finish(() => resolve8({ code, stdout: Buffer.concat(out2).toString("utf8"), stderr: Buffer.concat(err2).toString("utf8") }))
+      );
+      child.stdin.on("error", () => {
+      });
+      child.stdin.end(opts.input ?? "");
+    });
+    GLASSBOX_ONLY_KEYS = /^(GLASSBOX_ANTHROPIC_API_KEY|GLASSBOX_OPENAI_API_KEY|CLAUDE_PLUGIN_OPTION_\w*API_KEY)$/;
+    MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*(?:\[[A-Za-z0-9]+\])?$/;
+  }
+});
+
+// src/model-choice.ts
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readdirSync, readFileSync as readFileSync3, renameSync as renameSync2, rmSync, statSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { homedir } from "node:os";
+import { join as join5, resolve, sep } from "node:path";
+function validModel(v) {
+  if (typeof v !== "string") return void 0;
+  const t = v.trim();
+  return t && t.length <= 200 && MODEL_ID.test(t) ? t : void 0;
+}
+function usableDir(v) {
+  const t = v?.trim();
+  return t && !t.includes("${") ? t : void 0;
+}
+function homeDir(env) {
+  return usableDir(env.HOME) ?? homedir();
+}
+function claudeConfigDir(env) {
+  return usableDir(env.CLAUDE_CONFIG_DIR) ?? join5(homeDir(env), ".claude");
+}
+function claudeProjectDir(env, fallback) {
+  return resolve(usableDir(env.CLAUDE_PROJECT_DIR) ?? fallback ?? process.cwd());
+}
+function displayPath(path, env) {
+  const home = homeDir(env);
+  return path === home ? "~" : path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+}
+function defaultManagedSettings() {
+  if (process.platform === "darwin") return "/Library/Application Support/ClaudeCode/managed-settings.json";
+  if (process.platform === "win32") return "C:\\Program Files\\ClaudeCode\\managed-settings.json";
+  return "/etc/claude-code/managed-settings.json";
+}
+function readJson(file2) {
+  try {
+    if (!existsSync3(file2) || statSync(file2).size > 1024 * 1024) return void 0;
+    const v = JSON.parse(readFileSync3(file2, "utf8"));
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? v : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function claudeSettingsFiles(opts = {}) {
+  const env = opts.env ?? process.env;
+  const project = claudeProjectDir(env, opts.projectDir);
+  return [
+    opts.managedSettings ?? defaultManagedSettings(),
+    join5(project, ".claude", "settings.local.json"),
+    join5(project, ".claude", "settings.json"),
+    join5(claudeConfigDir(env), "settings.json")
+  ];
+}
+function claudeSettingsModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const files = claudeSettingsFiles(opts).map((file2) => ({ file: file2, json: readJson(file2) }));
+  for (const { file: file2, json: json3 } of files) {
+    const e = json3?.env;
+    const m = typeof e === "object" && e !== null ? validModel(e.ANTHROPIC_MODEL) : void 0;
+    if (m) return { model: m, source: `ANTHROPIC_MODEL in ${displayPath(file2, env)}` };
+  }
+  for (const { file: file2, json: json3 } of files) {
+    const m = validModel(json3?.model);
+    if (m) return { model: m, source: displayPath(file2, env) };
+  }
+  return void 0;
+}
+function safeSessionId(id) {
+  const t = id?.trim();
+  return t && /^[A-Za-z0-9_-]{1,128}$/.test(t) ? t : void 0;
+}
+function sessionFile(projectDir, sessionId) {
+  return join5(projectDir, SESSIONS_DIR, `${sessionId}.json`);
+}
+function recordSessionModel(projectDir, sessionId, model, now = Date.now()) {
+  const id = safeSessionId(sessionId);
+  const m = validModel(model);
+  if (!id || !m) return false;
+  const store = join5(projectDir, ".glassbox");
+  try {
+    if (!existsSync3(store)) return false;
+    assertNotSymlinkSync(store);
+    const dir = join5(projectDir, SESSIONS_DIR);
+    assertNotSymlinkSync(dir);
+    mkdirSync2(dir, { recursive: true });
+    const file2 = sessionFile(projectDir, id);
+    assertNotSymlinkSync(file2);
+    const tmp = `${file2}.${process.pid}.tmp`;
+    writeFileSync3(tmp, `${JSON.stringify({ sessionId: id, model: m, at: now })}
+`);
+    renameSync2(tmp, file2);
+    pruneSessions(dir, now);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function pruneSessions(dir, now) {
+  try {
+    for (const name2 of readdirSync(dir)) {
+      const f = join5(dir, name2);
+      if (now - statSync(f).mtimeMs > SESSION_MAX_AGE_MS) rmSync(f, { force: true });
+    }
+  } catch {
+  }
+}
+function sessionModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const id = safeSessionId(env.CLAUDE_CODE_SESSION_ID);
+  if (!id) return void 0;
+  const file2 = sessionFile(claudeProjectDir(env, opts.projectDir), id);
+  const json3 = readJson(file2);
+  if (json3?.sessionId !== id) return void 0;
+  const m = validModel(json3.model);
+  return m ? { model: m, source: "this Claude Code session" } : void 0;
+}
+function explicitModel(env) {
+  const g = env.GLASSBOX_MODEL?.trim();
+  const p = env.CLAUDE_PLUGIN_OPTION_MODEL?.trim();
+  if (g) return { model: g, source: g === p ? "the plugin model option" : "GLASSBOX_MODEL" };
+  if (p) return { model: p, source: "the plugin model option" };
+  return void 0;
+}
+function resolveClaudeModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const explicit = explicitModel(env);
+  if (explicit) return explicit;
+  const session = sessionModel(opts);
+  if (session) return session;
+  const am = validModel(env.ANTHROPIC_MODEL);
+  if (am) return { model: am, source: "ANTHROPIC_MODEL" };
+  return claudeSettingsModel(opts) ?? { source: "Claude Code default" };
+}
+function resolveCodexModel(env = process.env) {
+  const explicit = explicitModel(env);
+  if (explicit) return explicit;
+  const file2 = join5(usableDir(env.CODEX_HOME) ?? join5(homeDir(env), ".codex"), "config.toml");
+  try {
+    const text2 = readFileSync3(file2, "utf8");
+    const top = text2.split(/^\s*\[/m)[0] ?? "";
+    const m = validModel(/^\s*model\s*=\s*"([^"\n]*)"/m.exec(top)?.[1]);
+    if (m) return { model: m, source: displayPath(file2, env) };
+  } catch {
+  }
+  return { source: "Codex default" };
+}
+function apiModelId(model) {
+  const base = model?.replace(/\[[A-Za-z0-9]+\]$/, "");
+  return base && /^claude-[a-z0-9.-]+$/.test(base) ? base : void 0;
+}
+function resolveAnthropicModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const explicit = explicitModel(env);
+  if (explicit?.model) return { model: explicit.model, source: explicit.source };
+  const am = apiModelId(validModel(env.ANTHROPIC_MODEL));
+  if (am) return { model: am, source: "ANTHROPIC_MODEL" };
+  const s = claudeSettingsModel(opts);
+  const sm = apiModelId(s?.model);
+  if (sm && s) return { model: sm, source: s.source };
+  return { model: ANTHROPIC_API_FALLBACK_MODEL, source: "glassbox fallback for the API backend" };
+}
+function describeChoice(c) {
+  return c.model ? `${c.model} from ${c.source}` : c.source;
+}
+var SESSIONS_DIR, SESSION_MAX_AGE_MS, ANTHROPIC_API_FALLBACK_MODEL;
+var init_model_choice = __esm({
+  "src/model-choice.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_process();
+    init_safefs();
+    SESSIONS_DIR = join5(".glassbox", "sessions");
+    SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1e3;
+    ANTHROPIC_API_FALLBACK_MODEL = "claude-haiku-4-5-20251001";
+  }
+});
+
 // src/config.ts
 function isBackendName(v) {
   return typeof v === "string" && BACKENDS.includes(v);
@@ -3979,10 +4306,11 @@ var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
+    init_model_choice();
     DEFAULT_MODELS = Object.freeze({
-      "claude-cli": "haiku",
+      "claude-cli": void 0,
       "codex-cli": void 0,
-      anthropic: "claude-haiku-4-5-20251001",
+      anthropic: ANTHROPIC_API_FALLBACK_MODEL,
       "openai-compat": void 0,
       fake: "fake-1"
     });
@@ -4335,6 +4663,9 @@ function splitForCache(prompt) {
 function textOf(content) {
   return content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
 }
+function createAnthropicBackend(opts) {
+  return new AnthropicBackend(opts);
+}
 var SDK, SDK_MAX_RETRIES, AnthropicBackend;
 var init_anthropic = __esm({
   "src/backends/anthropic.ts"() {
@@ -4342,11 +4673,13 @@ var init_anthropic = __esm({
     init_define_GLASSBOX_BUNDLE();
     init_prompt();
     init_sampling();
+    init_model_choice();
     SDK = "@anthropic-ai/sdk";
     SDK_MAX_RETRIES = 3;
     AnthropicBackend = class {
       name = "anthropic";
       model;
+      modelSource;
       capabilities = { hasLogprobs: false, batch: true, generate: true };
       samples;
       timeoutMs;
@@ -4363,7 +4696,14 @@ var init_anthropic = __esm({
       }
       constructor(opts = {}) {
         const env = opts.env ?? process.env;
-        this.model = opts.model ?? "claude-haiku-4-5-20251001";
+        if (opts.model !== void 0) {
+          this.model = opts.model;
+          this.modelSource = `${opts.model} from the model option`;
+        } else {
+          const c = resolveAnthropicModel({ env });
+          this.model = c.model;
+          this.modelSource = `${c.model} from ${c.source}`;
+        }
         this.samples = opts.samples ?? resolveSamples(env);
         this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
         this.maxTokens = opts.maxTokens ?? 2048;
@@ -4412,159 +4752,6 @@ var init_anthropic = __esm({
         return textOf(msg.content).trim();
       }
     };
-  }
-});
-
-// src/backends/process.ts
-import { spawn, spawnSync } from "node:child_process";
-import { accessSync, constants as constants2 } from "node:fs";
-import { delimiter, join as join4 } from "node:path";
-function descendantPids(pid) {
-  if (process.platform === "win32") return [];
-  const out2 = [];
-  let level = [pid];
-  for (let depth = 0; depth < 16 && level.length && out2.length < MAX_TREE; depth++) {
-    const next = [];
-    for (const p of level) {
-      const r = spawnSync("pgrep", ["-P", String(p)], { encoding: "utf8", timeout: 2e3, windowsHide: true });
-      if (r.status !== 0 || typeof r.stdout !== "string") continue;
-      for (const line of r.stdout.split("\n")) {
-        const n = Number(line.trim());
-        if (Number.isInteger(n) && n > 0 && !out2.includes(n)) next.push(n);
-      }
-    }
-    out2.push(...next.slice(0, MAX_TREE - out2.length));
-    level = next;
-  }
-  return out2;
-}
-function signalPid(pid, sig) {
-  try {
-    process.kill(pid, sig);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function killTree(pid, graceMs = 1500) {
-  if (pid === void 0) return;
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-    return;
-  }
-  const tree = [pid, ...descendantPids(pid)];
-  for (const p of tree) signalPid(p, "SIGTERM");
-  setTimeout(() => {
-    for (const p of tree) if (signalPid(p, 0)) signalPid(p, "SIGKILL");
-  }, graceMs);
-}
-function isNotFound(e) {
-  return e?.code === "ENOENT";
-}
-function findOnPath(cmd, env = process.env) {
-  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
-  const dirs = /[\\/]/.test(cmd) ? [""] : (env.PATH ?? env.Path ?? "").split(delimiter).filter(Boolean);
-  for (const dir of dirs) {
-    for (const ext of exts) {
-      const full = dir ? join4(dir, cmd + ext) : cmd + ext;
-      try {
-        accessSync(full, constants2.X_OK);
-        return full;
-      } catch {
-      }
-    }
-  }
-  return void 0;
-}
-function tail(text2, lines = 5) {
-  return text2.trim().split("\n").filter(Boolean).slice(-lines).join("\n");
-}
-function unknownFlag(stderr) {
-  const m = /unknown (?:option|argument)\s+'?(--[a-z0-9-]+)/i.exec(stderr) ?? /unexpected argument '(--[a-z0-9-]+)'/i.exec(stderr);
-  return m?.[1];
-}
-function cliChildEnv(env) {
-  const out2 = {};
-  for (const [k, v] of Object.entries(env)) if (!GLASSBOX_ONLY_KEYS.test(k)) out2[k] = v;
-  out2.GLASSBOX_NESTED = "1";
-  return out2;
-}
-function checkModelId(model) {
-  if (!MODEL_ID.test(model)) throw new Error(`invalid model id "${model}"`);
-  return model;
-}
-var CliNotFoundError, CliTimeoutError, CliCallError, MAX_TREE, runProcess, GLASSBOX_ONLY_KEYS, MODEL_ID;
-var init_process = __esm({
-  "src/backends/process.ts"() {
-    "use strict";
-    init_define_GLASSBOX_BUNDLE();
-    CliNotFoundError = class extends Error {
-      constructor(command, hint) {
-        super(`"${command}" was not found on PATH. ${hint}`);
-        this.command = command;
-        this.name = "CliNotFoundError";
-      }
-      command;
-    };
-    CliTimeoutError = class extends Error {
-      constructor(command, timeoutMs) {
-        super(`"${command}" did not finish within ${timeoutMs} ms`);
-        this.command = command;
-        this.timeoutMs = timeoutMs;
-        this.name = "CliTimeoutError";
-      }
-      command;
-      timeoutMs;
-    };
-    CliCallError = class extends Error {
-      constructor(message, stderr = "") {
-        super(message);
-        this.stderr = stderr;
-        this.name = "CliCallError";
-      }
-      stderr;
-    };
-    MAX_TREE = 256;
-    runProcess = (cmd, args2, opts = {}) => new Promise((resolve7, reject) => {
-      if (opts.signal?.aborted) return reject(opts.signal.reason ?? new Error("aborted"));
-      const child = spawn(cmd, [...args2], {
-        cwd: opts.cwd,
-        env: opts.env ?? process.env,
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true
-      });
-      const out2 = [];
-      const err2 = [];
-      let settled = false;
-      const finish = (fn) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        opts.signal?.removeEventListener("abort", onAbort);
-        fn();
-      };
-      const timer = opts.timeoutMs ? setTimeout(() => {
-        killTree(child.pid);
-        finish(() => reject(new CliTimeoutError(cmd, opts.timeoutMs)));
-      }, opts.timeoutMs) : void 0;
-      const onAbort = () => {
-        killTree(child.pid);
-        finish(() => reject(opts.signal?.reason ?? new Error("aborted")));
-      };
-      opts.signal?.addEventListener("abort", onAbort, { once: true });
-      child.stdout.on("data", (b) => out2.push(b));
-      child.stderr.on("data", (b) => err2.push(b));
-      child.on("error", (e) => finish(() => reject(e)));
-      child.on(
-        "close",
-        (code) => finish(() => resolve7({ code, stdout: Buffer.concat(out2).toString("utf8"), stderr: Buffer.concat(err2).toString("utf8") }))
-      );
-      child.stdin.on("error", () => {
-      });
-      child.stdin.end(opts.input ?? "");
-    });
-    GLASSBOX_ONLY_KEYS = /^(GLASSBOX_ANTHROPIC_API_KEY|GLASSBOX_OPENAI_API_KEY|CLAUDE_PLUGIN_OPTION_\w*API_KEY)$/;
-    MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/;
   }
 });
 
@@ -4627,11 +4814,15 @@ ${detail}`, stderr);
   }
   return env;
 }
+function createClaudeCliBackend(opts) {
+  return new ClaudeCliBackend(opts);
+}
 var INSTALL_HINT, REQUIRED_FLAGS, OPTIONAL_FLAGS, ClaudeCliBackend;
 var init_claude_cli = __esm({
   "src/backends/claude-cli.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
+    init_model_choice();
     init_prompt();
     init_process();
     init_sampling();
@@ -4649,7 +4840,6 @@ var init_claude_cli = __esm({
     ];
     ClaudeCliBackend = class {
       name = "claude-cli";
-      model;
       capabilities = { hasLogprobs: false, batch: true, generate: true };
       samples;
       timeoutMs;
@@ -4658,9 +4848,17 @@ var init_claude_cli = __esm({
       cwd;
       run;
       dropped = /* @__PURE__ */ new Set();
+      fixed;
+      parentEnv;
+      projectDir;
+      managedSettings;
+      last;
       constructor(opts = {}) {
         const env = opts.env ?? process.env;
-        this.model = checkModelId(opts.model ?? "haiku");
+        this.fixed = opts.model !== void 0 ? { model: checkModelId(opts.model), source: "the model option" } : void 0;
+        this.parentEnv = env;
+        this.projectDir = opts.projectDir;
+        this.managedSettings = opts.managedSettings;
         this.samples = opts.samples ?? resolveSamples(env);
         this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
         this.bin = opts.bin ?? env.GLASSBOX_CLAUDE_BIN ?? "claude";
@@ -4668,9 +4866,33 @@ var init_claude_cli = __esm({
         this.cwd = opts.cwd ?? tmpdir();
         this.run = opts.run ?? runProcess;
       }
-      /** Argument list for one call (exported for tests and debugging). */
-      args(schema) {
-        const args2 = ["-p", "--model", this.model, "--output-format", "json"];
+      /**
+       * The model for the next call and where it came from, resolved fresh each
+       * time: a /model switch or a settings edit applies to the next call.
+       */
+      modelChoice() {
+        if (this.fixed) return this.fixed;
+        const c = resolveClaudeModel({
+          env: this.parentEnv,
+          ...this.projectDir !== void 0 ? { projectDir: this.projectDir } : {},
+          ...this.managedSettings !== void 0 ? { managedSettings: this.managedSettings } : {}
+        });
+        if (c.model !== void 0) checkModelId(c.model);
+        return c;
+      }
+      /** Model of the last call (or the one the next call would use); undefined means Claude Code's own default. */
+      get model() {
+        return (this.last ?? this.modelChoice()).model;
+      }
+      /** Where the model came from, e.g. "opus[1m] from ~/.claude/settings.json". */
+      get modelSource() {
+        return describeChoice(this.last ?? this.modelChoice());
+      }
+      /** Argument list for one call (exported for tests and debugging). No --model when nothing resolves. */
+      args(schema, choice = this.modelChoice()) {
+        const args2 = ["-p"];
+        if (choice.model !== void 0) args2.push("--model", choice.model);
+        args2.push("--output-format", "json");
         if (schema) args2.push("--json-schema", JSON.stringify(schema));
         for (const group2 of REQUIRED_FLAGS) args2.push(...group2);
         for (const group2 of OPTIONAL_FLAGS) if (!this.dropped.has(group2[0])) args2.push(...group2);
@@ -4691,10 +4913,12 @@ var init_claude_cli = __esm({
         return typeof env.result === "string" ? env.result.trim() : JSON.stringify(env.result ?? "");
       }
       async call(prompt, schema, signal) {
+        const choice = this.modelChoice();
+        this.last = choice;
         for (let attempt = 0; ; attempt++) {
           let res;
           try {
-            res = await this.run(this.bin, this.args(schema), {
+            res = await this.run(this.bin, this.args(schema, choice), {
               input: prompt,
               env: this.env,
               cwd: this.cwd,
@@ -4726,12 +4950,16 @@ var init_claude_cli = __esm({
 // src/backends/codex-cli.ts
 import { mkdtemp, readFile as readFile2, rm as rm2, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
+function createCodexCliBackend(opts) {
+  return new CodexCliBackend(opts);
+}
 var INSTALL_HINT2, NO_TOOL_FEATURES, MAX_GENERATE_CHARS, OPTIONAL_FLAGS2, CodexCliBackend;
 var init_codex_cli = __esm({
   "src/backends/codex-cli.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
+    init_model_choice();
     init_prompt();
     init_process();
     init_sampling();
@@ -4761,10 +4989,17 @@ var init_codex_cli = __esm({
       env;
       run;
       dropped = /* @__PURE__ */ new Set();
+      parentEnv;
+      /** The model and where it came from: -m when set, else what Codex's config.toml names (display only). */
+      get modelSource() {
+        return this.model ? `${this.model} from GLASSBOX_MODEL or the model option` : describeChoice(resolveCodexModel(this.parentEnv));
+      }
       constructor(opts = {}) {
         const env = opts.env ?? process.env;
         this.model = opts.model === void 0 ? void 0 : checkModelId(opts.model);
-        this.effort = opts.reasoningEffort ?? env.GLASSBOX_CODEX_EFFORT ?? "low";
+        const effort = opts.reasoningEffort ?? env.GLASSBOX_CODEX_EFFORT?.trim();
+        this.effort = effort || void 0;
+        this.parentEnv = env;
         this.samples = opts.samples ?? resolveSamples(env);
         this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
         this.bin = opts.bin ?? env.GLASSBOX_CODEX_BIN ?? "codex";
@@ -4776,9 +5011,8 @@ var init_codex_cli = __esm({
         const args2 = ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "-C", dir, "-o", outFile];
         if (schemaFile) args2.push("--output-schema", schemaFile);
         if (this.model) args2.push("-m", this.model);
+        if (this.effort) args2.push("-c", `model_reasoning_effort=${JSON.stringify(this.effort)}`);
         args2.push(
-          "-c",
-          `model_reasoning_effort=${JSON.stringify(this.effort)}`,
           "-c",
           "mcp_servers={}",
           "-c",
@@ -4809,10 +5043,10 @@ var init_codex_cli = __esm({
       }
       /** One `codex exec` run in a fresh temp dir; returns the last agent message. */
       async call(prompt, schema, signal) {
-        const dir = await mkdtemp(join5(tmpdir2(), "glassbox-codex-"));
+        const dir = await mkdtemp(join6(tmpdir2(), "glassbox-codex-"));
         try {
-          const schemaFile = schema ? join5(dir, "schema.json") : void 0;
-          const outFile = join5(dir, "last-message.txt");
+          const schemaFile = schema ? join6(dir, "schema.json") : void 0;
+          const outFile = join6(dir, "last-message.txt");
           if (schemaFile) await writeFile(schemaFile, JSON.stringify(schema));
           for (let attempt = 0; ; attempt++) {
             let res;
@@ -4945,6 +5179,9 @@ var init_labels = __esm({
 });
 
 // src/backends/openai-compat.ts
+function createOpenAICompatBackend(opts) {
+  return new OpenAICompatBackend(opts);
+}
 var MAX_GROUP, HttpError, OpenAICompatBackend;
 var init_openai_compat = __esm({
   "src/backends/openai-compat.ts"() {
@@ -5100,6 +5337,37 @@ var init_openai_compat = __esm({
 });
 
 // src/backends/index.ts
+var backends_exports = {};
+__export(backends_exports, {
+  AnthropicBackend: () => AnthropicBackend,
+  CODEX_ENV_MARKERS: () => CODEX_ENV_MARKERS,
+  ClaudeCliBackend: () => ClaudeCliBackend,
+  CliCallError: () => CliCallError,
+  CliNotFoundError: () => CliNotFoundError,
+  CliTimeoutError: () => CliTimeoutError,
+  CodexCliBackend: () => CodexCliBackend,
+  DEFAULT_SAMPLES: () => DEFAULT_SAMPLES,
+  DEFAULT_TIMEOUT_MS: () => DEFAULT_TIMEOUT_MS,
+  HttpError: () => HttpError,
+  MAX_GROUP: () => MAX_GROUP,
+  NO_HOST_CLI_MESSAGE: () => NO_HOST_CLI_MESSAGE,
+  OpenAICompatBackend: () => OpenAICompatBackend,
+  averageSamples: () => averageSamples,
+  createAnthropicBackend: () => createAnthropicBackend,
+  createBackend: () => createBackend,
+  createClaudeCliBackend: () => createClaudeCliBackend,
+  createCodexCliBackend: () => createCodexCliBackend,
+  createOpenAICompatBackend: () => createOpenAICompatBackend,
+  detectHost: () => detectHost,
+  findOnPath: () => findOnPath,
+  parseEnvelope: () => parseEnvelope,
+  pickAutoBackend: () => pickAutoBackend,
+  resolveBackend: () => resolveBackend,
+  resolveSamples: () => resolveSamples,
+  resolveTimeoutMs: () => resolveTimeoutMs,
+  runProcess: () => runProcess,
+  splitForCache: () => splitForCache
+});
 function resolveBackend(config2 = {}) {
   const env = config2.env ?? process.env;
   const name2 = config2.backend ?? resolveBackendName(env);
@@ -5108,7 +5376,7 @@ function resolveBackend(config2 = {}) {
 function createBackend(config2 = {}) {
   const env = config2.env ?? process.env;
   const name2 = resolveBackend(config2);
-  const model = config2.model ?? resolveModel(name2, env);
+  const model = config2.model ?? (name2 === "claude-cli" || name2 === "anthropic" ? void 0 : resolveModel(name2, env));
   if (model !== void 0 && name2 !== "fake") checkModelId(model);
   const common = {
     env,
@@ -7499,8 +7767,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve7, reject) => {
-          readyPromiseResolve = resolve7;
+        var readyPromise = new Promise((resolve8, reject) => {
+          readyPromiseResolve = resolve8;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -7583,13 +7851,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve7, reject) => {
+                return new Promise((resolve8, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve7(xhr.response);
+                      resolve8(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -7813,10 +8081,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve7, reject) => {
+            return new Promise((resolve8, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve7(mod.exports);
+                resolve8(mod.exports);
               });
             });
           }
@@ -9386,7 +9654,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
 });
 
 // src/util/build.ts
-import { readFileSync as readFileSync3 } from "node:fs";
+import { readFileSync as readFileSync4 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath } from "node:url";
 function bundleDir() {
@@ -9395,7 +9663,7 @@ function bundleDir() {
 function packageVersion() {
   if (BUNDLE) return BUNDLE.version;
   try {
-    const pkg = JSON.parse(readFileSync3(new URL("../../package.json", import.meta.url), "utf8"));
+    const pkg = JSON.parse(readFileSync4(new URL("../../package.json", import.meta.url), "utf8"));
     return pkg.version ?? "0.0.0";
   } catch {
     return "0.0.0";
@@ -9412,7 +9680,7 @@ var init_build = __esm({
 
 // src/graph/languages.ts
 import { createRequire } from "node:module";
-import { dirname as dirname4, join as join6 } from "node:path";
+import { dirname as dirname4, join as join7 } from "node:path";
 function grammarFor(file2) {
   if (/\.d\.[mc]?ts$/.test(file2)) return null;
   const dot = file2.lastIndexOf(".");
@@ -9424,13 +9692,13 @@ function langOf(grammar) {
 }
 function grammarWasmPath(grammar) {
   const bundled = bundleDir();
-  if (bundled) return join6(bundled, `tree-sitter-${grammar}.wasm`);
+  if (bundled) return join7(bundled, `tree-sitter-${grammar}.wasm`);
   const pkg = req.resolve("tree-sitter-wasms/package.json");
-  return join6(dirname4(pkg), "out", `tree-sitter-${grammar}.wasm`);
+  return join7(dirname4(pkg), "out", `tree-sitter-${grammar}.wasm`);
 }
 function runtimeWasmPath() {
   const bundled = bundleDir();
-  return bundled ? join6(bundled, "tree-sitter.wasm") : req.resolve("web-tree-sitter/tree-sitter.wasm");
+  return bundled ? join7(bundled, "tree-sitter.wasm") : req.resolve("web-tree-sitter/tree-sitter.wasm");
 }
 function init2() {
   initPromise ??= Parser.init({
@@ -10596,10 +10864,10 @@ __export(walk_exports, {
   walkRepo: () => walkRepo
 });
 import { readdir, readFile as readFile3 } from "node:fs/promises";
-import { join as join7, posix } from "node:path";
+import { join as join8, posix } from "node:path";
 async function loadGitignore(absDir, dir) {
   try {
-    const text2 = await readFile3(join7(absDir, ".gitignore"), "utf8");
+    const text2 = await readFile3(join8(absDir, ".gitignore"), "utf8");
     return { dir, ig: (0, import_ignore.default)().add(text2) };
   } catch {
     return null;
@@ -10617,7 +10885,7 @@ async function walkRepo(root2, opts = {}) {
   const base = [];
   if (opts.ignore?.length) base.push({ dir: "", ig: (0, import_ignore.default)().add(opts.ignore) });
   async function visit2(dir, scopes) {
-    const abs = dir ? join7(root2, dir) : root2;
+    const abs = dir ? join8(root2, dir) : root2;
     const own2 = await loadGitignore(abs, dir);
     const active = own2 ? [...scopes, own2] : scopes;
     let entries;
@@ -10669,7 +10937,7 @@ __export(scope_exports, {
   spanLabel: () => spanLabel
 });
 import { readFile as readFile4, realpath as realpath2, stat as stat2 } from "node:fs/promises";
-import { isAbsolute as isAbsolute2, join as join8, relative as relative2, sep } from "node:path";
+import { isAbsolute as isAbsolute2, join as join9, relative as relative2, sep as sep2 } from "node:path";
 function spanLabel(file2, startLine, endLine) {
   return startLine === endLine ? `${file2}:${startLine}` : `${file2}:${startLine}-${endLine}`;
 }
@@ -10798,10 +11066,10 @@ function stripDiffPath(p) {
   return path.replace(/^[ab]\//, "");
 }
 function toPosix(p) {
-  return sep === "/" ? p : p.split(sep).join("/");
+  return sep2 === "/" ? p : p.split(sep2).join("/");
 }
 function relPath(root2, p) {
-  const rel = toPosix(relative2(root2, isAbsolute2(p) ? p : join8(root2, p)));
+  const rel = toPosix(relative2(root2, isAbsolute2(p) ? p : join9(root2, p)));
   if (rel.startsWith("..") || isAbsolute2(rel)) throw new Error(`path is outside the repo root: ${p}`);
   return rel;
 }
@@ -10821,14 +11089,14 @@ function safeDiffChunks(chunks) {
   return chunks.filter((c) => !isSecretChunk(c));
 }
 async function assertResolvesInside(root2, rel) {
-  const real3 = await realpath2(join8(root2, rel)).catch(() => void 0);
+  const real3 = await realpath2(join9(root2, rel)).catch(() => void 0);
   if (real3 === void 0) return;
   const back = relative2(await realpath2(root2), real3);
   if (back.startsWith("..") || isAbsolute2(back)) throw new Error(`path resolves outside the repo root: ${rel}`);
 }
 async function readInside(root2, rel) {
   await assertResolvesInside(root2, rel);
-  return readFile4(join8(root2, rel), "utf8");
+  return readFile4(join9(root2, rel), "utf8");
 }
 async function listFiles(root2, paths) {
   const files = [];
@@ -10836,7 +11104,7 @@ async function listFiles(root2, paths) {
     const rel = relPath(root2, p);
     await assertResolvesInside(root2, rel);
     if (SECRET_FILE.test(rel)) throw new Error(`refusing to send a file that may hold secrets: ${p}`);
-    const info2 = await stat2(join8(root2, rel)).catch(() => void 0);
+    const info2 = await stat2(join9(root2, rel)).catch(() => void 0);
     if (!info2) throw new Error(`no such file or directory: ${p}`);
     if (info2.isDirectory()) {
       const prefix = rel === "" ? "" : `${rel}/`;
@@ -11248,7 +11516,7 @@ function renderPretty(r) {
   if (r.calls.why) parts2.push(`${r.calls.why} why`);
   const stats = r.explainStats;
   const tested = stats ? `, ${stats.tested}/${stats.candidates} spans tested` : "";
-  out2.push(`cost  ${parts2.join(" + ")}${tested}, ${(r.latencyMs / 1e3).toFixed(1)} s, ${r.backend}${r.model ? ` (${r.model})` : ""}`);
+  out2.push(`cost  ${parts2.join(" + ")}${tested}, ${(r.latencyMs / 1e3).toFixed(1)} s, ${modelText(r)}`);
   if (r.record.id) out2.push(`id    ${r.record.id}   (glassbox explain ${r.record.id})`);
   return out2.join("\n");
 }
@@ -11264,6 +11532,7 @@ function renderJson(r) {
       latencyMs: r.latencyMs,
       backend: r.backend,
       ...r.model ? { model: r.model } : {},
+      ...r.modelSource ? { modelSource: r.modelSource } : {},
       stateHash: r.record.stateHash,
       ...r.record.id ? { id: r.record.id } : {},
       scope: r.chunks.map((c) => spanLabel(c.file, c.startLine, c.endLine)),
@@ -11272,6 +11541,10 @@ function renderJson(r) {
     null,
     2
   );
+}
+function modelText(r) {
+  if (r.modelSource) return `${r.backend}, ${r.modelSource}`;
+  return `${r.backend}${r.model ? ` (${r.model})` : ""}`;
 }
 var init_render2 = __esm({
   "src/render.ts"() {
@@ -11441,14 +11714,14 @@ function resolveEdges(extracts) {
   };
   for (const x of extracts) {
     const isPy = x.lang === "python";
-    const resolve7 = (spec) => isPy ? resolvePy(x.file, spec, files, pyFiles) : resolveTs(x.file, spec, files);
+    const resolve8 = (spec) => isPy ? resolvePy(x.file, spec, files, pyFiles) : resolveTs(x.file, spec, files);
     const bindings = /* @__PURE__ */ new Map();
     for (const imp of x.imports) {
-      const target = resolve7(imp.spec);
+      const target = resolve8(imp.spec);
       if (target) push(importEdges, { from: x.file, to: target, kind: "imports" });
       if (target && imp.namespace) bindings.set(imp.namespace, { file: target, namespace: true });
       for (const b of imp.names) {
-        const sub = isPy ? resolve7(imp.spec.endsWith(".") ? imp.spec + b.imported : `${imp.spec}.${b.imported}`) : null;
+        const sub = isPy ? resolve8(imp.spec.endsWith(".") ? imp.spec + b.imported : `${imp.spec}.${b.imported}`) : null;
         if (target && topLevel.get(target)?.has(b.imported)) {
           bindings.set(b.local, { file: target, imported: b.imported });
         } else if (sub) {
@@ -11568,7 +11841,7 @@ var init_resolve = __esm({
 
 // src/graph/index.ts
 import { readFile as readFile5, stat as stat3 } from "node:fs/promises";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 function assembleGraph(extracts, skipped = []) {
   const { imports, calls } = resolveEdges(extracts);
   return {
@@ -11584,7 +11857,7 @@ async function buildGraph(root2, opts = {}) {
   const extracts = [];
   const skipped = [];
   for (const file2 of files) {
-    const abs = join9(root2, file2);
+    const abs = join10(root2, file2);
     try {
       if ((await stat3(abs)).size > maxBytes) {
         skipped.push({ file: file2, reason: "too large" });
@@ -11614,7 +11887,7 @@ var init_graph = __esm({
 
 // src/ask.ts
 import { mkdir, readFile as readFile6 } from "node:fs/promises";
-import { basename, dirname as dirname5, join as join10 } from "node:path";
+import { basename, dirname as dirname5, join as join11 } from "node:path";
 function makeQuestion(text2, type = "yesno", options = []) {
   const instructions = text2.trim();
   switch (type) {
@@ -11759,7 +12032,7 @@ async function ask(scope, question, opts = {}) {
   if (opts.log !== false) {
     record2.id = decisionId(record2);
     record2.scope = logScope(scope);
-    logFile = typeof opts.log === "string" ? opts.log : join10(root2, STORE_DIR3, DECISION_LOG);
+    logFile = typeof opts.log === "string" ? opts.log : join11(root2, STORE_DIR3, DECISION_LOG);
     await appendDecisionLog(logFile, record2);
   }
   const result = {
@@ -11775,6 +12048,7 @@ async function ask(scope, question, opts = {}) {
   if (explain) result.explain = explain;
   if (explainStats) result.explainStats = explainStats;
   if (backend.model !== void 0) result.model = backend.model;
+  if (backend.modelSource !== void 0) result.modelSource = backend.modelSource;
   if (logFile) result.logFile = logFile;
   return result;
 }
@@ -11974,12 +12248,12 @@ var init_metrics = __esm({
 
 // src/calibrate/store.ts
 import { readFile as readFile8 } from "node:fs/promises";
-import { dirname as dirname7, join as join12 } from "node:path";
+import { dirname as dirname7, join as join13 } from "node:path";
 function calibrationPath(root2) {
-  return join12(root2, STORE_DIR3, CALIBRATION_FILE);
+  return join13(root2, STORE_DIR3, CALIBRATION_FILE);
 }
 function decisionLogPath(root2) {
-  return join12(root2, STORE_DIR3, DECISION_LOG);
+  return join13(root2, STORE_DIR3, DECISION_LOG);
 }
 async function loadCalibration(root2) {
   try {
@@ -12125,7 +12399,7 @@ var init_store = __esm({
 });
 
 // src/agents-md/sync.ts
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 function markerLines(text2, marker) {
   const out2 = [];
   let offset = 0;
@@ -12162,8 +12436,8 @@ ${block}
   }
   if (starts.length === 0) {
     const trimmed = existing.replace(/(\r?\n)+$/, "");
-    const sep3 = trimmed.length === 0 ? "" : eol + eol;
-    return `${trimmed}${sep3}${withEol(block, eol)}${eol}`;
+    const sep4 = trimmed.length === 0 ? "" : eol + eol;
+    return `${trimmed}${sep4}${withEol(block, eol)}${eol}`;
   }
   const start2 = starts[0];
   const end = markerLines(existing, END_MARKER).find((m) => m.start > start2.start);
@@ -12181,12 +12455,12 @@ function addAgentsImport(existing) {
   if (hasAgentsImport(existing)) return existing;
   const eol = eolOf(existing);
   const trimmed = existing.replace(/(\r?\n)+$/, "");
-  const sep3 = trimmed.length === 0 ? "" : eol + eol;
-  return `${trimmed}${sep3}${IMPORT_LINE}${eol}`;
+  const sep4 = trimmed.length === 0 ? "" : eol + eol;
+  return `${trimmed}${sep4}${IMPORT_LINE}${eol}`;
 }
 async function syncAgentsMd(repoRoot, summary, opts = {}) {
-  const agentsMdPath = join14(repoRoot, "AGENTS.md");
-  const claudeMdPath = join14(repoRoot, "CLAUDE.md");
+  const agentsMdPath = join15(repoRoot, "AGENTS.md");
+  const claudeMdPath = join15(repoRoot, "CLAUDE.md");
   const project = loadProjectConfigSafe(repoRoot);
   const conciseRules = opts.conciseRules ?? conciseRulesEnabled(process.env, project);
   const createClaudeMd = opts.claudeMd !== false && project.claudeMd !== false;
@@ -12248,7 +12522,7 @@ __export(git_exports, {
 });
 import { execFile } from "node:child_process";
 import { readFile as readFile9 } from "node:fs/promises";
-import { join as join15 } from "node:path";
+import { join as join16 } from "node:path";
 function git2(cwd, args2, okCodes = [0], signal) {
   return new Promise((ok, fail) => {
     execFile("git", args2, { cwd, maxBuffer: MAX_BUFFER, ...signal ? { signal } : {} }, (err2, stdout, stderr) => {
@@ -12275,7 +12549,7 @@ async function workingDiff(cwd, opts = {}) {
   }
   return withoutGlassboxChanges(parts2.filter(Boolean).join(""), {
     head: (file2) => run2(["show", `HEAD:${file2}`]).catch(() => null),
-    work: (file2) => readFile9(join15(cwd, file2), "utf8").catch(() => null)
+    work: (file2) => readFile9(join16(cwd, file2), "utf8").catch(() => null)
   });
 }
 function sectionPaths(text2) {
@@ -12416,7 +12690,7 @@ __export(source_exports, {
   tagLabel: () => tagLabel
 });
 import { readFile as readFile10 } from "node:fs/promises";
-import { join as join16 } from "node:path";
+import { join as join17 } from "node:path";
 async function indexRepo(root2, store, opts = {}) {
   const graph = await buildGraph(root2, opts);
   const sync = store.sync(graph);
@@ -12442,7 +12716,7 @@ var init_source = __esm({
       lines(file2) {
         let p = this.files.get(file2);
         if (!p) {
-          p = readFile10(join16(this.root, file2), "utf8").then(
+          p = readFile10(join17(this.root, file2), "utf8").then(
             (t) => t.replace(/\r\n?/g, "\n").split("\n"),
             () => void 0
           );
@@ -12865,7 +13139,7 @@ var init_where = __esm({
 });
 
 // src/query/decide.ts
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 function relatedNodes(question, options, hint, store, limit) {
   const terms = queryTerms([question, ...options, hint ?? ""].join(" "));
   return whereCandidates(store.getNodes()).map((node2) => ({ node: node2, s: lexicalScore(terms, { node: node2, tags: store.getTags(node2.id) }) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s || (a.node.id < b.node.id ? -1 : 1)).slice(0, Math.max(0, limit)).map((x) => x.node.id);
@@ -12941,7 +13215,7 @@ async function decide2(question, options, contextHint, opts) {
     if (nodes.length || contextHint?.trim()) {
       record2.scope = { ...nodes.length ? { nodes } : {}, ...contextHint?.trim() ? { context: contextHint } : {} };
     }
-    logFile = typeof opts.log === "string" ? opts.log : join17(opts.root, STORE_DIR3, DECISION_LOG);
+    logFile = typeof opts.log === "string" ? opts.log : join18(opts.root, STORE_DIR3, DECISION_LOG);
     await appendDecisionLog(logFile, record2);
   }
   const result = {
@@ -12960,6 +13234,7 @@ async function decide2(question, options, contextHint, opts) {
     ...opts.backend.samples && opts.backend.samples > 1 ? { samples: opts.backend.samples } : {}
   };
   if (opts.backend.model !== void 0) result.model = opts.backend.model;
+  if (opts.backend.modelSource !== void 0) result.modelSource = opts.backend.modelSource;
   if (logFile) result.logFile = logFile;
   return result;
 }
@@ -12992,7 +13267,7 @@ __export(triage_exports, {
   DEFAULT_TRIAGE_BUDGET: () => DEFAULT_TRIAGE_BUDGET,
   triage: () => triage
 });
-import { join as join18 } from "node:path";
+import { join as join19 } from "node:path";
 function riskQuestion(instructions) {
   return { type: "score", instructions, criteria: [...RISK_LEVELS] };
 }
@@ -13115,7 +13390,7 @@ ${ctx.map((l) => `- ${l}`).join("\n")}` : "";
   if (opts.log !== false) {
     record2.id = decisionId(record2);
     record2.scope = logDiff(diff);
-    logFile = typeof opts.log === "string" ? opts.log : join18(opts.root, STORE_DIR3, DECISION_LOG);
+    logFile = typeof opts.log === "string" ? opts.log : join19(opts.root, STORE_DIR3, DECISION_LOG);
     await appendDecisionLog(logFile, record2);
   }
   const result = {
@@ -13131,6 +13406,7 @@ ${ctx.map((l) => `- ${l}`).join("\n")}` : "";
     ...backend.samples && backend.samples > 1 ? { samples: backend.samples } : {}
   };
   if (backend.model !== void 0) result.model = backend.model;
+  if (backend.modelSource !== void 0) result.modelSource = backend.modelSource;
   if (logFile) result.logFile = logFile;
   return result;
 }
@@ -13155,7 +13431,7 @@ var init_triage = __esm({
 });
 
 // src/query/explain.ts
-import { join as join19 } from "node:path";
+import { join as join20 } from "node:path";
 async function explainDecideState(question, scope, store, root2, backend, budget) {
   const segments = await decideSegments(scope.context, scope.nodes ?? [], { root: root2, store });
   const chunks = segments.map((s) => s.chunk);
@@ -13213,7 +13489,7 @@ function findDecision(records, id) {
   return hits[hits.length - 1];
 }
 async function explainDecision(id, opts) {
-  const logFile = opts.logFile ?? join19(opts.root, STORE_DIR3, DECISION_LOG);
+  const logFile = opts.logFile ?? join20(opts.root, STORE_DIR3, DECISION_LOG);
   const record2 = findDecision(await readDecisionLog(logFile), id);
   if (!record2) throw new Error(`no decision with id "${id}" in ${logFile}`);
   if (hasContent(record2.explain) && !opts.refresh) {
@@ -13313,7 +13589,7 @@ function renderTriage(r) {
   out2.push(...explainLines(r.explain));
   const explainCost = r.calls.explain ? ` + ${r.calls.explain} explain` : "";
   const runs = r.samples && r.samples > 1 ? ` (x ${r.samples} samples = ${(r.calls.decide + r.calls.explain) * r.samples} model runs)` : "";
-  out2.push(`cost  ${r.calls.decide} calls${explainCost}${runs}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ""}`);
+  out2.push(`cost  ${r.calls.decide} calls${explainCost}${runs}, ${secs(r.latencyMs)}, ${modelText2(r)}`);
   if (r.record.id) out2.push(`id    ${r.record.id}`);
   return out2.join("\n");
 }
@@ -13324,7 +13600,7 @@ function renderDecide(r) {
     "advice only: the choice stays with you"
   ];
   if (r.context.length) out2.push(`context  ${r.context.map(safeIdText).join(", ")}`);
-  out2.push(`cost  ${callsText(r.calls, r.samples)}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ""}`);
+  out2.push(`cost  ${callsText(r.calls, r.samples)}, ${secs(r.latencyMs)}, ${modelText2(r)}`);
   if (r.record.id) out2.push(`id    ${r.record.id}`);
   return out2.join("\n");
 }
@@ -13349,6 +13625,10 @@ function renderGraph(v) {
   edges("out", v.out, (e) => safeNodeId(e.to));
   edges("in", v.in, (e) => safeNodeId(e.from));
   return out2.join("\n");
+}
+function modelText2(r) {
+  if (r.modelSource) return `${r.backend}, ${r.modelSource}`;
+  return `${r.backend}${r.model ? ` (${r.model})` : ""}`;
 }
 var init_render3 = __esm({
   "src/query/render.ts"() {
@@ -13448,8 +13728,8 @@ __export(store_exports, {
   readIndexedAt: () => readIndexedAt,
   storeProblem: () => storeProblem
 });
-import { existsSync as existsSync3, readFileSync as readFileSync4, renameSync as renameSync2, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname9, join as join20 } from "node:path";
+import { existsSync as existsSync4, readFileSync as readFileSync5, renameSync as renameSync3, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname9, join as join21 } from "node:path";
 function loadSqlite(get = builtin) {
   let mod;
   const emit = process.emitWarning;
@@ -13532,9 +13812,9 @@ function toTag(r) {
 }
 function readIndexedAt(storeDir) {
   try {
-    const file2 = join20(storeDir, META_FILE);
+    const file2 = join21(storeDir, META_FILE);
     assertNotSymlinkSync(file2);
-    const v = JSON.parse(readFileSync4(file2, "utf8")).indexedAt;
+    const v = JSON.parse(readFileSync5(file2, "utf8")).indexedAt;
     return typeof v === "number" && Number.isFinite(v) ? v : void 0;
   } catch {
     return void 0;
@@ -13629,9 +13909,9 @@ CREATE INDEX IF NOT EXISTS tags_question ON tags(question_id);
        * anything, so callers must still treat what it returns as untrusted text.
        */
       static openForRead(repoRoot) {
-        const dir = join20(repoRoot, STORE_DIR4);
-        const file2 = join20(dir, STORE_FILE);
-        if (!existsSync3(file2)) return void 0;
+        const dir = join21(repoRoot, STORE_DIR4);
+        const file2 = join21(dir, STORE_FILE);
+        if (!existsSync4(file2)) return void 0;
         const files = [file2, `${file2}-wal`, `${file2}-shm`];
         for (const f of [dir, ...files]) assertNotSymlinkSync(f);
         if (storeTrackedByGit(repoRoot)) return void 0;
@@ -13640,15 +13920,15 @@ CREATE INDEX IF NOT EXISTS tags_question ON tags(question_id);
       /** Records that a full parse just finished (see indexedAt). No-op for an in-memory store. */
       markIndexed(at = Date.now()) {
         if (this.path === ":memory:") return;
-        const file2 = join20(dirname9(this.path), META_FILE);
+        const file2 = join21(dirname9(this.path), META_FILE);
         const tmp = `${file2}.${process.pid}.tmp`;
         try {
           assertNotSymlinkSync(file2);
-          writeFileSync3(tmp, `${JSON.stringify({ indexedAt: at })}
+          writeFileSync4(tmp, `${JSON.stringify({ indexedAt: at })}
 `, { flag: "w" });
-          renameSync2(tmp, file2);
+          renameSync3(tmp, file2);
         } catch {
-          rmSync(tmp, { force: true });
+          rmSync2(tmp, { force: true });
         }
       }
       /** Epoch ms of the last full parse, or undefined when unknown. */
@@ -13663,13 +13943,13 @@ CREATE INDEX IF NOT EXISTS tags_question ON tags(question_id);
        */
       static open(repoRoot) {
         const dir = ensureStoreDirSync(repoRoot, STORE_DIR4);
-        const file2 = join20(dir, STORE_FILE);
+        const file2 = join21(dir, STORE_FILE);
         const files = [file2, `${file2}-wal`, `${file2}-shm`];
         for (const f of files) assertNotSymlinkSync(f);
         let reason;
-        if (existsSync3(file2)) {
+        if (existsSync4(file2)) {
           reason = storeTrackedByGit(repoRoot) ? "it is committed to git" : storeProblem(file2);
-          if (reason) for (const f of files) rmSync(f, { force: true });
+          if (reason) for (const f of files) rmSync2(f, { force: true });
         }
         const store = new _GraphStore(file2);
         if (reason) store.rebuilt = reason;
@@ -13919,8 +14199,8 @@ __export(worker_exports, {
 });
 import { spawn as spawn2 } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync as existsSync4, openSync, readFileSync as readFileSync5, renameSync as renameSync3, rmSync as rmSync2, statSync, writeSync } from "node:fs";
-import { join as join21 } from "node:path";
+import { closeSync, existsSync as existsSync5, openSync, readFileSync as readFileSync6, renameSync as renameSync4, rmSync as rmSync3, statSync as statSync2, writeSync } from "node:fs";
+import { join as join22 } from "node:path";
 function int(v) {
   const n = v === void 0 ? NaN : Number(v);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : void 0;
@@ -13948,9 +14228,9 @@ function localDay(now) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function storeFile(root2, name2) {
-  const dir = join21(root2, STORE_DIR5);
+  const dir = join22(root2, STORE_DIR5);
   assertNotSymlinkSync(dir);
-  const file2 = join21(dir, name2);
+  const file2 = join22(dir, name2);
   assertNotSymlinkSync(file2);
   return file2;
 }
@@ -13958,7 +14238,7 @@ function readWorkerState(root2, now = Date.now()) {
   const day = localDay(now);
   let raw = {};
   try {
-    raw = JSON.parse(readFileSync5(storeFile(root2, WORKER_STATE_FILE), "utf8"));
+    raw = JSON.parse(readFileSync6(storeFile(root2, WORKER_STATE_FILE), "utf8"));
   } catch {
     raw = {};
   }
@@ -13985,9 +14265,9 @@ function writeWorkerState(root2, state) {
     } finally {
       closeSync(fd);
     }
-    renameSync3(tmp, file2);
+    renameSync4(tmp, file2);
   } catch (err2) {
-    rmSync2(tmp, { force: true });
+    rmSync3(tmp, { force: true });
     throw err2;
   }
 }
@@ -14002,7 +14282,7 @@ function pidAlive(pid) {
 function readLockAt(file2) {
   let text2;
   try {
-    text2 = readFileSync5(file2, "utf8");
+    text2 = readFileSync6(file2, "utf8");
   } catch (err2) {
     if (err2.code === "ENOENT") return void 0;
     throw err2;
@@ -14016,7 +14296,7 @@ function readLockAt(file2) {
   }
   let mtime = Date.now();
   try {
-    mtime = statSync(file2).mtimeMs;
+    mtime = statSync2(file2).mtimeMs;
   } catch {
   }
   return { pid: -1, startedAt: Math.floor(mtime) };
@@ -14039,7 +14319,7 @@ function lockHeld(lock, now, maxAgeMs = DEFAULT_WORKER_LIMITS.lockMaxAgeMs, aliv
 function takeOverStaleLock(file2, stale) {
   const mutex = `${file2}.takeover`;
   try {
-    if (Date.now() - statSync(mutex).mtimeMs > TAKEOVER_STALE_MS) rmSync2(mutex, { force: true });
+    if (Date.now() - statSync2(mutex).mtimeMs > TAKEOVER_STALE_MS) rmSync3(mutex, { force: true });
   } catch {
   }
   let fd;
@@ -14058,10 +14338,10 @@ function takeOverStaleLock(file2, stale) {
     }
     if (current === void 0) return true;
     if (!sameLock(current, stale)) return false;
-    rmSync2(file2, { force: true });
+    rmSync3(file2, { force: true });
     return true;
   } finally {
-    rmSync2(mutex, { force: true });
+    rmSync3(mutex, { force: true });
   }
 }
 function acquireLock(root2, now = Date.now(), opts = {}) {
@@ -14103,7 +14383,7 @@ function releaseLock(root2, name2 = WORKER_LOCK_FILE) {
     const file2 = storeFile(root2, name2);
     const token2 = ownTokens.get(file2);
     ownTokens.delete(file2);
-    if (token2 !== void 0 && readLockAt(file2)?.token === token2) rmSync2(file2, { force: true });
+    if (token2 !== void 0 && readLockAt(file2)?.token === token2) rmSync3(file2, { force: true });
   } catch {
   }
 }
@@ -14116,9 +14396,9 @@ function handOverLock(root2, name2, pid) {
     const tmp = `${file2}.${process.pid}.tmp`;
     try {
       writeNewFileSync(tmp, JSON.stringify({ pid, startedAt: current.startedAt, token: token2 }));
-      renameSync3(tmp, file2);
+      renameSync4(tmp, file2);
     } catch (err2) {
-      rmSync2(tmp, { force: true });
+      rmSync3(tmp, { force: true });
       throw err2;
     }
     ownTokens.delete(file2);
@@ -14130,7 +14410,7 @@ function handOverLock(root2, name2, pid) {
 function releaseLockOfPid(root2, name2, pid = process.pid) {
   try {
     const file2 = storeFile(root2, name2);
-    if (readLockAt(file2)?.pid === pid) rmSync2(file2, { force: true });
+    if (readLockAt(file2)?.pid === pid) rmSync3(file2, { force: true });
   } catch {
   }
 }
@@ -14144,7 +14424,7 @@ function writeNewFileSync(file2, text2) {
 }
 function shouldStartWorker(root2, env, now = Date.now(), config2) {
   if (env.GLASSBOX_NESTED === "1") return { start: false, reason: "nested glassbox call" };
-  if (!existsSync4(join21(root2, STORE_DIR5, STORE_FILE2))) return { start: false, reason: "no glassbox graph" };
+  if (!existsSync5(join22(root2, STORE_DIR5, STORE_FILE2))) return { start: false, reason: "no glassbox graph" };
   const cfg = config2 ?? loadProjectConfigSafe(root2);
   if (!workerEnabled(env, cfg)) return { start: false, reason: "worker disabled" };
   const limits = workerLimits(env, cfg);
@@ -14180,7 +14460,7 @@ function maybeStartWorker(root2, opts) {
 function resumePendingWorker(root2, opts) {
   try {
     if (opts.env.GLASSBOX_NESTED === "1") return { start: false, reason: "nested glassbox call" };
-    if (!existsSync4(join21(root2, STORE_DIR5, WORKER_STATE_FILE))) return { start: false, reason: "nothing pending" };
+    if (!existsSync5(join22(root2, STORE_DIR5, WORKER_STATE_FILE))) return { start: false, reason: "nothing pending" };
     if (!readWorkerState(root2, opts.now ?? Date.now()).pending) return { start: false, reason: "nothing pending" };
     return maybeStartWorker(root2, opts);
   } catch (err2) {
@@ -14188,13 +14468,13 @@ function resumePendingWorker(root2, opts) {
   }
 }
 function workerPending(root2, now = Date.now()) {
-  return existsSync4(join21(root2, STORE_DIR5, WORKER_STATE_FILE)) && readWorkerState(root2, now).pending === true;
+  return existsSync5(join22(root2, STORE_DIR5, WORKER_STATE_FILE)) && readWorkerState(root2, now).pending === true;
 }
 async function runWorker(root2, opts) {
   const now = opts.now ?? Date.now;
   const config2 = loadProjectConfigSafe(root2);
   const limits = workerLimits(opts.env, config2);
-  if (!existsSync4(join21(root2, STORE_DIR5, STORE_FILE2))) return { ran: false, reason: "no glassbox graph", state: readWorkerState(root2, now()) };
+  if (!existsSync5(join22(root2, STORE_DIR5, STORE_FILE2))) return { ran: false, reason: "no glassbox graph", state: readWorkerState(root2, now()) };
   if (!acquireLock(root2, now(), { maxAgeMs: limits.lockMaxAgeMs })) {
     return { ran: false, reason: "a worker is running", state: readWorkerState(root2, now()) };
   }
@@ -14349,9 +14629,9 @@ __export(autoinit_exports, {
   writeAutoInitState: () => writeAutoInitState
 });
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync5, openSync as openSync2, readFileSync as readFileSync6, realpathSync as realpathSync3, renameSync as renameSync4, rmSync as rmSync3, writeSync as writeSync2 } from "node:fs";
-import { homedir } from "node:os";
-import { join as join22, parse, resolve as resolve3 } from "node:path";
+import { closeSync as closeSync2, existsSync as existsSync6, openSync as openSync2, readFileSync as readFileSync7, realpathSync as realpathSync3, renameSync as renameSync5, rmSync as rmSync4, writeSync as writeSync2 } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join23, parse, resolve as resolve4 } from "node:path";
 function autoInitEnabled(env, config2 = {}) {
   return featureEnabled(env, { env: "GLASSBOX_AUTO_INIT", plugin: "CLAUDE_PLUGIN_OPTION_AUTO_INIT" }, config2.autoInit, true);
 }
@@ -14360,15 +14640,15 @@ function autoInitMaxFiles(env) {
   return env.GLASSBOX_AUTO_INIT_MAX_FILES?.trim() && Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_AUTO_INIT_MAX_FILES;
 }
 function storeFile2(root2, name2) {
-  const dir = join22(root2, STORE_DIR6);
+  const dir = join23(root2, STORE_DIR6);
   assertNotSymlinkSync(dir);
-  const file2 = join22(dir, name2);
+  const file2 = join23(dir, name2);
   assertNotSymlinkSync(file2);
   return file2;
 }
 function readAutoInitState(root2) {
   try {
-    const v = JSON.parse(readFileSync6(storeFile2(root2, AUTOINIT_STATE_FILE), "utf8"));
+    const v = JSON.parse(readFileSync7(storeFile2(root2, AUTOINIT_STATE_FILE), "utf8"));
     if (typeof v !== "object" || v === null || Array.isArray(v)) return void 0;
     const o = v;
     const out2 = {};
@@ -14393,14 +14673,14 @@ function writeAutoInitState(root2, state) {
     } finally {
       closeSync2(fd);
     }
-    renameSync4(tmp, file2);
+    renameSync5(tmp, file2);
   } catch (err2) {
-    rmSync3(tmp, { force: true });
+    rmSync4(tmp, { force: true });
     throw err2;
   }
 }
 function autoInitRunning(root2, now = Date.now()) {
-  if (!existsSync5(join22(root2, STORE_DIR6, AUTOINIT_LOCK_FILE))) return void 0;
+  if (!existsSync6(join23(root2, STORE_DIR6, AUTOINIT_LOCK_FILE))) return void 0;
   const lock = readLock(root2, AUTOINIT_LOCK_FILE);
   return lock && lockHeld(lock, now, AUTOINIT_LOCK_MAX_AGE_MS) ? { since: lock.startedAt } : void 0;
 }
@@ -14415,21 +14695,21 @@ function git3(cwd, args2, timeout) {
   }
 }
 function gitWorkTreeRoot(start2) {
-  if (!existsSync5(start2)) return void 0;
+  if (!existsSync6(start2)) return void 0;
   const top = git3(start2, ["rev-parse", "--show-toplevel"], 2e3)?.trim();
-  return top ? resolve3(top) : void 0;
+  return top ? resolve4(top) : void 0;
 }
 function real(p) {
   try {
     return realpathSync3(p);
   } catch {
-    return resolve3(p);
+    return resolve4(p);
   }
 }
 function forbiddenRoot(root2, env) {
   const r = real(root2);
   if (parse(r).root === r) return true;
-  const homes = [homedir(), env.HOME, env.USERPROFILE].filter((h) => !!h?.trim());
+  const homes = [homedir2(), env.HOME, env.USERPROFILE].filter((h) => !!h?.trim());
   return homes.some((h) => real(h) === r);
 }
 function isSourcePath(rel) {
@@ -14450,7 +14730,7 @@ function checkAutoInit(start2, env, now = Date.now(), count = countSourceFiles, 
   const root2 = gitWorkTreeRoot(start2);
   if (!root2) return { action: "none", reason: "not inside a git work tree" };
   if (forbiddenRoot(root2, env)) return { action: "none", reason: "the repo root is the home directory or /", root: root2 };
-  const storeExists = existsSync5(join22(root2, STORE_DIR6));
+  const storeExists = existsSync6(join23(root2, STORE_DIR6));
   if (storeExists && storeTrackedByGit(root2)) return { action: "none", reason: ".glassbox came with the repo (git tracks it)", root: root2 };
   const config2 = loadProjectConfigSafe(root2);
   if (!autoInitEnabled(env, config2)) return { action: "none", reason: "auto-init is off", root: root2 };
@@ -14458,7 +14738,7 @@ function checkAutoInit(start2, env, now = Date.now(), count = countSourceFiles, 
     const running = autoInitRunning(root2, now);
     if (running) return { action: "indexing", root: root2, since: running.since };
   }
-  if (existsSync5(join22(root2, STORE_DIR6, STORE_FILE3))) return { action: "none", reason: "the repo already has a graph", root: root2 };
+  if (existsSync6(join23(root2, STORE_DIR6, STORE_FILE3))) return { action: "none", reason: "the repo already has a graph", root: root2 };
   if (storeExists) {
     const prev = readAutoInitState(root2);
     const failed = prev?.error ?? prev?.skipped;
@@ -14636,14 +14916,14 @@ __export(refresh_exports, {
   refresh: () => refresh,
   renderRefresh: () => renderRefresh
 });
-import { existsSync as existsSync6 } from "node:fs";
-import { isAbsolute as isAbsolute4, join as join23, relative as relative3, sep as sep2 } from "node:path";
+import { existsSync as existsSync7 } from "node:fs";
+import { isAbsolute as isAbsolute4, join as join24, relative as relative3, sep as sep3 } from "node:path";
 function hasGraph(root2) {
-  return existsSync6(join23(root2, STORE_DIR3, STORE_FILE4));
+  return existsSync7(join24(root2, STORE_DIR3, STORE_FILE4));
 }
 function graphPath(root2, file2) {
   const rel = isAbsolute4(file2) ? relative3(root2, file2) : file2;
-  const posix3 = rel.split(sep2).join("/").replace(/^\.\//, "");
+  const posix3 = rel.split(sep3).join("/").replace(/^\.\//, "");
   if (!posix3 || posix3.startsWith("../") || posix3 === ".." || isAbsolute4(posix3)) return void 0;
   return posix3;
 }
@@ -23188,7 +23468,7 @@ function isRef(value) {
 function cloneIssues(issues) {
   return issues.map((iss) => iss.path ? { ...iss, path: iss.path.slice() } : { ...iss });
 }
-function isRecursive(inst, stack, resolve7) {
+function isRecursive(inst, stack, resolve8) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -23198,7 +23478,7 @@ function isRecursive(inst, stack, resolve7) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve7);
+      const answer = isRecursive(child, stack, resolve8);
       if (answer > result)
         result = answer;
     }
@@ -23209,7 +23489,7 @@ function isRecursive(inst, stack, resolve7) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve7) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve8) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -23273,7 +23553,7 @@ function isRecursive(inst, stack, resolve7) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve7 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve8 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -43174,7 +43454,7 @@ var init_protocol = __esm({
               return;
             }
             const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-            await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
+            await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
             options?.signal?.throwIfAborted();
           }
         } catch (error62) {
@@ -43191,7 +43471,7 @@ var init_protocol = __esm({
        */
       request(request, resultSchema, options) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-        return new Promise((resolve7, reject) => {
+        return new Promise((resolve8, reject) => {
           const earlyReject = (error62) => {
             reject(error62);
           };
@@ -43269,7 +43549,7 @@ var init_protocol = __esm({
               if (!parseResult.success) {
                 reject(parseResult.error);
               } else {
-                resolve7(parseResult.data);
+                resolve8(parseResult.data);
               }
             } catch (error62) {
               reject(error62);
@@ -43530,12 +43810,12 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve7, reject) => {
+        return new Promise((resolve8, reject) => {
           if (signal.aborted) {
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
-          const timeoutId = setTimeout(resolve7, interval);
+          const timeoutId = setTimeout(resolve8, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -46583,7 +46863,7 @@ var require_compile = __commonJS({
       const schOrFunc = root2.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve7.call(this, root2, ref);
+      let _sch = resolve8.call(this, root2, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root2.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -46610,7 +46890,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve7(root2, ref) {
+    function resolve8(root2, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -47443,7 +47723,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve7(baseURI, relativeURI, options) {
+    function resolve8(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -47812,7 +48092,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize3,
-      resolve: resolve7,
+      resolve: resolve8,
       resolveComponent,
       equal,
       serialize,
@@ -53666,7 +53946,7 @@ var require_compile2 = __commonJS({
       const schOrFunc = root2.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve7.call(this, root2, ref);
+      let _sch = resolve8.call(this, root2, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root2.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -53693,7 +53973,7 @@ var require_compile2 = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve7(root2, ref) {
+    function resolve8(root2, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -57742,7 +58022,7 @@ var init_mcp = __esm({
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5e3;
         while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-          await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
+          await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
           const updatedTask = await extra.taskStore.getTask(taskId);
           if (!updatedTask) {
             throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -58353,12 +58633,12 @@ var init_stdio2 = __esm({
         this.onclose?.();
       }
       send(message) {
-        return new Promise((resolve7) => {
+        return new Promise((resolve8) => {
           const json3 = serializeMessage(message);
           if (this._stdout.write(json3)) {
-            resolve7();
+            resolve8();
           } else {
-            this._stdout.once("drain", resolve7);
+            this._stdout.once("drain", resolve8);
           }
         });
       }
@@ -58422,7 +58702,7 @@ __export(server_exports, {
   runStdioServer: () => runStdioServer
 });
 import { realpathSync as realpathSync4 } from "node:fs";
-import { delimiter as delimiter2, isAbsolute as isAbsolute5, relative as relative4, resolve as resolve4 } from "node:path";
+import { delimiter as delimiter2, isAbsolute as isAbsolute5, relative as relative4, resolve as resolve5 } from "node:path";
 function version2() {
   return packageVersion();
 }
@@ -58439,11 +58719,11 @@ function within2(parent, child) {
 }
 function makeRootResolver(baseRoot, env) {
   const allowed = [baseRoot, ...(env.GLASSBOX_ALLOWED_ROOTS ?? "").split(delimiter2).map((s) => s.trim()).filter(Boolean)].map(
-    (d) => real2(resolve4(baseRoot, d))
+    (d) => real2(resolve5(baseRoot, d))
   );
   return (r) => {
     if (!r) return baseRoot;
-    const dir = real2(resolve4(baseRoot, r));
+    const dir = real2(resolve5(baseRoot, r));
     if (!allowed.some((a) => within2(a, dir))) {
       throw new Error(`root ${r} is outside the project directory; add it to GLASSBOX_ALLOWED_ROOTS to allow it`);
     }
@@ -58466,7 +58746,7 @@ async function calibrated(root2, backend) {
 function createGlassboxServer(opts = {}) {
   const env = withPluginOptions(opts.env ?? process.env);
   const cwd = opts.cwd ?? process.cwd();
-  const baseRoot = resolve4(cwd, opts.root ?? defaultRoot(env, cwd));
+  const baseRoot = resolve5(cwd, opts.root ?? defaultRoot(env, cwd));
   const rootOf2 = makeRootResolver(baseRoot, env);
   const backendOf = (a, s = {}) => createBackend({
     env,
@@ -58823,7 +59103,7 @@ var init_server3 = __esm({
     );
     backendArgs = {
       backend: external_exports.enum(["auto", "claude-cli", "codex-cli", "anthropic", "openai-compat"]).optional().describe("Override the backend. Default: GLASSBOX_BACKEND or auto (the host agent's own CLI)."),
-      model: external_exports.string().regex(MODEL_ID, "a model id: letters, digits and . _ : / @ -").optional().describe("Override the model id. Default: GLASSBOX_MODEL or the backend default.")
+      model: external_exports.string().regex(MODEL_ID, "a model id: letters, digits and . _ : / @ -").optional().describe("Override the model id. Default: GLASSBOX_MODEL, else the model the user selected in Claude Code or Codex.")
     };
   }
 });
@@ -58876,8 +59156,8 @@ __export(context_exports, {
   renderAmbient: () => renderAmbient,
   safeFile: () => safeFile
 });
-import { statSync as statSync2 } from "node:fs";
-import { join as join24 } from "node:path";
+import { statSync as statSync3 } from "node:fs";
+import { join as join25 } from "node:path";
 function safeFile(file2) {
   if (!SAFE_FILE.test(file2) || file2.startsWith("/")) return false;
   const parts2 = file2.split("/");
@@ -58898,7 +59178,7 @@ function mentionedPaths(prompt) {
 }
 function mtimeMs(file2) {
   try {
-    return statSync2(file2).mtimeMs;
+    return statSync3(file2).mtimeMs;
   } catch {
     return void 0;
   }
@@ -58936,7 +59216,7 @@ function ambientContext(opts) {
     const top = scored[0].score;
     const above = scored.filter((c) => c.score >= minScore && c.score >= top / 2);
     if (above.length === 0) return done(started, relevance, "no-match");
-    const indexedAt = store.indexedAt() ?? mtimeMs(join24(opts.root, STORE_DIR4, STORE_FILE)) ?? 0;
+    const indexedAt = store.indexedAt() ?? mtimeMs(join25(opts.root, STORE_DIR4, STORE_FILE)) ?? 0;
     const perFile = /* @__PURE__ */ new Map();
     const picked = [];
     let stale = 0;
@@ -58948,7 +59228,7 @@ function ambientContext(opts) {
       if ((perFile.get(c.node.file) ?? 0) >= PER_FILE) continue;
       let fresh = fileState.get(c.node.file);
       if (fresh === void 0) {
-        const m = mtimeMs(join24(opts.root, c.node.file));
+        const m = mtimeMs(join25(opts.root, c.node.file));
         fresh = m !== void 0 && m <= indexedAt;
         fileState.set(c.node.file, fresh);
         checked2++;
@@ -59049,8 +59329,8 @@ __export(status_exports, {
   renderStatus: () => renderStatus,
   status: () => status
 });
-import { existsSync as existsSync7, readFileSync as readFileSync7 } from "node:fs";
-import { join as join25 } from "node:path";
+import { existsSync as existsSync8, readFileSync as readFileSync8 } from "node:fs";
+import { join as join26 } from "node:path";
 function ambientEnabled(env, config2) {
   return featureEnabled(env, { env: "GLASSBOX_AMBIENT", plugin: "CLAUDE_PLUGIN_OPTION_AMBIENT" }, config2.ambient?.enabled, false);
 }
@@ -59098,7 +59378,7 @@ async function status(root2, env, now = Date.now()) {
   }
   let graph;
   let graphError;
-  if (existsSync7(join25(root2, STORE_DIR7, STORE_FILE5))) {
+  if (existsSync8(join26(root2, STORE_DIR7, STORE_FILE5))) {
     try {
       graph = await graphStatus(root2);
     } catch (err2) {
@@ -59106,16 +59386,17 @@ async function status(root2, env, now = Date.now()) {
     }
   }
   const limits = workerLimits(env, config2);
-  const state = existsSync7(join25(root2, STORE_DIR7)) ? readWorkerState(root2, now) : { day: "", callsToday: 0 };
-  const lock = existsSync7(join25(root2, STORE_DIR7)) ? readLock(root2) : void 0;
+  const state = existsSync8(join26(root2, STORE_DIR7)) ? readWorkerState(root2, now) : { day: "", callsToday: 0 };
+  const lock = existsSync8(join26(root2, STORE_DIR7)) ? readLock(root2) : void 0;
   const last = Math.max(state.lastSpawnAt ?? 0, state.lastStartedAt ?? 0);
   const autoInit = autoInitStatus(root2, env, config2, graph, now);
   let agentsMdBlock = false;
   try {
-    agentsMdBlock = blockLineRange(readFileSync7(join25(root2, "AGENTS.md"), "utf8")) !== void 0;
+    agentsMdBlock = blockLineRange(readFileSync8(join26(root2, "AGENTS.md"), "utf8")) !== void 0;
   } catch {
     agentsMdBlock = false;
   }
+  const model = await modelStatus(root2, env);
   return {
     root: root2,
     ...graph ? { graph } : {},
@@ -59133,13 +59414,29 @@ async function status(root2, env, now = Date.now()) {
       budgetLeft: Math.max(0, limits.dailyCalls - state.callsToday)
     },
     agentsMdBlock,
+    model,
     autoInit,
     ...configError ? { configError } : {}
   };
 }
+async function modelStatus(root2, env) {
+  try {
+    const [{ createBackend: createBackend2 }, { withPluginOptions: withPluginOptions2 }] = await Promise.all([Promise.resolve().then(() => (init_backends(), backends_exports)), Promise.resolve().then(() => (init_env(), env_exports))]);
+    const e = withPluginOptions2(env);
+    const backend = createBackend2({ env: e, claudeCli: { projectDir: usableProjectDir(e) ?? root2 } });
+    const source = backend.modelSource ?? (backend.model ? backend.model : "backend default");
+    return { backend: backend.name, ...backend.model !== void 0 ? { model: backend.model } : {}, source };
+  } catch (err2) {
+    return { error: (err2 instanceof Error ? err2.message : String(err2)).split("\n")[0] };
+  }
+}
+function usableProjectDir(env) {
+  const t = env.CLAUDE_PROJECT_DIR?.trim();
+  return t && !t.includes("${") ? t : void 0;
+}
 function autoInitStatus(root2, env, config2, graph, now) {
   const enabled = autoInitEnabled(env, config2);
-  const hasStore = existsSync7(join25(root2, STORE_DIR7));
+  const hasStore = existsSync8(join26(root2, STORE_DIR7));
   const running = hasStore ? autoInitRunning(root2, now) : void 0;
   const st = hasStore ? readAutoInitState(root2) : void 0;
   const structureOnly = st?.structureOnly === true;
@@ -59187,6 +59484,7 @@ function renderStatus(s, now = Date.now()) {
   else out2.push("graph    none yet");
   out2.push(autoInitLine(s.autoInit));
   out2.push("mode" in s.mode ? `mode     ${s.mode.mode} (${s.mode.source === "default" ? "default" : `from ${s.mode.source}`})` : `mode     error: ${s.mode.error}`);
+  out2.push("error" in s.model ? `model    unknown: ${s.model.error}` : `model    ${s.model.source} (${s.model.backend})`);
   out2.push(`hooks    ambient ${s.ambient ? "on" : "off"}, gate ${s.gate ? "on" : "off"}, concise rules ${s.conciseRules ? "on" : "off"}, worker ${s.worker.enabled ? "on" : "off"}`);
   const w = s.worker;
   out2.push(
@@ -59232,6 +59530,7 @@ __export(hooks_exports, {
   findGraphRoot: () => findGraphRoot,
   gateTimeoutMs: () => gateTimeoutMs,
   hunkKeys: () => hunkKeys,
+  modelSwitchHook: () => modelSwitchHook,
   parseHookInput: () => parseHookInput,
   postEditHook: () => postEditHook,
   promptHook: () => promptHook,
@@ -59240,8 +59539,8 @@ __export(hooks_exports, {
   stopHook: () => stopHook,
   writeGateState: () => writeGateState
 });
-import { existsSync as existsSync8, readFileSync as readFileSync8, renameSync as renameSync5, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname10, join as join26, resolve as resolve5 } from "node:path";
+import { existsSync as existsSync9, readFileSync as readFileSync9, renameSync as renameSync6, rmSync as rmSync5, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname10, join as join27, resolve as resolve6 } from "node:path";
 function parseHookInput(text2) {
   if (!text2.trim() || text2.length > MAX_HOOK_INPUT) return {};
   try {
@@ -59249,7 +59548,7 @@ function parseHookInput(text2) {
     if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
     const o = v;
     const out2 = {};
-    for (const k of ["hook_event_name", "session_id", "cwd", "prompt", "tool_name"]) {
+    for (const k of ["hook_event_name", "session_id", "cwd", "prompt", "tool_name", "model", "to_model"]) {
       if (typeof o[k] === "string") out2[k] = o[k];
     }
     if (o.stop_hook_active === true || o.stop_hook_active === "true") out2.stop_hook_active = true;
@@ -59261,10 +59560,10 @@ function parseHookInput(text2) {
   }
 }
 function findGraphRoot(start2) {
-  let dir = resolve5(start2);
+  let dir = resolve6(start2);
   for (let i2 = 0; i2 < 40; i2++) {
-    if (existsSync8(join26(dir, STORE_DIR8, STORE_FILE6))) return dir;
-    if (existsSync8(join26(dir, ".git"))) return void 0;
+    if (existsSync9(join27(dir, STORE_DIR8, STORE_FILE6))) return dir;
+    if (existsSync9(join27(dir, ".git"))) return void 0;
     const up = dirname10(dir);
     if (up === dir) return void 0;
     dir = up;
@@ -59274,7 +59573,7 @@ function findGraphRoot(start2) {
 function rootFor(input2, ctx) {
   const usable = (v) => v?.trim() && !v.includes("${") ? v.trim() : void 0;
   const start2 = usable(ctx.root) ?? usable(ctx.env.CLAUDE_PROJECT_DIR) ?? usable(input2.cwd) ?? ctx.cwd;
-  return findGraphRoot(resolve5(ctx.cwd, start2));
+  return findGraphRoot(resolve6(ctx.cwd, start2));
 }
 function hostEnv(ctx) {
   return ctx.host && !ctx.env.GLASSBOX_HOST?.trim() ? { ...ctx.env, GLASSBOX_HOST: ctx.host } : ctx.env;
@@ -59343,7 +59642,7 @@ async function postEditHook(input2, ctx) {
   const files = editedFiles(input2.tool_input);
   if (files.length === 0) return "";
   const { refresh: refresh2 } = await Promise.resolve().then(() => (init_refresh(), refresh_exports));
-  const r = await refresh2(root2, { files: files.map((f) => resolve5(input2.cwd ?? root2, f)) });
+  const r = await refresh2(root2, { files: files.map((f) => resolve6(input2.cwd ?? root2, f)) });
   if (ctx.entry && (r.stale.length || workerPending(root2))) maybeStartWorker(root2, startOptions(ctx, ctx.entry));
   return "";
 }
@@ -59352,10 +59651,27 @@ function sessionContext(text2) {
 }
 function startDir(input2, ctx) {
   const usable = (v) => v?.trim() && !v.includes("${") ? v.trim() : void 0;
-  return resolve5(ctx.cwd, usable(ctx.root) ?? usable(ctx.env.CLAUDE_PROJECT_DIR) ?? usable(input2.cwd) ?? ctx.cwd);
+  return resolve6(ctx.cwd, usable(ctx.root) ?? usable(ctx.env.CLAUDE_PROJECT_DIR) ?? usable(input2.cwd) ?? ctx.cwd);
 }
 async function sessionStartHook(input2, ctx) {
   if (ctx.env.GLASSBOX_NESTED === "1") return "";
+  try {
+    return await sessionStartWork(input2, ctx);
+  } finally {
+    rememberSessionModel(input2, ctx, input2.model);
+  }
+}
+function rememberSessionModel(input2, ctx, model) {
+  if (!model || ctx.host !== void 0 && ctx.host !== "claude-code") return;
+  const project = claudeProjectDir(ctx.env, startDir(input2, ctx));
+  recordSessionModel(project, input2.session_id ?? ctx.env.CLAUDE_CODE_SESSION_ID, model, ctx.now?.() ?? Date.now());
+}
+function modelSwitchHook(input2, ctx) {
+  if (ctx.env.GLASSBOX_NESTED === "1") return "";
+  rememberSessionModel(input2, ctx, input2.to_model);
+  return "";
+}
+async function sessionStartWork(input2, ctx) {
   const now = ctx.now?.() ?? Date.now();
   const start2 = startDir(input2, ctx);
   const autoinit = await Promise.resolve().then(() => (init_autoinit(), autoinit_exports));
@@ -59387,15 +59703,15 @@ async function sessionStartHook(input2, ctx) {
   return r.started || !r.started && r.indexing ? sessionContext(autoinit.INDEXING_CONTEXT) : "";
 }
 function gateFile(root2) {
-  const dir = join26(root2, STORE_DIR8);
+  const dir = join27(root2, STORE_DIR8);
   assertNotSymlinkSync(dir);
-  const file2 = join26(dir, GATE_STATE_FILE);
+  const file2 = join27(dir, GATE_STATE_FILE);
   assertNotSymlinkSync(file2);
   return file2;
 }
 function readGateState(root2) {
   try {
-    const v = JSON.parse(readFileSync8(gateFile(root2), "utf8"));
+    const v = JSON.parse(readFileSync9(gateFile(root2), "utf8"));
     if (typeof v.lastHash !== "string" || typeof v.at !== "number") return void 0;
     const flagged = Array.isArray(v.flagged) ? v.flagged.filter((k) => typeof k === "string").slice(-MAX_FLAGGED) : [];
     return { lastHash: v.lastHash, at: v.at, ...v.outcome !== void 0 ? { outcome: v.outcome } : {}, ...flagged.length ? { flagged } : {} };
@@ -59407,11 +59723,11 @@ function writeGateState(root2, state) {
   const file2 = gateFile(root2);
   const tmp = `${file2}.${process.pid}.tmp`;
   try {
-    writeFileSync4(tmp, `${JSON.stringify(state)}
+    writeFileSync5(tmp, `${JSON.stringify(state)}
 `, { flag: "wx" });
-    renameSync5(tmp, file2);
+    renameSync6(tmp, file2);
   } catch {
-    rmSync4(tmp, { force: true });
+    rmSync5(tmp, { force: true });
   }
 }
 async function stopHook(input2, ctx) {
@@ -59524,6 +59840,7 @@ var init_hooks = __esm({
     "use strict";
     init_define_GLASSBOX_BUNDLE();
     init_context();
+    init_model_choice();
     init_modes();
     init_project_config();
     init_status();
@@ -59556,8 +59873,8 @@ __export(launcher_exports, {
   spawnForeground: () => spawnForeground
 });
 import { spawn as spawn3 } from "node:child_process";
-import { statSync as statSync3 } from "node:fs";
-import { join as join27 } from "node:path";
+import { statSync as statSync4 } from "node:fs";
+import { join as join28 } from "node:path";
 function isAgent(v) {
   return AGENTS.includes(v);
 }
@@ -59570,7 +59887,7 @@ async function graphOutOfDate(root2) {
     if (at === void 0) return true;
     for (const n of store.getNodes({ kind: "file" })) {
       try {
-        if (statSync3(join27(root2, n.file)).mtimeMs > at) return true;
+        if (statSync4(join28(root2, n.file)).mtimeMs > at) return true;
       } catch {
         return true;
       }
@@ -59636,7 +59953,7 @@ var init_launcher = __esm({
     HOST = { claude: "claude-code", codex: "codex" };
     BIN_ENV = { claude: "GLASSBOX_CLAUDE_BIN", codex: "GLASSBOX_CODEX_BIN" };
     FORWARDED = ["SIGINT", "SIGTERM", "SIGHUP"];
-    spawnForeground = (cmd, args2, opts) => new Promise((resolve7, reject) => {
+    spawnForeground = (cmd, args2, opts) => new Promise((resolve8, reject) => {
       const child = spawn3(cmd, [...args2], { cwd: opts.cwd, env: opts.env, stdio: "inherit" });
       const handlers = FORWARDED.map((sig) => {
         const h = () => {
@@ -59654,7 +59971,7 @@ var init_launcher = __esm({
       });
       child.on("exit", (code, signal) => {
         cleanup();
-        resolve7({ code, signal });
+        resolve8({ code, signal });
       });
     });
   }
@@ -59664,7 +59981,7 @@ var init_launcher = __esm({
 init_define_GLASSBOX_BUNDLE();
 import { realpathSync as realpathSync5 } from "node:fs";
 import { readFile as readFile11 } from "node:fs/promises";
-import { resolve as resolve6 } from "node:path";
+import { resolve as resolve7 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // node_modules/commander/esm.mjs
@@ -59694,7 +60011,7 @@ init_config();
 // src/calibrate/cli.ts
 init_define_GLASSBOX_BUNDLE();
 import { mkdir as mkdir2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname8, join as join13, resolve as resolve2 } from "node:path";
+import { dirname as dirname8, join as join14, resolve as resolve3 } from "node:path";
 
 // src/calibrate/bench.ts
 init_define_GLASSBOX_BUNDLE();
@@ -59709,11 +60026,11 @@ init_fit();
 init_metrics();
 init_build();
 import { readFile as readFile7 } from "node:fs/promises";
-import { dirname as dirname6, isAbsolute as isAbsolute3, join as join11, resolve } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute3, join as join12, resolve as resolve2 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function defaultBenchDir() {
   const here = dirname6(fileURLToPath2(import.meta.url));
-  return BUNDLE ? resolve(here, "..", "bench") : resolve(here, "..", "..", "bench");
+  return BUNDLE ? resolve2(here, "..", "bench") : resolve2(here, "..", "..", "bench");
 }
 function itemQuestion(item) {
   switch (item.type) {
@@ -59733,11 +60050,11 @@ function validateItem(item, repos) {
   validateQuestion(item.id, q);
   if (!optionKeys(q).includes(item.truth)) throw new Error(`bench item "${item.id}": truth "${item.truth}" is not an option`);
 }
-async function loadBench(file2 = join11(defaultBenchDir(), "questions.json")) {
+async function loadBench(file2 = join12(defaultBenchDir(), "questions.json")) {
   const data = JSON.parse(await readFile7(file2, "utf8"));
   if (data.version !== 1 || !Array.isArray(data.items)) throw new Error(`${file2}: not a version 1 bench file`);
   const repos = {};
-  for (const [name2, root2] of Object.entries(data.repos ?? {})) repos[name2] = isAbsolute3(root2) ? root2 : resolve(dirname6(file2), root2);
+  for (const [name2, root2] of Object.entries(data.repos ?? {})) repos[name2] = isAbsolute3(root2) ? root2 : resolve2(dirname6(file2), root2);
   const seen = /* @__PURE__ */ new Set();
   for (const item of data.items) {
     validateItem(item, repos);
@@ -60019,7 +60336,7 @@ function renderBenchMarkdown(r) {
 init_metrics();
 init_store();
 async function runLabel(id, answer, flags2, io) {
-  const r = await labelDecision(resolve2(io.cwd, flags2.root ?? "."), id, answer);
+  const r = await labelDecision(resolve3(io.cwd, flags2.root ?? "."), id, answer);
   io.stdout(flags2.json ? `${JSON.stringify(r, null, 2)}
 ` : `labeled ${r.id}: truth=${r.truth}, model said ${r.predicted}${r.truth === r.predicted ? "" : " (wrong)"}
 `);
@@ -60029,7 +60346,7 @@ function withBins(m, bins) {
   return { ...m, bins };
 }
 async function runCalibrate(flags2, io) {
-  const root2 = resolve2(io.cwd, flags2.root ?? ".");
+  const root2 = resolve3(io.cwd, flags2.root ?? ".");
   const r = await calibrateFromLog(root2, {
     ...flags2.method ? { method: flags2.method } : {},
     ...flags2.minLabels !== void 0 ? { minLabels: flags2.minLabels } : {},
@@ -60059,7 +60376,7 @@ async function runCalibrate(flags2, io) {
   return 0;
 }
 async function runBenchCommand(flags2, io, makeBackend) {
-  const file2 = flags2.file ? resolve2(io.cwd, flags2.file) : join13(defaultBenchDir(), "questions.json");
+  const file2 = flags2.file ? resolve3(io.cwd, flags2.file) : join14(defaultBenchDir(), "questions.json");
   const bench = await loadBench(file2);
   const backend = makeBackend(benchFakeRules(bench.items));
   const r = await runBench(bench, {
@@ -60075,12 +60392,12 @@ async function runBenchCommand(flags2, io, makeBackend) {
   });
   const md = renderBenchMarkdown(r);
   if (flags2.write) {
-    const dir = flags2.out ? resolve2(io.cwd, flags2.out) : join13(dirname8(file2), "results");
+    const dir = flags2.out ? resolve3(io.cwd, flags2.out) : join14(dirname8(file2), "results");
     await mkdir2(dir, { recursive: true });
-    await writeFile2(join13(dir, `${r.backend}.json`), `${JSON.stringify(r, null, 2)}
+    await writeFile2(join14(dir, `${r.backend}.json`), `${JSON.stringify(r, null, 2)}
 `, "utf8");
-    await writeFile2(join13(dir, `${r.backend}.md`), md, "utf8");
-    if (!flags2.json) io.stderr(`wrote ${join13(dir, `${r.backend}.json`)} and .md
+    await writeFile2(join14(dir, `${r.backend}.md`), md, "utf8");
+    if (!flags2.json) io.stderr(`wrote ${join14(dir, `${r.backend}.json`)} and .md
 `);
   }
   io.stdout(flags2.json ? `${JSON.stringify(r, null, 2)}
@@ -60104,7 +60421,7 @@ init_triage();
 init_where();
 init_sync();
 init_modes();
-var HOOK_EVENTS = ["prompt", "stop", "post-edit", "session-start"];
+var HOOK_EVENTS = ["prompt", "stop", "post-edit", "session-start", "model-switch"];
 var CLI_ENTRY = fileURLToPath3(import.meta.url);
 function version3() {
   return packageVersion();
@@ -60160,11 +60477,11 @@ function collect(v, prev = []) {
   return [...prev, ...v.includes("=") ? [v] : v.split(",").map((s) => s.trim()).filter(Boolean)];
 }
 async function runAsk(words, flags2, io) {
-  const root2 = resolve6(io.cwd, flags2.root ?? ".");
+  const root2 = resolve7(io.cwd, flags2.root ?? ".");
   const scope = {};
   if (flags2.path?.length) scope.paths = flags2.path;
   if (flags2.node?.length) scope.nodes = flags2.node;
-  if (flags2.diff !== void 0) scope.diff = flags2.diff === "-" ? await readStdinAll(io) : await readFile11(resolve6(io.cwd, flags2.diff), "utf8");
+  if (flags2.diff !== void 0) scope.diff = flags2.diff === "-" ? await readStdinAll(io) : await readFile11(resolve7(io.cwd, flags2.diff), "utf8");
   if (!scope.paths && !scope.nodes && scope.diff === void 0) scope.paths = ["."];
   if (flags2.backend !== void 0 && !isBackendName(flags2.backend)) {
     io.stderr(`glassbox: unknown backend "${flags2.backend}"
@@ -60231,7 +60548,7 @@ async function openStore2(root2) {
   return (await Promise.resolve().then(() => (init_store2(), store_exports))).GraphStore.open(root2);
 }
 function rootOf(flags2, io) {
-  return resolve6(io.cwd, flags2.root ?? ".");
+  return resolve7(io.cwd, flags2.root ?? ".");
 }
 function permutations(flags2, calibrators = {}) {
   const has = Object.keys(calibrators).length > 0;
@@ -60291,7 +60608,7 @@ async function runIndex(flags2, io, store, root2) {
 }
 async function readDiff(flags2, io, root2) {
   if (flags2.diff === "-") return readStdinAll(io);
-  if (flags2.diff !== void 0) return readFile11(resolve6(io.cwd, flags2.diff), "utf8");
+  if (flags2.diff !== void 0) return readFile11(resolve7(io.cwd, flags2.diff), "utf8");
   return workingDiff(root2);
 }
 function findNode(store, ref) {
@@ -60305,11 +60622,11 @@ function addModeOption(cmd) {
   return cmd.addOption(new Option("--mode <mode>", MODE_HELP).choices([...MODES]));
 }
 function addBackendOptions(cmd) {
-  return cmd.option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id (default GLASSBOX_MODEL or the backend default)").option("--samples <k>", "samples averaged per call on sampling backends", int3("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int3("permutations", 1));
+  return cmd.option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id override (default: GLASSBOX_MODEL, else the model you selected in Claude Code or Codex)").option("--samples <k>", "samples averaged per call on sampling backends", int3("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int3("permutations", 1));
 }
 function buildProgram(io, setCode) {
   const program2 = new Command("glassbox").description("Fast typed decisions about code, with reasons. Runs on the host agent's own model.").enablePositionalOptions().version(version3(), "-v, --version").exitOverride().configureOutput({ writeOut: io.stdout, writeErr: io.stderr });
-  program2.command("ask").description("answer a typed question about files, a diff or graph nodes").argument("<question...>", 'the question, e.g. "does this change auth behavior?"').addOption(new Option("-t, --type <type>", "question type").choices(["yesno", "choice", "score"]).default("yesno")).option("-o, --options <items>", "choice: key or key=description; score: levels lowest first (repeatable or comma-separated)", collect).option("-p, --path <paths...>", "files or directories to ask about (default: the root)").option("-d, --diff <file>", 'a unified diff file to ask about ("-" reads stdin)').option("-n, --node <ids...>", "graph node ids, e.g. src/auth/session.ts#verifySession").option("-e, --explain", "find evidence by hiding spans and re-asking, plus reasons and a summary").option("--why", "always add a one-line why (default: only when confidence is below the act band)").option("--no-why", "never add the one-line why").option("-r, --reasons <codes>", "reason codes to check: code or code=question (repeatable or comma-separated)", collect).option("--budget <calls>", "most backend calls the explanation may spend (default 24)", int3("budget", 0)).option("--top-k <n>", "spans to hide and re-ask, most relevant first (default 12)", int3("top-k", 0)).option("--min-delta <p>", "smallest |delta p| kept as a highlight (default 0.05)", fraction).option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id (default GLASSBOX_MODEL or the backend default)").option("--samples <k>", "samples averaged per call on sampling backends", int3("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int3("permutations", 1)).option("--chunk-lines <n>", "longest span in lines (default 8)", int3("chunk-lines", 1)).addOption(new Option("--mode <mode>", MODE_HELP).choices([...MODES])).option("--root <dir>", "repo root (default: the current directory)").option("--no-log", "do not append to .glassbox/decisions.jsonl").option("--json", "print JSON instead of the readable format").action(async (words, flags2) => {
+  program2.command("ask").description("answer a typed question about files, a diff or graph nodes").argument("<question...>", 'the question, e.g. "does this change auth behavior?"').addOption(new Option("-t, --type <type>", "question type").choices(["yesno", "choice", "score"]).default("yesno")).option("-o, --options <items>", "choice: key or key=description; score: levels lowest first (repeatable or comma-separated)", collect).option("-p, --path <paths...>", "files or directories to ask about (default: the root)").option("-d, --diff <file>", 'a unified diff file to ask about ("-" reads stdin)').option("-n, --node <ids...>", "graph node ids, e.g. src/auth/session.ts#verifySession").option("-e, --explain", "find evidence by hiding spans and re-asking, plus reasons and a summary").option("--why", "always add a one-line why (default: only when confidence is below the act band)").option("--no-why", "never add the one-line why").option("-r, --reasons <codes>", "reason codes to check: code or code=question (repeatable or comma-separated)", collect).option("--budget <calls>", "most backend calls the explanation may spend (default 24)", int3("budget", 0)).option("--top-k <n>", "spans to hide and re-ask, most relevant first (default 12)", int3("top-k", 0)).option("--min-delta <p>", "smallest |delta p| kept as a highlight (default 0.05)", fraction).option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id override (default: GLASSBOX_MODEL, else the model you selected in Claude Code or Codex)").option("--samples <k>", "samples averaged per call on sampling backends", int3("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int3("permutations", 1)).option("--chunk-lines <n>", "longest span in lines (default 8)", int3("chunk-lines", 1)).addOption(new Option("--mode <mode>", MODE_HELP).choices([...MODES])).option("--root <dir>", "repo root (default: the current directory)").option("--no-log", "do not append to .glassbox/decisions.jsonl").option("--json", "print JSON instead of the readable format").action(async (words, flags2) => {
     setCode(await runAsk(words, flags2, io));
   });
   const indexCmd = (name2, description, sync) => {
@@ -60640,6 +60957,7 @@ function buildProgram(io, setCode) {
       if (event === "prompt") out2 = hooks.promptHook(input2, ctx);
       else if (event === "stop") out2 = await hooks.stopHook(input2, ctx);
       else if (event === "post-edit") out2 = await hooks.postEditHook(input2, ctx);
+      else if (event === "model-switch") out2 = hooks.modelSwitchHook(input2, ctx);
       else out2 = await hooks.sessionStartHook(input2, ctx);
       if (out2) io.stdout(`${out2}
 `);

@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ClaudeCliBackend, parseEnvelope } from '../../src/backends/claude-cli.js';
 import { CliCallError, CliNotFoundError } from '../../src/backends/process.js';
@@ -9,14 +12,17 @@ const envelope = (structured: unknown) =>
 describe('ClaudeCliBackend', () => {
   it('spawns claude with an args array, schema, quiet flags and the prompt on stdin', async () => {
     const { run, calls } = fakeRunner(() => ({ stdout: envelope(answer(0.2, [0.7, 0.2, 0.1])) }));
-    const b = new ClaudeCliBackend({ run, samples: 1, env: { PATH: '/bin' } });
+    const home = mkdtempSync(join(tmpdir(), 'glassbox-cc-home-'));
+    const b = new ClaudeCliBackend({ run, samples: 1, env: { PATH: '/bin', HOME: home, CLAUDE_PROJECT_DIR: home }, managedSettings: join(home, 'none.json') });
     await b.answerBatch('function add(a, b) { return a + b }', batch);
 
     expect(calls).toHaveLength(1);
     const { cmd, args, opts } = calls[0]!;
     expect(cmd).toBe('claude');
-    expect(args.slice(0, 6)).toEqual(['-p', '--model', 'haiku', '--output-format', 'json', '--json-schema']);
-    const schema = JSON.parse(args[6]!);
+    // Nothing selected anywhere: no --model at all, so Claude Code uses its own default.
+    expect(args.slice(0, 4)).toEqual(['-p', '--output-format', 'json', '--json-schema']);
+    expect(args).not.toContain('--model');
+    const schema = JSON.parse(args[4]!);
     expect(schema.required).toEqual(['q1', 'q2']);
     expect(schema.properties.q2.required).toEqual(['A', 'B', 'C']);
     for (const f of ['--tools', '--safe-mode', '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence']) {

@@ -1,6 +1,7 @@
 import { buildBatchRequest, parseBatchAnswer } from '../engine/prompt.js';
 import type { Backend, BackendCapabilities, BatchQuestion, GenerateOptions, LabelDistribution, State } from '../types.js';
 import { averageSamples, resolveSamples, resolveTimeoutMs, runSamples } from './sampling.js';
+import { resolveAnthropicModel } from '../model-choice.js';
 
 /**
  * The slice of the @anthropic-ai/sdk client we call. The SDK is an optional
@@ -16,7 +17,11 @@ export interface AnthropicClientLike {
 }
 
 export interface AnthropicOptions {
-  /** Default 'claude-haiku-4-5-20251001'. */
+  /**
+   * Default: GLASSBOX_MODEL, else ANTHROPIC_MODEL or the Claude Code settings
+   * model when it is a full API id, else ANTHROPIC_API_FALLBACK_MODEL (an API
+   * call must name a model). See resolveAnthropicModel.
+   */
   model?: string;
   apiKey?: string;
   samples?: number;
@@ -64,6 +69,7 @@ export function splitForCache(prompt: string): [string, string] {
 export class AnthropicBackend implements Backend {
   readonly name = 'anthropic';
   readonly model: string;
+  readonly modelSource: string;
   readonly capabilities: BackendCapabilities = { hasLogprobs: false, batch: true, generate: true };
   readonly samples: number;
   private readonly timeoutMs: number;
@@ -82,7 +88,14 @@ export class AnthropicBackend implements Backend {
 
   constructor(opts: AnthropicOptions = {}) {
     const env = opts.env ?? process.env;
-    this.model = opts.model ?? 'claude-haiku-4-5-20251001';
+    if (opts.model !== undefined) {
+      this.model = opts.model;
+      this.modelSource = `${opts.model} from the model option`;
+    } else {
+      const c = resolveAnthropicModel({ env });
+      this.model = c.model;
+      this.modelSource = `${c.model} from ${c.source}`;
+    }
     this.samples = opts.samples ?? resolveSamples(env);
     this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
     this.maxTokens = opts.maxTokens ?? 2048;

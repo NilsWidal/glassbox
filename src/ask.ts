@@ -74,6 +74,8 @@ export interface AskResult {
   latencyMs: number;
   backend: string;
   model?: string;
+  /** The model and where it came from, e.g. "opus[1m] from ~/.claude/settings.json". */
+  modelSource?: string;
   /** Model runs per call (processes started for each call). */
   samples?: number;
   logFile?: string;
@@ -276,6 +278,7 @@ export async function ask(scope: AskScope, question: string | Question, opts: As
   if (explain) result.explain = explain;
   if (explainStats) result.explainStats = explainStats;
   if (backend.model !== undefined) result.model = backend.model;
+  if (backend.modelSource !== undefined) result.modelSource = backend.modelSource;
   if (logFile) result.logFile = logFile;
   return result;
 }

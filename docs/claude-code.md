@@ -1,6 +1,6 @@
 # glassbox in Claude Code
 
-glassbox runs on the model you already use in Claude Code. When it needs an answer it calls `claude -p` (default model `haiku`) with your existing login, so there is no key to paste.
+glassbox runs on the model you already use in Claude Code. When it needs an answer it calls `claude -p` with the model you selected in Claude Code and your existing login, so there is no key to paste. glassbox has no model default of its own; see [Which model it uses](#which-model-it-uses).
 
 ## Install the plugin
 
@@ -40,7 +40,7 @@ Claude Code asks for these when you enable the plugin. You can change them later
 | Option | Default | Meaning |
 |---|---|---|
 | `backend` | `auto` | `auto` uses the Claude Code CLI (`claude -p`), so no key is needed. `anthropic` and `openai-compat` are optional API backends for CI or headless use. |
-| `model` | empty | Model id for the chosen backend. Empty means the default (`haiku` for `claude-cli`). |
+| `model` | empty | Model id for the chosen backend. Empty means the model you selected in Claude Code (see [Which model it uses](#which-model-it-uses)). |
 | `mode` | `balanced` | Default mode for `ask`, `where`, `triage` and `decide`: `fast`, `balanced`, `explained`, `strict` or `auto` (see the README's Modes section). `GLASSBOX_MODE` and `.glassbox/config.json` override it. |
 | `ambient` | off | Adds graph context to each prompt about code. See [Ambient mode](#ambient-mode). `GLASSBOX_AMBIENT` and `.glassbox/config.json` override it. |
 | `gate` | off | Checks the turn's diff before Claude finishes. See [Ambient mode](#ambient-mode). `GLASSBOX_GATE` and `.glassbox/config.json` override it. |
@@ -72,7 +72,7 @@ From the next session on, the hook adds a code map of at most about 1,500 charac
 
 **Tags.** Auto-init does not tag. Two ways to get tags:
 
-- `/glassbox:init` (or `node .../plugin-dist/glassbox.mjs init`): the full init. It asks your Claude Code model the tag questions about every function (`claude -p`, default model `haiku`), writes the `AGENTS.md` block and adds the `@AGENTS.md` import to `CLAUDE.md`. Arguments are passed on, for example `/glassbox:init --no-claude-md`. On a large repo it takes several minutes.
+- `/glassbox:init` (or `node .../plugin-dist/glassbox.mjs init`): the full init. It asks your Claude Code model the tag questions about every function (`claude -p`, with the model you selected in Claude Code), writes the `AGENTS.md` block and adds the `@AGENTS.md` import to `CLAUDE.md`. Arguments are passed on, for example `/glassbox:init --no-claude-md`. On a large repo it takes several minutes.
 - With `enable_hooks` on, the background worker tags the untagged nodes a little at a time, within its daily budget (100 model runs a day by default, at most 24 nodes per run, at least 60 s between runs). On a large repo that takes days, not minutes. With `enable_hooks` off, nothing tags the graph until you run `/glassbox:init`.
 
 `/glassbox:status` (or `glassbox status`) shows which of these states the repo is in: indexing, structure-only, or tagged N of M. A failed auto-init, or one skipped because git could not count the files within 1 s, is not retried for a day, and the status says why. A repo found over the file cap at session start is counted again at the next one (that count is quick).
@@ -87,14 +87,15 @@ Once the package is published on npm, `npx -y @nilswidal/glassbox init` does the
 
 ## Ambient mode
 
-All four hooks are in `hooks/hooks.json`. Apart from auto-init and the session code map (see above), they are off until you turn them on, and each needs a repo with a glassbox graph.
+All five hooks are in `hooks/hooks.json`. Apart from auto-init, the session code map (see above) and noting the session's model, they are off until you turn them on, and each needs a repo with a glassbox graph.
 
 | Event | Switch | What runs | Cost |
 |---|---|---|---|
 | Before each prompt (`UserPromptSubmit`) | `ambient` | `glassbox hook prompt`: for a prompt about code, adds up to about 1,500 characters of matching `file:line` locations, tags and callers from the graph as extra context. Nothing for chat, or when no node matches well. | No model call. About 100 ms. 5 s timeout. |
 | End of a turn (`Stop`) | `gate` | `glassbox hook stop`: when the working diff changed since the last check, rates it with `triage` in `fast` mode. If a hunk is High risk with high confidence (`act` band), Claude gets one short request to check those lines before finishing. | One `claude -p` run per new diff, usually 5 to 15 s. Gives up after 45 s (never more than 50 s) and stops the `claude -p` process tree. 60 s hook timeout. |
 | After `Edit`, `Write` or `MultiEdit` (`PostToolUse`) | `enable_hooks` | `glassbox hook post-edit`: marks the edited file's nodes, and their direct callers, as stale, and may start the background re-tagging worker. | No parsing and no model call in the hook. 5 s timeout. |
-| Session start | `auto_init`, `enable_hooks` | `glassbox hook session-start`: without a graph, may start the background auto-init; with one, adds the code map (`auto_init`), and with `enable_hooks` also re-parses changed files and rewrites the AGENTS.md block (only after a full init). | No model call. Auto-init itself runs in the background. 30 s timeout. |
+| Session start | `auto_init`, `enable_hooks` | `glassbox hook session-start`: without a graph, may start the background auto-init; with one, adds the code map (`auto_init`), and with `enable_hooks` also re-parses changed files and rewrites the AGENTS.md block (only after a full init). Also notes the session's model when Claude Code sends one (see [Which model it uses](#which-model-it-uses)). | No model call. Auto-init itself runs in the background. 30 s timeout. |
+| After `/model` (`PostModelSwitch`) | always on | `glassbox hook model-switch`: notes the session's new model in `.glassbox/sessions/`, so glassbox's own calls follow it. Nothing in a project without `.glassbox`. | No model call. 5 s timeout. |
 
 For each switch the first one set wins: the environment variable (`GLASSBOX_AMBIENT`, `GLASSBOX_GATE`, `GLASSBOX_HOOKS`, `1` or `0`), then `.glassbox/config.json` (`"ambient": {"enabled": true}`, `"gate": {"enabled": true}`; not for `enable_hooks`), then the plugin setting.
 
@@ -138,8 +139,20 @@ git clone https://github.com/NilsWidal/glassbox && cd glassbox
 claude mcp add glassbox -e GLASSBOX_HOST=claude-code -- node "$PWD/plugin-dist/glassbox.mjs" mcp
 ```
 
+## Which model it uses
+
+glassbox uses exactly the model you selected in Claude Code. It has no model of its own and never switches to a cheaper one. The nested `claude -p` runs with `--setting-sources ''` (so repo settings cannot grant it tools), which also means it would not see your model on its own, so glassbox finds the model and passes it with `--model`. It looks again before every call, in this order:
+
+1. An override, only if you set one: `GLASSBOX_MODEL`, or the plugin's `model` option.
+2. The model of the running session. The plugin's `SessionStart` hook (when Claude Code sends a `model` field, which it does not always do) and `PostModelSwitch` hook (after `/model`) save it in `.glassbox/sessions/<session id>.json`, and calls from that session (`CLAUDE_CODE_SESSION_ID`) read it. Nothing is saved in a project without a `.glassbox` folder.
+3. `ANTHROPIC_MODEL`, if it is set.
+4. `model` in your Claude Code settings, in Claude Code's own order: managed settings, `<project>/.claude/settings.local.json`, `<project>/.claude/settings.json`, then `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). An `ANTHROPIC_MODEL` in a settings file's `env` block counts as step 3. `/model` saves your choice here too.
+5. Nothing found: no `--model` flag, so Claude Code uses its own default.
+
+`/glassbox:status` shows the result, for example `model    opus[1m] from ~/.claude/settings.json (claude-cli)`, and the `cost` line of every answer names the model and where it came from.
+
 To load the whole plugin (skill, hooks and output style too) from the clone for one session, start Claude Code with `claude --plugin-dir /path/to/glassbox`. It runs the clone's `plugin-dist/glassbox.mjs`. After changing the source, run `npm install && npm run bundle` so the bundle picks the change up.
 
 Check the manifests with `claude plugin validate .` (it passes with `--strict`).
 
-**Checked end to end** with Claude Code 2.1.281 and `claude -p --plugin-dir <this repo>` in a fresh two-file git repo: the first session's `SessionStart` hook started the background auto-init, which built `.glassbox/graph.db` (structure-only, no `AGENTS.md`); the second session had the code map in context; `/glassbox:status` summarized the structure-only state; and `/glassbox:init --no-claude-md --limit 2` ran the full init through the pre-approved Bash command, tagged 2 nodes with haiku and created `AGENTS.md` without `CLAUDE.md`.
+**Checked end to end** with Claude Code 2.1.281 and `claude -p --plugin-dir <this repo>` in a fresh two-file git repo: the first session's `SessionStart` hook started the background auto-init, which built `.glassbox/graph.db` (structure-only, no `AGENTS.md`); the second session had the code map in context; `/glassbox:status` summarized the structure-only state; and `/glassbox:init --no-claude-md --limit 2` ran the full init through the pre-approved Bash command, tagged 2 nodes (with haiku, the fixed model glassbox used before 0.3.1) and created `AGENTS.md` without `CLAUDE.md`.

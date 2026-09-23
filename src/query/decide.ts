@@ -44,6 +44,8 @@ export interface DecideQueryResult {
   latencyMs: number;
   backend: string;
   model?: string;
+  /** The model and where it came from, e.g. "opus[1m] from ~/.claude/settings.json". */
+  modelSource?: string;
   /** Model runs per call (processes started for each call). */
   samples?: number;
   logFile?: string;
@@ -198,6 +200,7 @@ export async function decide(
     ...(opts.backend.samples && opts.backend.samples > 1 ? { samples: opts.backend.samples } : {}),
   };
   if (opts.backend.model !== undefined) result.model = opts.backend.model;
+  if (opts.backend.modelSource !== undefined) result.modelSource = opts.backend.modelSource;
   if (logFile) result.logFile = logFile;
   return result;
 }

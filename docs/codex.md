@@ -20,7 +20,7 @@ codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/glassbox/plugin-d
 Once `@nilswidal/glassbox` is published on npm, this works without a clone:
 
 ```sh
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.3.0 mcp
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.3.1 mcp
 ```
 
 `GLASSBOX_HOST=codex` tells glassbox which agent started it. Codex gives MCP servers a trimmed environment, so glassbox cannot always tell on its own, and without the hint it would use whichever of `claude` or `codex` it finds on your PATH first.
@@ -31,7 +31,7 @@ Or edit `~/.codex/config.toml` (or `.codex/config.toml` in a project) by hand:
 [mcp_servers.glassbox]
 command = "node"
 args = ["/path/to/glassbox/plugin-dist/glassbox.mjs", "mcp"]
-# After publishing: command = "npx", args = ["-y", "@nilswidal/glassbox@0.3.0", "mcp"]
+# After publishing: command = "npx", args = ["-y", "@nilswidal/glassbox@0.3.1", "mcp"]
 startup_timeout_sec = 30
 # Each answer takes seconds, and `explain` makes several calls, so allow more than the 60 s default.
 tool_timeout_sec = 300
@@ -142,9 +142,9 @@ Things to know:
 ## How glassbox calls the model in Codex
 
 - **The command.** Every question about one piece of code goes into a single `codex exec` call with an `--output-schema` file, so the answer is always one of the fixed labels.
-- **Settings of the nested run.** It runs with `--sandbox read-only`, low reasoning effort, no MCP servers and no AGENTS.md, in an empty temporary directory.
+- **Settings of the nested run.** It runs with `--sandbox read-only`, no MCP servers and no AGENTS.md, in an empty temporary directory. It keeps your configured reasoning effort unless you set `GLASSBOX_CODEX_EFFORT`.
 - **No loops.** The nested run cannot call glassbox again. It also sets `GLASSBOX_NESTED=1`, so glassbox hooks never fire inside it.
-- **The model.** Your Codex default model is used unless you set `GLASSBOX_MODEL`.
+- **The model.** glassbox passes no `-m`, so Codex uses the model you configured, unless you set `GLASSBOX_MODEL`. `glassbox status` shows it, read from `~/.codex/config.toml` (or `$CODEX_HOME`).
 - **Speed.** Each call takes a few seconds, not milliseconds. glassbox makes up for it by batching questions and caching tags by content hash.
 - **Other backends.** To use an API instead (for CI), set `GLASSBOX_BACKEND=anthropic` or `openai-compat` and the matching key in the server's `env`. See the README.
 

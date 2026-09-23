@@ -43,6 +43,8 @@ export interface StatusReport {
     budgetLeft: number;
   };
   agentsMdBlock: boolean;
+  /** The backend glassbox would use here and its model, with where the model came from. */
+  model: { backend: string; model?: string; source: string } | { error: string };
   /** How the graph got here: indexing, structure-only (auto-init, no tags yet), tagged, or none yet. */
   autoInit: AutoInitStatus;
   configError?: string;
@@ -130,6 +132,7 @@ export async function status(root: string, env: NodeJS.ProcessEnv, now = Date.no
   } catch {
     agentsMdBlock = false;
   }
+  const model = await modelStatus(root, env);
   return {
     root,
     ...(graph ? { graph } : {}),
@@ -147,9 +150,28 @@ export async function status(root: string, env: NodeJS.ProcessEnv, now = Date.no
       budgetLeft: Math.max(0, limits.dailyCalls - state.callsToday),
     },
     agentsMdBlock,
+    model,
     autoInit,
     ...(configError ? { configError } : {}),
   };
+}
+
+/** Which backend and model the next call would use, without calling it. */
+async function modelStatus(root: string, env: NodeJS.ProcessEnv): Promise<StatusReport['model']> {
+  try {
+    const [{ createBackend }, { withPluginOptions }] = await Promise.all([import('./backends/index.js'), import('./mcp/env.js')]);
+    const e = withPluginOptions(env);
+    const backend = createBackend({ env: e, claudeCli: { projectDir: usableProjectDir(e) ?? root } });
+    const source = backend.modelSource ?? (backend.model ? backend.model : 'backend default');
+    return { backend: backend.name, ...(backend.model !== undefined ? { model: backend.model } : {}), source };
+  } catch (err) {
+    return { error: (err instanceof Error ? err.message : String(err)).split('\n')[0]! };
+  }
+}
+
+function usableProjectDir(env: NodeJS.ProcessEnv): string | undefined {
+  const t = env.CLAUDE_PROJECT_DIR?.trim();
+  return t && !t.includes('${') ? t : undefined;
 }
 
 function autoInitStatus(root: string, env: NodeJS.ProcessEnv, config: ProjectConfig, graph: GraphStatus | undefined, now: number): AutoInitStatus {
@@ -209,6 +231,7 @@ export function renderStatus(s: StatusReport, now = Date.now()): string {
   else out.push('graph    none yet');
   out.push(autoInitLine(s.autoInit));
   out.push('mode' in s.mode ? `mode     ${s.mode.mode} (${s.mode.source === 'default' ? 'default' : `from ${s.mode.source}`})` : `mode     error: ${s.mode.error}`);
+  out.push('error' in s.model ? `model    unknown: ${s.model.error}` : `model    ${s.model.source} (${s.model.backend})`);
   out.push(`hooks    ambient ${s.ambient ? 'on' : 'off'}, gate ${s.gate ? 'on' : 'off'}, concise rules ${s.conciseRules ? 'on' : 'off'}, worker ${s.worker.enabled ? 'on' : 'off'}`);
   const w = s.worker;
   out.push(

@@ -11,7 +11,11 @@ import { checkModelId } from './process.js';
 export interface BackendConfig {
   /** Default GLASSBOX_BACKEND, else 'auto'. */
   backend?: BackendName;
-  /** Default GLASSBOX_MODEL, else the backend's default. */
+  /**
+   * Fixed model id. Default: claude-cli and anthropic resolve it themselves
+   * (GLASSBOX_MODEL, then the model selected in Claude Code); codex-cli and
+   * openai-compat use GLASSBOX_MODEL, else codex-cli uses Codex's own model.
+   */
   model?: string;
   /** Samples per call for sampling backends. Default GLASSBOX_SAMPLES, else 3. */
   samples?: number;
@@ -37,7 +41,8 @@ export function resolveBackend(config: BackendConfig = {}): Exclude<BackendName,
 export function createBackend(config: BackendConfig = {}): Backend {
   const env = config.env ?? process.env;
   const name = resolveBackend(config);
-  const model = config.model ?? resolveModel(name, env);
+  // claude-cli and anthropic resolve their model themselves, so they can say where it came from.
+  const model = config.model ?? (name === 'claude-cli' || name === 'anthropic' ? undefined : resolveModel(name, env));
   if (model !== undefined && name !== 'fake') checkModelId(model);
   const common = {
     env,

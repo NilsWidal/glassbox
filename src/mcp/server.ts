@@ -123,7 +123,7 @@ const backendArgs = {
     .string()
     .regex(MODEL_ID, 'a model id: letters, digits and . _ : / @ -')
     .optional()
-    .describe('Override the model id. Default: GLASSBOX_MODEL or the backend default.'),
+    .describe('Override the model id. Default: GLASSBOX_MODEL, else the model the user selected in Claude Code or Codex.'),
 };
 
 function text(body: string): CallToolResult {

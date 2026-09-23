@@ -50,6 +50,8 @@ describe('auto backend selection', () => {
   });
 });
 
+const EMPTY_HOME = mkdtempSync(join(tmpdir(), 'glassbox-select-home-'));
+
 describe('createBackend', () => {
   it('defaults to auto', () => {
     expect(resolveBackend({ env: { CLAUDECODE: '1' } })).toBe('claude-cli');
@@ -60,9 +62,14 @@ describe('createBackend', () => {
     const b = createBackend({ env: { GLASSBOX_BACKEND: 'claude-cli', GLASSBOX_MODEL: 'sonnet' } });
     expect(b.name).toBe('claude-cli');
     expect(b.model).toBe('sonnet');
-    expect(createBackend({ env: { GLASSBOX_BACKEND: 'claude-cli' } }).model).toBe('haiku');
-    expect(createBackend({ env: { GLASSBOX_BACKEND: 'codex-cli' } }).model).toBeUndefined();
-    expect(createBackend({ env: { GLASSBOX_BACKEND: 'anthropic' } }).model).toBe('claude-haiku-4-5-20251001');
+    // No glassbox default: with nothing selected anywhere, claude-cli passes no model (Claude Code's default).
+    const empty = { HOME: EMPTY_HOME, CLAUDE_PROJECT_DIR: EMPTY_HOME };
+    const noManaged = { managedSettings: join(EMPTY_HOME, 'none.json') };
+    expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'claude-cli' }, claudeCli: noManaged }).model).toBeUndefined();
+    expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'claude-cli' }, claudeCli: noManaged }).modelSource).toBe('Claude Code default');
+    expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'codex-cli' } }).model).toBeUndefined();
+    // An API call must name a model: the documented fallback, when nothing else resolves.
+    expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'anthropic' } }).model).toBe('claude-haiku-4-5-20251001');
     expect(createBackend({ env: { GLASSBOX_BACKEND: 'fake' } }).name).toBe('fake');
   });
 

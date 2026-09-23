@@ -13,7 +13,7 @@ node "${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs" init --root "${CLAUDE_PROJ
 
 Arguments passed to this command: `$ARGUMENTS`. Pass them through only when they are `glassbox init` options (words starting with `--`, and their values, such as `--no-claude-md` or `--limit 200`). If they contain anything else (shell syntax like `;`, `|`, `&`, `$(`, backticks or redirections), do not run the command; say which part was not an init option.
 
-The full init parses the code graph, asks the tag questions about each function through your Claude Code model (`claude -p`, default model haiku, several model runs per function), writes the glassbox block into `AGENTS.md` and adds an `@AGENTS.md` import to `CLAUDE.md` (unless `--no-claude-md`). On a large repo it can take several minutes. If the Bash call times out, say so: the graph is still usable, tags are cached by content hash, and running `/glassbox:init` again continues where it stopped.
+The full init parses the code graph, asks the tag questions about each function through your Claude Code model (`claude -p` with the model you selected in Claude Code, several model runs per function), writes the glassbox block into `AGENTS.md` and adds an `@AGENTS.md` import to `CLAUDE.md` (unless `--no-claude-md`). On a large repo it can take several minutes. If the Bash call times out, say so: the graph is still usable, tags are cached by content hash, and running `/glassbox:init` again continues where it stopped.
 
 When it finishes, summarize in a few lines, using only what the command printed:
 - files, nodes and edges in the graph;
