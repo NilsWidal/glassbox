@@ -7,7 +7,6 @@ import { z } from 'zod';
 import { safeNodeId } from '../agents-md/render.js';
 import { ask, makeQuestion } from '../ask.js';
 import { createBackend, type BackendConfig } from '../backends/index.js';
-import { MODEL_ID } from '../backends/process.js';
 import { parseReasons } from '../explain/reasons.js';
 import { refresh, renderRefresh } from '../memory/refresh.js';
 import { indexRepo } from '../memory/source.js';
@@ -119,11 +118,8 @@ const backendArgs = {
     .enum(['auto', 'claude-cli', 'codex-cli', 'anthropic', 'openai-compat'])
     .optional()
     .describe('Override the backend. Default: GLASSBOX_BACKEND or auto (the host agent\'s own CLI).'),
-  model: z
-    .string()
-    .regex(MODEL_ID, 'a model id: letters, digits and . _ : / @ -')
-    .optional()
-    .describe('Override the model id. Default: GLASSBOX_MODEL, else the model the user selected in Claude Code or Codex.'),
+  // No model argument: glassbox runs on the model the user selected (only the user's own
+  // GLASSBOX_MODEL or plugin model option can override it), never one the calling agent picks.
 };
 
 function text(body: string): CallToolResult {
@@ -150,11 +146,17 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
   const cwd = opts.cwd ?? process.cwd();
   const baseRoot = resolve(cwd, opts.root ?? defaultRoot(env, cwd));
   const rootOf = makeRootResolver(baseRoot, env);
-  const backendOf = (a: { backend?: string | undefined; model?: string | undefined }, s: Readonly<ModeSettings> = {}): Backend =>
+  /**
+   * The backend for a tool call on `dir`. The model follows the user's choice
+   * for that project: the session file and .claude/ settings are looked up in
+   * CLAUDE_PROJECT_DIR (Claude Code gives it, and CLAUDE_CODE_SESSION_ID, to
+   * plugin MCP servers), else the tool's root.
+   */
+  const backendOf = (a: { backend?: string | undefined }, dir: string, s: Readonly<ModeSettings> = {}): Backend =>
     createBackend({
       env,
+      projectDir: dir,
       ...(a.backend ? { backend: a.backend as NonNullable<BackendConfig['backend']> } : {}),
-      ...(a.model ? { model: a.model } : {}),
       ...(s.samples !== undefined ? { samples: s.samples } : {}),
       ...opts.backendConfig,
     });
@@ -223,7 +225,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         const run = await runWithMode(
           resolved.mode,
           async (_m, s) => {
-            const backend = backendOf(a, s);
+            const backend = backendOf(a, dir, s);
             const explainOn = a.explain ?? s.explain ?? false;
             const why = a.why ?? s.why;
             const decide = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
@@ -279,7 +281,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
           runWithMode(
             resolved.mode,
             async (_m, s) => {
-              const backend = backendOf(a, s);
+              const backend = backendOf(a, dir, s);
               const decide = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
               return where(a.concept, {
                 store,
@@ -327,7 +329,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
           runWithMode(
             resolved.mode,
             async (_m, s) => {
-              const backend = backendOf(a, s);
+              const backend = backendOf(a, dir, s);
               const decide = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
               const explainOn = a.explain ?? s.explain ?? true;
               return triage(diff, {
@@ -375,7 +377,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
           runWithMode(
             resolved.mode,
             async (_m, s) => {
-              const backend = backendOf(a, s);
+              const backend = backendOf(a, dir, s);
               const d = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
               return decide(a.question, a.options, a.context, { store, root: dir, backend, ...(d ? { decide: d } : {}) });
             },
@@ -419,7 +421,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         try {
           const r = await explainDecision(a.id, {
             root: dir,
-            backend: () => backendOf(a),
+            backend: () => backendOf(a, dir),
             store: () => (store ??= GraphStore.open(dir)),
             diff: async () => a.diff ?? (await workingDiff(dir)),
             ...(a.refresh ? { refresh: true } : {}),
@@ -494,9 +496,10 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
     },
     (a) =>
       run(async () => {
-        const r = await refresh(rootOf(a.root), {
+        const dir = rootOf(a.root);
+        const r = await refresh(dir, {
           ...(a.files ? { files: a.files } : {}),
-          ...(a.tags ? { tags: true, backend: () => backendOf(a) } : {}),
+          ...(a.tags ? { tags: true, backend: () => backendOf(a, dir) } : {}),
           ...(a.limit !== undefined ? { limit: a.limit } : {}),
           // An agent-triggered refresh never creates CLAUDE.md; only `glassbox init` does.
           ...(a.syncMd ? { syncMd: { claudeMd: false } } : {}),

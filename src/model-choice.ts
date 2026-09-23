@@ -203,19 +203,41 @@ export function resolveClaudeModel(opts: ModelChoiceOptions = {}): ModelChoice {
   return claudeSettingsModel(opts) ?? { source: 'Claude Code default' };
 }
 
+/** Top-level keys and [section] tables of a TOML file, as far as `key = "string"` lines go. */
+function tomlStrings(text: string): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>([['', new Map()]]);
+  let section = '';
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    const header = /^\[([^[\]]+)\]\s*(#.*)?$/.exec(line);
+    if (header) {
+      section = header[1]!.trim().replace(/"/g, '');
+      if (!out.has(section)) out.set(section, new Map());
+      continue;
+    }
+    const kv = /^([A-Za-z0-9_.-]+)\s*=\s*"([^"\n]*)"\s*(#.*)?$/.exec(line);
+    if (kv) out.get(section)!.set(kv[1]!, kv[2]!);
+  }
+  return out;
+}
+
 /**
  * The model the Codex CLI will use, for display only (glassbox passes no -m
- * unless GLASSBOX_MODEL is set): the top-level `model` in
- * $CODEX_HOME/config.toml (default ~/.codex).
+ * unless GLASSBOX_MODEL is set): from $CODEX_HOME/config.toml (default
+ * ~/.codex), the active `profile`'s model when that profile sets one, else
+ * the top-level `model`.
  */
 export function resolveCodexModel(env: NodeJS.ProcessEnv = process.env): ModelChoice {
   const explicit = explicitModel(env);
   if (explicit) return explicit;
   const file = join(usableDir(env.CODEX_HOME) ?? join(homeDir(env), '.codex'), 'config.toml');
   try {
-    const text = readFileSync(file, 'utf8');
-    const top = text.split(/^\s*\[/m)[0] ?? '';
-    const m = validModel(/^\s*model\s*=\s*"([^"\n]*)"/m.exec(top)?.[1]);
+    const toml = tomlStrings(readFileSync(file, 'utf8'));
+    const top = toml.get('')!;
+    const profile = top.get('profile');
+    const fromProfile = profile ? validModel(toml.get(`profiles.${profile}`)?.get('model')) : undefined;
+    if (fromProfile) return { model: fromProfile, source: `profile ${profile} in ${displayPath(file, env)}` };
+    const m = validModel(top.get('model'));
     if (m) return { model: m, source: displayPath(file, env) };
   } catch {
     // No config: Codex's own default.
@@ -223,19 +245,21 @@ export function resolveCodexModel(env: NodeJS.ProcessEnv = process.env): ModelCh
   return { source: 'Codex default' };
 }
 
-/** Fallback for the anthropic API backend, which must name a model. */
-export const ANTHROPIC_API_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
-
 /** An Anthropic API model id from a Claude Code model value: full ids only (aliases are not API ids); a [1m] suffix is dropped. */
 export function apiModelId(model: string | undefined): string | undefined {
   const base = model?.replace(/\[[A-Za-z0-9]+\]$/, '');
   return base && /^claude-[a-z0-9.-]+$/.test(base) ? base : undefined;
 }
 
+/** Thrown when the anthropic API backend finds no model id: glassbox has no model default of its own. */
+export const NO_API_MODEL_MESSAGE =
+  'the anthropic backend needs a model id and none of yours is an API id. Set GLASSBOX_MODEL to an Anthropic API model id, ' +
+  'or set ANTHROPIC_MODEL or the model in your Claude Code settings to a full API id. glassbox does not pick a model for you.';
+
 /**
  * Model for the optional anthropic API backend: GLASSBOX_MODEL, else
- * ANTHROPIC_MODEL or the Claude Code settings model when it is a full API id,
- * else ANTHROPIC_API_FALLBACK_MODEL (an API call has to name a model).
+ * ANTHROPIC_MODEL or the Claude Code settings model when it is a full API id.
+ * Throws NO_API_MODEL_MESSAGE when none resolves (no glassbox default).
  */
 export function resolveAnthropicModel(opts: ModelChoiceOptions = {}): { model: string; source: string } {
   const env = opts.env ?? process.env;
@@ -246,7 +270,7 @@ export function resolveAnthropicModel(opts: ModelChoiceOptions = {}): { model: s
   const s = claudeSettingsModel(opts);
   const sm = apiModelId(s?.model);
   if (sm && s) return { model: sm, source: s.source };
-  return { model: ANTHROPIC_API_FALLBACK_MODEL, source: 'glassbox fallback for the API backend' };
+  throw new Error(NO_API_MODEL_MESSAGE);
 }
 
 /** "opus[1m] from ~/.claude/settings.json", or "Claude Code default". */

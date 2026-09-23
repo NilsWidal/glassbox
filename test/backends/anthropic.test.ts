@@ -19,7 +19,7 @@ function fakeClient(replies: Array<{ text: string; stop_reason?: string }>) {
 describe('AnthropicBackend', () => {
   it('sends structured output, a cached state prefix and no prefill', async () => {
     const { client, bodies } = fakeClient([{ text: JSON.stringify(answer(0.6, [0, 1, 0])) }]);
-    const b = new AnthropicBackend({ client, samples: 1, env: {} });
+    const b = new AnthropicBackend({ client, samples: 1, env: { GLASSBOX_MODEL: 'claude-haiku-4-5-20251001' } });
     const out = await b.answerBatch('let secret = process.env.KEY', batch);
 
     expect(out.sideEffects!.A).toBeCloseTo(0.6);
@@ -38,14 +38,14 @@ describe('AnthropicBackend', () => {
 
   it('averages K samples', async () => {
     const { client, bodies } = fakeClient([{ text: JSON.stringify(answer(0.2, [1, 0, 0])) }, { text: JSON.stringify(answer(0.6, [1, 0, 0])) }]);
-    const out = await new AnthropicBackend({ client, samples: 2, env: {} }).answerBatch('s', batch);
+    const out = await new AnthropicBackend({ client, samples: 2, env: { GLASSBOX_MODEL: 'claude-haiku-4-5-20251001' } }).answerBatch('s', batch);
     expect(bodies).toHaveLength(2);
     expect(out.sideEffects!.A).toBeCloseTo(0.4);
   });
 
   it('treats refusals as failed samples', async () => {
     const { client } = fakeClient([{ text: '', stop_reason: 'refusal' }]);
-    await expect(new AnthropicBackend({ client, samples: 1, env: {} }).answerBatch('s', batch)).rejects.toThrow(/refused/);
+    await expect(new AnthropicBackend({ client, samples: 1, env: { GLASSBOX_MODEL: 'claude-haiku-4-5-20251001' } }).answerBatch('s', batch)).rejects.toThrow(/refused/);
   });
 
   it('splitForCache cuts right after the state', () => {

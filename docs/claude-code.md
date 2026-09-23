@@ -149,6 +149,8 @@ glassbox uses exactly the model you selected in Claude Code. It has no model of 
 4. `model` in your Claude Code settings, in Claude Code's own order: managed settings, `<project>/.claude/settings.local.json`, `<project>/.claude/settings.json`, then `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). An `ANTHROPIC_MODEL` in a settings file's `env` block counts as step 3. `/model` saves your choice here too.
 5. Nothing found: no `--model` flag, so Claude Code uses its own default.
 
+The MCP tools resolve the model the same way for the project they work on: the session file and the `.claude/` settings are looked up in `CLAUDE_PROJECT_DIR`, else the tool's root. Claude Code gives plugin MCP servers `CLAUDE_PROJECT_DIR` and `CLAUDE_CODE_SESSION_ID` (checked with Claude Code 2.1.280). The MCP server starts once per session, so after `/clear` starts a new session id it falls back to your project and user settings, which `/model` also updates. The tools take no `model` argument: the calling agent cannot pick a different model than yours.
+
 `/glassbox:status` shows the result, for example `model    opus[1m] from ~/.claude/settings.json (claude-cli)`, and the `cost` line of every answer names the model and where it came from.
 
 To load the whole plugin (skill, hooks and output style too) from the clone for one session, start Claude Code with `claude --plugin-dir /path/to/glassbox`. It runs the clone's `plugin-dist/glassbox.mjs`. After changing the source, run `npm install && npm run bundle` so the bundle picks the change up.

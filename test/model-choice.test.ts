@@ -16,6 +16,10 @@ import {
 } from '../src/model-choice.js';
 import { modelSwitchHook, parseHookInput, sessionStartHook } from '../src/hooks/index.js';
 import { renderStatus, status } from '../src/status.js';
+import { createGlassboxServer } from '../src/mcp/server.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { ProcessRunner } from '../src/backends/process.js';
 import { answer, batch, fakeRunner } from './backends/helpers.js';
 
 /** A temp HOME and project with nothing in them, and a managed settings path that does not exist. */
@@ -167,16 +171,34 @@ describe('CodexCliBackend model and effort', () => {
     writeFileSync(join(s.home, '.codex', 'config.toml'), 'model = "gpt-5.5"\n\n[profiles.fast]\nmodel = "other"\n');
     expect(resolveCodexModel(s.env)).toEqual({ model: 'gpt-5.5', source: '~/.codex/config.toml' });
   });
+
+  it('shows the active profile\'s model when config.toml selects a profile', () => {
+    const s = sandbox();
+    mkdirSync(join(s.home, '.codex'));
+    const file = join(s.home, '.codex', 'config.toml');
+    writeFileSync(file, 'model = "gpt-5.5"\nprofile = "deep"\n\n[profiles.fast]\nmodel = "gpt-5.5-mini"\n\n[profiles.deep]\nmodel = "gpt-5.5-pro" # big\n');
+    expect(resolveCodexModel(s.env)).toEqual({ model: 'gpt-5.5-pro', source: 'profile deep in ~/.codex/config.toml' });
+    // A profile without a model keeps the top-level one.
+    writeFileSync(file, 'model = "gpt-5.5"\nprofile = "quiet"\n\n[profiles.quiet]\nmodel_reasoning_effort = "low"\n');
+    expect(resolveCodexModel(s.env)).toEqual({ model: 'gpt-5.5', source: '~/.codex/config.toml' });
+    // CODEX_HOME is honored.
+    const ch = join(s.base, 'codex-home');
+    mkdirSync(ch);
+    writeFileSync(join(ch, 'config.toml'), 'profile = "p"\n[profiles.p]\nmodel = "o5"\n');
+    expect(resolveCodexModel({ ...s.env, CODEX_HOME: ch }).model).toBe('o5');
+  });
 });
 
 describe('anthropic API backend model', () => {
-  it('uses ANTHROPIC_MODEL or the settings model when it is an API id, else the documented fallback', () => {
+  it('uses ANTHROPIC_MODEL or the settings model when it is an API id, else fails asking for GLASSBOX_MODEL', () => {
     const s = sandbox();
     expect(apiModelId('opus')).toBeUndefined();
     expect(apiModelId('claude-opus-4-8[1m]')).toBe('claude-opus-4-8');
-    expect(resolveAnthropicModel(s.opts()).model).toBe('claude-haiku-4-5-20251001');
+    // No glassbox fallback: nothing that is an API id means a clear error asking for GLASSBOX_MODEL.
+    expect(() => resolveAnthropicModel(s.opts())).toThrow(/Set GLASSBOX_MODEL/);
     s.write(join(s.home, '.claude', 'settings.json'), { model: 'opus[1m]' });
-    expect(resolveAnthropicModel(s.opts()).model).toBe('claude-haiku-4-5-20251001');
+    expect(() => resolveAnthropicModel(s.opts())).toThrow(/Set GLASSBOX_MODEL/);
+    expect(() => new AnthropicBackend({ env: s.env, projectDir: s.project })).toThrow(/Set GLASSBOX_MODEL/);
     s.write(join(s.home, '.claude', 'settings.json'), { model: 'claude-sonnet-4-6' });
     expect(resolveAnthropicModel(s.opts())).toEqual({ model: 'claude-sonnet-4-6', source: '~/.claude/settings.json' });
     expect(new AnthropicBackend({ env: { ...s.env, ANTHROPIC_MODEL: 'claude-opus-4-8' } }).model).toBe('claude-opus-4-8');
@@ -216,5 +238,54 @@ describe('status shows the model and its source', () => {
     s.write(join(s.home, '.claude', 'settings.json'), { model: 'sonnet' });
     const r2 = await status(s.project, { ...env, GLASSBOX_MODEL: 'haiku' });
     expect(renderStatus(r2)).toContain('model    haiku from GLASSBOX_MODEL (claude-cli)');
+  });
+});
+
+/** A claude runner that answers any --json-schema with an even split, and records the args. */
+function schemaRunner(): { run: ProcessRunner; calls: string[][] } {
+  const calls: string[][] = [];
+  const run: ProcessRunner = async (_cmd, args) => {
+    calls.push([...args]);
+    const schema = JSON.parse(args[args.indexOf('--json-schema') + 1] ?? '{}') as { properties?: Record<string, { required?: string[] }> };
+    const out: Record<string, Record<string, number>> = {};
+    for (const [q, p] of Object.entries(schema.properties ?? {})) out[q] = Object.fromEntries((p.required ?? []).map((k, _i, all) => [k, 1 / all.length]));
+    return { code: 0, stdout: envelope(out), stderr: '' };
+  };
+  return { run, calls };
+}
+
+describe('MCP server model choice', () => {
+  it('uses the tool root\'s Claude Code settings and this session\'s file, and takes no model argument', async () => {
+    const s = sandbox();
+    writeFileSync(join(s.project, 'a.js'), 'function add(a, b) { return a + b }\n');
+    s.write(join(s.project, '.claude', 'settings.local.json'), { model: 'sonnet' });
+    s.write(join(s.home, '.claude', 'settings.json'), { model: 'opus[1m]' });
+    const { run, calls } = schemaRunner();
+    // No CLAUDE_PROJECT_DIR, and the server's cwd is elsewhere: only the root tells it where the project is.
+    const env = { HOME: s.home, GLASSBOX_BACKEND: 'claude-cli', GLASSBOX_SAMPLES: '1' };
+    const connect = async (extra: NodeJS.ProcessEnv = {}) => {
+      const server = createGlassboxServer({ env: { ...env, ...extra }, cwd: s.base, root: s.project, backendConfig: { claudeCli: { run, managedSettings: s.managed } } });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: 't', version: '0' });
+      await Promise.all([server.connect(a), client.connect(b)]);
+      return client;
+    };
+    const ask = async (client: Client, args: Record<string, unknown> = {}) => {
+      const r = await client.callTool({ name: 'ask', arguments: { question: 'Does add have side effects?', paths: ['a.js'], mode: 'fast', ...args } });
+      expect(r.isError, JSON.stringify(r.content)).not.toBe(true);
+      const last = calls.at(-1)!;
+      return last.includes('--model') ? last[last.indexOf('--model') + 1] : undefined;
+    };
+    const c1 = await connect();
+    expect(await ask(c1)).toBe('sonnet');
+    // A model argument from the calling agent is not an override.
+    expect(await ask(c1, { model: 'haiku' })).toBe('sonnet');
+    await c1.close();
+
+    mkdirSync(join(s.project, '.glassbox'), { recursive: true });
+    recordSessionModel(s.project, 'sess-9', 'claude-opus-5');
+    const c2 = await connect({ CLAUDE_CODE_SESSION_ID: 'sess-9' });
+    expect(await ask(c2)).toBe('claude-opus-5');
+    await c2.close();
   });
 });

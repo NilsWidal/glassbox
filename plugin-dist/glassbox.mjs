@@ -3960,333 +3960,6 @@ var init_render = __esm({
   }
 });
 
-// src/backends/process.ts
-import { spawn, spawnSync } from "node:child_process";
-import { accessSync, constants as constants2 } from "node:fs";
-import { delimiter, join as join4 } from "node:path";
-function descendantPids(pid) {
-  if (process.platform === "win32") return [];
-  const out2 = [];
-  let level = [pid];
-  for (let depth = 0; depth < 16 && level.length && out2.length < MAX_TREE; depth++) {
-    const next = [];
-    for (const p of level) {
-      const r = spawnSync("pgrep", ["-P", String(p)], { encoding: "utf8", timeout: 2e3, windowsHide: true });
-      if (r.status !== 0 || typeof r.stdout !== "string") continue;
-      for (const line of r.stdout.split("\n")) {
-        const n = Number(line.trim());
-        if (Number.isInteger(n) && n > 0 && !out2.includes(n)) next.push(n);
-      }
-    }
-    out2.push(...next.slice(0, MAX_TREE - out2.length));
-    level = next;
-  }
-  return out2;
-}
-function signalPid(pid, sig) {
-  try {
-    process.kill(pid, sig);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function killTree(pid, graceMs = 1500) {
-  if (pid === void 0) return;
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-    return;
-  }
-  const tree = [pid, ...descendantPids(pid)];
-  for (const p of tree) signalPid(p, "SIGTERM");
-  setTimeout(() => {
-    for (const p of tree) if (signalPid(p, 0)) signalPid(p, "SIGKILL");
-  }, graceMs);
-}
-function isNotFound(e) {
-  return e?.code === "ENOENT";
-}
-function findOnPath(cmd, env = process.env) {
-  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
-  const dirs = /[\\/]/.test(cmd) ? [""] : (env.PATH ?? env.Path ?? "").split(delimiter).filter(Boolean);
-  for (const dir of dirs) {
-    for (const ext of exts) {
-      const full = dir ? join4(dir, cmd + ext) : cmd + ext;
-      try {
-        accessSync(full, constants2.X_OK);
-        return full;
-      } catch {
-      }
-    }
-  }
-  return void 0;
-}
-function tail(text2, lines = 5) {
-  return text2.trim().split("\n").filter(Boolean).slice(-lines).join("\n");
-}
-function unknownFlag(stderr) {
-  const m = /unknown (?:option|argument)\s+'?(--[a-z0-9-]+)/i.exec(stderr) ?? /unexpected argument '(--[a-z0-9-]+)'/i.exec(stderr);
-  return m?.[1];
-}
-function cliChildEnv(env) {
-  const out2 = {};
-  for (const [k, v] of Object.entries(env)) if (!GLASSBOX_ONLY_KEYS.test(k)) out2[k] = v;
-  out2.GLASSBOX_NESTED = "1";
-  return out2;
-}
-function checkModelId(model) {
-  if (!MODEL_ID.test(model)) throw new Error(`invalid model id "${model}"`);
-  return model;
-}
-var CliNotFoundError, CliTimeoutError, CliCallError, MAX_TREE, runProcess, GLASSBOX_ONLY_KEYS, MODEL_ID;
-var init_process = __esm({
-  "src/backends/process.ts"() {
-    "use strict";
-    init_define_GLASSBOX_BUNDLE();
-    CliNotFoundError = class extends Error {
-      constructor(command, hint) {
-        super(`"${command}" was not found on PATH. ${hint}`);
-        this.command = command;
-        this.name = "CliNotFoundError";
-      }
-      command;
-    };
-    CliTimeoutError = class extends Error {
-      constructor(command, timeoutMs) {
-        super(`"${command}" did not finish within ${timeoutMs} ms`);
-        this.command = command;
-        this.timeoutMs = timeoutMs;
-        this.name = "CliTimeoutError";
-      }
-      command;
-      timeoutMs;
-    };
-    CliCallError = class extends Error {
-      constructor(message, stderr = "") {
-        super(message);
-        this.stderr = stderr;
-        this.name = "CliCallError";
-      }
-      stderr;
-    };
-    MAX_TREE = 256;
-    runProcess = (cmd, args2, opts = {}) => new Promise((resolve8, reject) => {
-      if (opts.signal?.aborted) return reject(opts.signal.reason ?? new Error("aborted"));
-      const child = spawn(cmd, [...args2], {
-        cwd: opts.cwd,
-        env: opts.env ?? process.env,
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true
-      });
-      const out2 = [];
-      const err2 = [];
-      let settled = false;
-      const finish = (fn) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        opts.signal?.removeEventListener("abort", onAbort);
-        fn();
-      };
-      const timer = opts.timeoutMs ? setTimeout(() => {
-        killTree(child.pid);
-        finish(() => reject(new CliTimeoutError(cmd, opts.timeoutMs)));
-      }, opts.timeoutMs) : void 0;
-      const onAbort = () => {
-        killTree(child.pid);
-        finish(() => reject(opts.signal?.reason ?? new Error("aborted")));
-      };
-      opts.signal?.addEventListener("abort", onAbort, { once: true });
-      child.stdout.on("data", (b) => out2.push(b));
-      child.stderr.on("data", (b) => err2.push(b));
-      child.on("error", (e) => finish(() => reject(e)));
-      child.on(
-        "close",
-        (code) => finish(() => resolve8({ code, stdout: Buffer.concat(out2).toString("utf8"), stderr: Buffer.concat(err2).toString("utf8") }))
-      );
-      child.stdin.on("error", () => {
-      });
-      child.stdin.end(opts.input ?? "");
-    });
-    GLASSBOX_ONLY_KEYS = /^(GLASSBOX_ANTHROPIC_API_KEY|GLASSBOX_OPENAI_API_KEY|CLAUDE_PLUGIN_OPTION_\w*API_KEY)$/;
-    MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*(?:\[[A-Za-z0-9]+\])?$/;
-  }
-});
-
-// src/model-choice.ts
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readdirSync, readFileSync as readFileSync3, renameSync as renameSync2, rmSync, statSync, writeFileSync as writeFileSync3 } from "node:fs";
-import { homedir } from "node:os";
-import { join as join5, resolve, sep } from "node:path";
-function validModel(v) {
-  if (typeof v !== "string") return void 0;
-  const t = v.trim();
-  return t && t.length <= 200 && MODEL_ID.test(t) ? t : void 0;
-}
-function usableDir(v) {
-  const t = v?.trim();
-  return t && !t.includes("${") ? t : void 0;
-}
-function homeDir(env) {
-  return usableDir(env.HOME) ?? homedir();
-}
-function claudeConfigDir(env) {
-  return usableDir(env.CLAUDE_CONFIG_DIR) ?? join5(homeDir(env), ".claude");
-}
-function claudeProjectDir(env, fallback) {
-  return resolve(usableDir(env.CLAUDE_PROJECT_DIR) ?? fallback ?? process.cwd());
-}
-function displayPath(path, env) {
-  const home = homeDir(env);
-  return path === home ? "~" : path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
-}
-function defaultManagedSettings() {
-  if (process.platform === "darwin") return "/Library/Application Support/ClaudeCode/managed-settings.json";
-  if (process.platform === "win32") return "C:\\Program Files\\ClaudeCode\\managed-settings.json";
-  return "/etc/claude-code/managed-settings.json";
-}
-function readJson(file2) {
-  try {
-    if (!existsSync3(file2) || statSync(file2).size > 1024 * 1024) return void 0;
-    const v = JSON.parse(readFileSync3(file2, "utf8"));
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? v : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function claudeSettingsFiles(opts = {}) {
-  const env = opts.env ?? process.env;
-  const project = claudeProjectDir(env, opts.projectDir);
-  return [
-    opts.managedSettings ?? defaultManagedSettings(),
-    join5(project, ".claude", "settings.local.json"),
-    join5(project, ".claude", "settings.json"),
-    join5(claudeConfigDir(env), "settings.json")
-  ];
-}
-function claudeSettingsModel(opts = {}) {
-  const env = opts.env ?? process.env;
-  const files = claudeSettingsFiles(opts).map((file2) => ({ file: file2, json: readJson(file2) }));
-  for (const { file: file2, json: json3 } of files) {
-    const e = json3?.env;
-    const m = typeof e === "object" && e !== null ? validModel(e.ANTHROPIC_MODEL) : void 0;
-    if (m) return { model: m, source: `ANTHROPIC_MODEL in ${displayPath(file2, env)}` };
-  }
-  for (const { file: file2, json: json3 } of files) {
-    const m = validModel(json3?.model);
-    if (m) return { model: m, source: displayPath(file2, env) };
-  }
-  return void 0;
-}
-function safeSessionId(id) {
-  const t = id?.trim();
-  return t && /^[A-Za-z0-9_-]{1,128}$/.test(t) ? t : void 0;
-}
-function sessionFile(projectDir, sessionId) {
-  return join5(projectDir, SESSIONS_DIR, `${sessionId}.json`);
-}
-function recordSessionModel(projectDir, sessionId, model, now = Date.now()) {
-  const id = safeSessionId(sessionId);
-  const m = validModel(model);
-  if (!id || !m) return false;
-  const store = join5(projectDir, ".glassbox");
-  try {
-    if (!existsSync3(store)) return false;
-    assertNotSymlinkSync(store);
-    const dir = join5(projectDir, SESSIONS_DIR);
-    assertNotSymlinkSync(dir);
-    mkdirSync2(dir, { recursive: true });
-    const file2 = sessionFile(projectDir, id);
-    assertNotSymlinkSync(file2);
-    const tmp = `${file2}.${process.pid}.tmp`;
-    writeFileSync3(tmp, `${JSON.stringify({ sessionId: id, model: m, at: now })}
-`);
-    renameSync2(tmp, file2);
-    pruneSessions(dir, now);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function pruneSessions(dir, now) {
-  try {
-    for (const name2 of readdirSync(dir)) {
-      const f = join5(dir, name2);
-      if (now - statSync(f).mtimeMs > SESSION_MAX_AGE_MS) rmSync(f, { force: true });
-    }
-  } catch {
-  }
-}
-function sessionModel(opts = {}) {
-  const env = opts.env ?? process.env;
-  const id = safeSessionId(env.CLAUDE_CODE_SESSION_ID);
-  if (!id) return void 0;
-  const file2 = sessionFile(claudeProjectDir(env, opts.projectDir), id);
-  const json3 = readJson(file2);
-  if (json3?.sessionId !== id) return void 0;
-  const m = validModel(json3.model);
-  return m ? { model: m, source: "this Claude Code session" } : void 0;
-}
-function explicitModel(env) {
-  const g = env.GLASSBOX_MODEL?.trim();
-  const p = env.CLAUDE_PLUGIN_OPTION_MODEL?.trim();
-  if (g) return { model: g, source: g === p ? "the plugin model option" : "GLASSBOX_MODEL" };
-  if (p) return { model: p, source: "the plugin model option" };
-  return void 0;
-}
-function resolveClaudeModel(opts = {}) {
-  const env = opts.env ?? process.env;
-  const explicit = explicitModel(env);
-  if (explicit) return explicit;
-  const session = sessionModel(opts);
-  if (session) return session;
-  const am = validModel(env.ANTHROPIC_MODEL);
-  if (am) return { model: am, source: "ANTHROPIC_MODEL" };
-  return claudeSettingsModel(opts) ?? { source: "Claude Code default" };
-}
-function resolveCodexModel(env = process.env) {
-  const explicit = explicitModel(env);
-  if (explicit) return explicit;
-  const file2 = join5(usableDir(env.CODEX_HOME) ?? join5(homeDir(env), ".codex"), "config.toml");
-  try {
-    const text2 = readFileSync3(file2, "utf8");
-    const top = text2.split(/^\s*\[/m)[0] ?? "";
-    const m = validModel(/^\s*model\s*=\s*"([^"\n]*)"/m.exec(top)?.[1]);
-    if (m) return { model: m, source: displayPath(file2, env) };
-  } catch {
-  }
-  return { source: "Codex default" };
-}
-function apiModelId(model) {
-  const base = model?.replace(/\[[A-Za-z0-9]+\]$/, "");
-  return base && /^claude-[a-z0-9.-]+$/.test(base) ? base : void 0;
-}
-function resolveAnthropicModel(opts = {}) {
-  const env = opts.env ?? process.env;
-  const explicit = explicitModel(env);
-  if (explicit?.model) return { model: explicit.model, source: explicit.source };
-  const am = apiModelId(validModel(env.ANTHROPIC_MODEL));
-  if (am) return { model: am, source: "ANTHROPIC_MODEL" };
-  const s = claudeSettingsModel(opts);
-  const sm = apiModelId(s?.model);
-  if (sm && s) return { model: sm, source: s.source };
-  return { model: ANTHROPIC_API_FALLBACK_MODEL, source: "glassbox fallback for the API backend" };
-}
-function describeChoice(c) {
-  return c.model ? `${c.model} from ${c.source}` : c.source;
-}
-var SESSIONS_DIR, SESSION_MAX_AGE_MS, ANTHROPIC_API_FALLBACK_MODEL;
-var init_model_choice = __esm({
-  "src/model-choice.ts"() {
-    "use strict";
-    init_define_GLASSBOX_BUNDLE();
-    init_process();
-    init_safefs();
-    SESSIONS_DIR = join5(".glassbox", "sessions");
-    SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1e3;
-    ANTHROPIC_API_FALLBACK_MODEL = "claude-haiku-4-5-20251001";
-  }
-});
-
 // src/config.ts
 function isBackendName(v) {
   return typeof v === "string" && BACKENDS.includes(v);
@@ -4306,11 +3979,10 @@ var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
-    init_model_choice();
     DEFAULT_MODELS = Object.freeze({
       "claude-cli": void 0,
       "codex-cli": void 0,
-      anthropic: ANTHROPIC_API_FALLBACK_MODEL,
+      anthropic: void 0,
       "openai-compat": void 0,
       fake: "fake-1"
     });
@@ -4639,6 +4311,352 @@ var init_sampling = __esm({
   }
 });
 
+// src/backends/process.ts
+import { spawn, spawnSync } from "node:child_process";
+import { accessSync, constants as constants2 } from "node:fs";
+import { delimiter, join as join4 } from "node:path";
+function descendantPids(pid) {
+  if (process.platform === "win32") return [];
+  const out2 = [];
+  let level = [pid];
+  for (let depth = 0; depth < 16 && level.length && out2.length < MAX_TREE; depth++) {
+    const next = [];
+    for (const p of level) {
+      const r = spawnSync("pgrep", ["-P", String(p)], { encoding: "utf8", timeout: 2e3, windowsHide: true });
+      if (r.status !== 0 || typeof r.stdout !== "string") continue;
+      for (const line of r.stdout.split("\n")) {
+        const n = Number(line.trim());
+        if (Number.isInteger(n) && n > 0 && !out2.includes(n)) next.push(n);
+      }
+    }
+    out2.push(...next.slice(0, MAX_TREE - out2.length));
+    level = next;
+  }
+  return out2;
+}
+function signalPid(pid, sig) {
+  try {
+    process.kill(pid, sig);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function killTree(pid, graceMs = 1500) {
+  if (pid === void 0) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    return;
+  }
+  const tree = [pid, ...descendantPids(pid)];
+  for (const p of tree) signalPid(p, "SIGTERM");
+  setTimeout(() => {
+    for (const p of tree) if (signalPid(p, 0)) signalPid(p, "SIGKILL");
+  }, graceMs);
+}
+function isNotFound(e) {
+  return e?.code === "ENOENT";
+}
+function findOnPath(cmd, env = process.env) {
+  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  const dirs = /[\\/]/.test(cmd) ? [""] : (env.PATH ?? env.Path ?? "").split(delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const full = dir ? join4(dir, cmd + ext) : cmd + ext;
+      try {
+        accessSync(full, constants2.X_OK);
+        return full;
+      } catch {
+      }
+    }
+  }
+  return void 0;
+}
+function tail(text2, lines = 5) {
+  return text2.trim().split("\n").filter(Boolean).slice(-lines).join("\n");
+}
+function unknownFlag(stderr) {
+  const m = /unknown (?:option|argument)\s+'?(--[a-z0-9-]+)/i.exec(stderr) ?? /unexpected argument '(--[a-z0-9-]+)'/i.exec(stderr);
+  return m?.[1];
+}
+function cliChildEnv(env) {
+  const out2 = {};
+  for (const [k, v] of Object.entries(env)) if (!GLASSBOX_ONLY_KEYS.test(k)) out2[k] = v;
+  out2.GLASSBOX_NESTED = "1";
+  return out2;
+}
+function checkModelId(model) {
+  if (!MODEL_ID.test(model)) throw new Error(`invalid model id "${model}"`);
+  return model;
+}
+var CliNotFoundError, CliTimeoutError, CliCallError, MAX_TREE, runProcess, GLASSBOX_ONLY_KEYS, MODEL_ID;
+var init_process = __esm({
+  "src/backends/process.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    CliNotFoundError = class extends Error {
+      constructor(command, hint) {
+        super(`"${command}" was not found on PATH. ${hint}`);
+        this.command = command;
+        this.name = "CliNotFoundError";
+      }
+      command;
+    };
+    CliTimeoutError = class extends Error {
+      constructor(command, timeoutMs) {
+        super(`"${command}" did not finish within ${timeoutMs} ms`);
+        this.command = command;
+        this.timeoutMs = timeoutMs;
+        this.name = "CliTimeoutError";
+      }
+      command;
+      timeoutMs;
+    };
+    CliCallError = class extends Error {
+      constructor(message, stderr = "") {
+        super(message);
+        this.stderr = stderr;
+        this.name = "CliCallError";
+      }
+      stderr;
+    };
+    MAX_TREE = 256;
+    runProcess = (cmd, args2, opts = {}) => new Promise((resolve8, reject) => {
+      if (opts.signal?.aborted) return reject(opts.signal.reason ?? new Error("aborted"));
+      const child = spawn(cmd, [...args2], {
+        cwd: opts.cwd,
+        env: opts.env ?? process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true
+      });
+      const out2 = [];
+      const err2 = [];
+      let settled = false;
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        opts.signal?.removeEventListener("abort", onAbort);
+        fn();
+      };
+      const timer = opts.timeoutMs ? setTimeout(() => {
+        killTree(child.pid);
+        finish(() => reject(new CliTimeoutError(cmd, opts.timeoutMs)));
+      }, opts.timeoutMs) : void 0;
+      const onAbort = () => {
+        killTree(child.pid);
+        finish(() => reject(opts.signal?.reason ?? new Error("aborted")));
+      };
+      opts.signal?.addEventListener("abort", onAbort, { once: true });
+      child.stdout.on("data", (b) => out2.push(b));
+      child.stderr.on("data", (b) => err2.push(b));
+      child.on("error", (e) => finish(() => reject(e)));
+      child.on(
+        "close",
+        (code) => finish(() => resolve8({ code, stdout: Buffer.concat(out2).toString("utf8"), stderr: Buffer.concat(err2).toString("utf8") }))
+      );
+      child.stdin.on("error", () => {
+      });
+      child.stdin.end(opts.input ?? "");
+    });
+    GLASSBOX_ONLY_KEYS = /^(GLASSBOX_ANTHROPIC_API_KEY|GLASSBOX_OPENAI_API_KEY|CLAUDE_PLUGIN_OPTION_\w*API_KEY)$/;
+    MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*(?:\[[A-Za-z0-9]+\])?$/;
+  }
+});
+
+// src/model-choice.ts
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readdirSync, readFileSync as readFileSync3, renameSync as renameSync2, rmSync, statSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { homedir } from "node:os";
+import { join as join5, resolve, sep } from "node:path";
+function validModel(v) {
+  if (typeof v !== "string") return void 0;
+  const t = v.trim();
+  return t && t.length <= 200 && MODEL_ID.test(t) ? t : void 0;
+}
+function usableDir(v) {
+  const t = v?.trim();
+  return t && !t.includes("${") ? t : void 0;
+}
+function homeDir(env) {
+  return usableDir(env.HOME) ?? homedir();
+}
+function claudeConfigDir(env) {
+  return usableDir(env.CLAUDE_CONFIG_DIR) ?? join5(homeDir(env), ".claude");
+}
+function claudeProjectDir(env, fallback) {
+  return resolve(usableDir(env.CLAUDE_PROJECT_DIR) ?? fallback ?? process.cwd());
+}
+function displayPath(path, env) {
+  const home = homeDir(env);
+  return path === home ? "~" : path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+}
+function defaultManagedSettings() {
+  if (process.platform === "darwin") return "/Library/Application Support/ClaudeCode/managed-settings.json";
+  if (process.platform === "win32") return "C:\\Program Files\\ClaudeCode\\managed-settings.json";
+  return "/etc/claude-code/managed-settings.json";
+}
+function readJson(file2) {
+  try {
+    if (!existsSync3(file2) || statSync(file2).size > 1024 * 1024) return void 0;
+    const v = JSON.parse(readFileSync3(file2, "utf8"));
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? v : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function claudeSettingsFiles(opts = {}) {
+  const env = opts.env ?? process.env;
+  const project = claudeProjectDir(env, opts.projectDir);
+  return [
+    opts.managedSettings ?? defaultManagedSettings(),
+    join5(project, ".claude", "settings.local.json"),
+    join5(project, ".claude", "settings.json"),
+    join5(claudeConfigDir(env), "settings.json")
+  ];
+}
+function claudeSettingsModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const files = claudeSettingsFiles(opts).map((file2) => ({ file: file2, json: readJson(file2) }));
+  for (const { file: file2, json: json3 } of files) {
+    const e = json3?.env;
+    const m = typeof e === "object" && e !== null ? validModel(e.ANTHROPIC_MODEL) : void 0;
+    if (m) return { model: m, source: `ANTHROPIC_MODEL in ${displayPath(file2, env)}` };
+  }
+  for (const { file: file2, json: json3 } of files) {
+    const m = validModel(json3?.model);
+    if (m) return { model: m, source: displayPath(file2, env) };
+  }
+  return void 0;
+}
+function safeSessionId(id) {
+  const t = id?.trim();
+  return t && /^[A-Za-z0-9_-]{1,128}$/.test(t) ? t : void 0;
+}
+function sessionFile(projectDir, sessionId) {
+  return join5(projectDir, SESSIONS_DIR, `${sessionId}.json`);
+}
+function recordSessionModel(projectDir, sessionId, model, now = Date.now()) {
+  const id = safeSessionId(sessionId);
+  const m = validModel(model);
+  if (!id || !m) return false;
+  const store = join5(projectDir, ".glassbox");
+  try {
+    if (!existsSync3(store)) return false;
+    assertNotSymlinkSync(store);
+    const dir = join5(projectDir, SESSIONS_DIR);
+    assertNotSymlinkSync(dir);
+    mkdirSync2(dir, { recursive: true });
+    const file2 = sessionFile(projectDir, id);
+    assertNotSymlinkSync(file2);
+    const tmp = `${file2}.${process.pid}.tmp`;
+    writeFileSync3(tmp, `${JSON.stringify({ sessionId: id, model: m, at: now })}
+`);
+    renameSync2(tmp, file2);
+    pruneSessions(dir, now);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function pruneSessions(dir, now) {
+  try {
+    for (const name2 of readdirSync(dir)) {
+      const f = join5(dir, name2);
+      if (now - statSync(f).mtimeMs > SESSION_MAX_AGE_MS) rmSync(f, { force: true });
+    }
+  } catch {
+  }
+}
+function sessionModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const id = safeSessionId(env.CLAUDE_CODE_SESSION_ID);
+  if (!id) return void 0;
+  const file2 = sessionFile(claudeProjectDir(env, opts.projectDir), id);
+  const json3 = readJson(file2);
+  if (json3?.sessionId !== id) return void 0;
+  const m = validModel(json3.model);
+  return m ? { model: m, source: "this Claude Code session" } : void 0;
+}
+function explicitModel(env) {
+  const g = env.GLASSBOX_MODEL?.trim();
+  const p = env.CLAUDE_PLUGIN_OPTION_MODEL?.trim();
+  if (g) return { model: g, source: g === p ? "the plugin model option" : "GLASSBOX_MODEL" };
+  if (p) return { model: p, source: "the plugin model option" };
+  return void 0;
+}
+function resolveClaudeModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const explicit = explicitModel(env);
+  if (explicit) return explicit;
+  const session = sessionModel(opts);
+  if (session) return session;
+  const am = validModel(env.ANTHROPIC_MODEL);
+  if (am) return { model: am, source: "ANTHROPIC_MODEL" };
+  return claudeSettingsModel(opts) ?? { source: "Claude Code default" };
+}
+function tomlStrings(text2) {
+  const out2 = /* @__PURE__ */ new Map([["", /* @__PURE__ */ new Map()]]);
+  let section = "";
+  for (const raw of text2.split("\n")) {
+    const line = raw.trim();
+    const header2 = /^\[([^[\]]+)\]\s*(#.*)?$/.exec(line);
+    if (header2) {
+      section = header2[1].trim().replace(/"/g, "");
+      if (!out2.has(section)) out2.set(section, /* @__PURE__ */ new Map());
+      continue;
+    }
+    const kv = /^([A-Za-z0-9_.-]+)\s*=\s*"([^"\n]*)"\s*(#.*)?$/.exec(line);
+    if (kv) out2.get(section).set(kv[1], kv[2]);
+  }
+  return out2;
+}
+function resolveCodexModel(env = process.env) {
+  const explicit = explicitModel(env);
+  if (explicit) return explicit;
+  const file2 = join5(usableDir(env.CODEX_HOME) ?? join5(homeDir(env), ".codex"), "config.toml");
+  try {
+    const toml = tomlStrings(readFileSync3(file2, "utf8"));
+    const top = toml.get("");
+    const profile = top.get("profile");
+    const fromProfile = profile ? validModel(toml.get(`profiles.${profile}`)?.get("model")) : void 0;
+    if (fromProfile) return { model: fromProfile, source: `profile ${profile} in ${displayPath(file2, env)}` };
+    const m = validModel(top.get("model"));
+    if (m) return { model: m, source: displayPath(file2, env) };
+  } catch {
+  }
+  return { source: "Codex default" };
+}
+function apiModelId(model) {
+  const base = model?.replace(/\[[A-Za-z0-9]+\]$/, "");
+  return base && /^claude-[a-z0-9.-]+$/.test(base) ? base : void 0;
+}
+function resolveAnthropicModel(opts = {}) {
+  const env = opts.env ?? process.env;
+  const explicit = explicitModel(env);
+  if (explicit?.model) return { model: explicit.model, source: explicit.source };
+  const am = apiModelId(validModel(env.ANTHROPIC_MODEL));
+  if (am) return { model: am, source: "ANTHROPIC_MODEL" };
+  const s = claudeSettingsModel(opts);
+  const sm = apiModelId(s?.model);
+  if (sm && s) return { model: sm, source: s.source };
+  throw new Error(NO_API_MODEL_MESSAGE);
+}
+function describeChoice(c) {
+  return c.model ? `${c.model} from ${c.source}` : c.source;
+}
+var SESSIONS_DIR, SESSION_MAX_AGE_MS, NO_API_MODEL_MESSAGE;
+var init_model_choice = __esm({
+  "src/model-choice.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_process();
+    init_safefs();
+    SESSIONS_DIR = join5(".glassbox", "sessions");
+    SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1e3;
+    NO_API_MODEL_MESSAGE = "the anthropic backend needs a model id and none of yours is an API id. Set GLASSBOX_MODEL to an Anthropic API model id, or set ANTHROPIC_MODEL or the model in your Claude Code settings to a full API id. glassbox does not pick a model for you.";
+  }
+});
+
 // src/backends/anthropic.ts
 async function loadClient(apiKey, timeoutMs, onRequest) {
   let mod;
@@ -4700,7 +4718,7 @@ var init_anthropic = __esm({
           this.model = opts.model;
           this.modelSource = `${opts.model} from the model option`;
         } else {
-          const c = resolveAnthropicModel({ env });
+          const c = resolveAnthropicModel({ env, ...opts.projectDir !== void 0 ? { projectDir: opts.projectDir } : {} });
           this.model = c.model;
           this.modelSource = `${c.model} from ${c.source}`;
         }
@@ -5384,13 +5402,14 @@ function createBackend(config2 = {}) {
     ...config2.timeoutMs !== void 0 ? { timeoutMs: config2.timeoutMs } : {}
   };
   const withModel = model !== void 0 ? { model } : {};
+  const project = config2.projectDir !== void 0 ? { projectDir: config2.projectDir } : {};
   switch (name2) {
     case "claude-cli":
-      return new ClaudeCliBackend({ ...common, ...withModel, ...config2.claudeCli });
+      return new ClaudeCliBackend({ ...common, ...withModel, ...project, ...config2.claudeCli });
     case "codex-cli":
       return new CodexCliBackend({ ...common, ...withModel, ...config2.codexCli });
     case "anthropic":
-      return new AnthropicBackend({ ...common, ...withModel, ...config2.anthropic });
+      return new AnthropicBackend({ ...common, ...withModel, ...project, ...config2.anthropic });
     case "openai-compat": {
       const { samples: _samples, ...rest } = common;
       return new OpenAICompatBackend({ ...rest, ...withModel, ...config2.openaiCompat });
@@ -58748,10 +58767,10 @@ function createGlassboxServer(opts = {}) {
   const cwd = opts.cwd ?? process.cwd();
   const baseRoot = resolve5(cwd, opts.root ?? defaultRoot(env, cwd));
   const rootOf2 = makeRootResolver(baseRoot, env);
-  const backendOf = (a, s = {}) => createBackend({
+  const backendOf = (a, dir, s = {}) => createBackend({
     env,
+    projectDir: dir,
     ...a.backend ? { backend: a.backend } : {},
-    ...a.model ? { model: a.model } : {},
     ...s.samples !== void 0 ? { samples: s.samples } : {},
     ...opts.backendConfig
   });
@@ -58808,7 +58827,7 @@ function createGlassboxServer(opts = {}) {
       const run3 = await runWithMode(
         resolved.mode,
         async (_m, s) => {
-          const backend = backendOf(a, s);
+          const backend = backendOf(a, dir, s);
           const explainOn = a.explain ?? s.explain ?? false;
           const why = a.why ?? s.why;
           const decide3 = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
@@ -58853,7 +58872,7 @@ function createGlassboxServer(opts = {}) {
         (store) => runWithMode(
           resolved.mode,
           async (_m, s) => {
-            const backend = backendOf(a, s);
+            const backend = backendOf(a, dir, s);
             const decide3 = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
             return where(a.concept, {
               store,
@@ -58897,7 +58916,7 @@ function createGlassboxServer(opts = {}) {
         (store) => runWithMode(
           resolved.mode,
           async (_m, s) => {
-            const backend = backendOf(a, s);
+            const backend = backendOf(a, dir, s);
             const decide3 = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
             const explainOn = a.explain ?? s.explain ?? true;
             return triage(diff, {
@@ -58942,7 +58961,7 @@ function createGlassboxServer(opts = {}) {
         (store) => runWithMode(
           resolved.mode,
           async (_m, s) => {
-            const backend = backendOf(a, s);
+            const backend = backendOf(a, dir, s);
             const d = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
             return decide2(a.question, a.options, a.context, { store, root: dir, backend, ...d ? { decide: d } : {} });
           },
@@ -58979,7 +58998,7 @@ function createGlassboxServer(opts = {}) {
       try {
         const r = await explainDecision(a.id, {
           root: dir,
-          backend: () => backendOf(a),
+          backend: () => backendOf(a, dir),
           store: () => store ??= GraphStore2.open(dir),
           diff: async () => a.diff ?? await workingDiff(dir),
           ...a.refresh ? { refresh: true } : {},
@@ -59035,9 +59054,10 @@ function createGlassboxServer(opts = {}) {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true }
     },
     (a) => run2(async () => {
-      const r = await refresh(rootOf2(a.root), {
+      const dir = rootOf2(a.root);
+      const r = await refresh(dir, {
         ...a.files ? { files: a.files } : {},
-        ...a.tags ? { tags: true, backend: () => backendOf(a) } : {},
+        ...a.tags ? { tags: true, backend: () => backendOf(a, dir) } : {},
         ...a.limit !== void 0 ? { limit: a.limit } : {},
         // An agent-triggered refresh never creates CLAUDE.md; only `glassbox init` does.
         ...a.syncMd ? { syncMd: { claudeMd: false } } : {}
@@ -59068,7 +59088,6 @@ var init_server3 = __esm({
     init_render();
     init_ask();
     init_backends();
-    init_process();
     init_reasons();
     init_refresh();
     init_source();
@@ -59102,8 +59121,9 @@ var init_server3 = __esm({
       "fast (1 sample, 1 option order, no evidence), balanced (default), explained (adds evidence and a why), strict (more samples, evidence, higher bands) or auto (fast, then explained when the band is not act). Default: GLASSBOX_MODE or .glassbox/config.json."
     );
     backendArgs = {
-      backend: external_exports.enum(["auto", "claude-cli", "codex-cli", "anthropic", "openai-compat"]).optional().describe("Override the backend. Default: GLASSBOX_BACKEND or auto (the host agent's own CLI)."),
-      model: external_exports.string().regex(MODEL_ID, "a model id: letters, digits and . _ : / @ -").optional().describe("Override the model id. Default: GLASSBOX_MODEL, else the model the user selected in Claude Code or Codex.")
+      backend: external_exports.enum(["auto", "claude-cli", "codex-cli", "anthropic", "openai-compat"]).optional().describe("Override the backend. Default: GLASSBOX_BACKEND or auto (the host agent's own CLI).")
+      // No model argument: glassbox runs on the model the user selected (only the user's own
+      // GLASSBOX_MODEL or plugin model option can override it), never one the calling agent picks.
     };
   }
 });

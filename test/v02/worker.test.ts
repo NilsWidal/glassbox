@@ -384,10 +384,10 @@ describe('runWorker', () => {
   });
 
   it('knows the Anthropic SDK retries: worst case per call, counted only for its own client', () => {
-    const own = new AnthropicBackend({ env: {}, apiKey: 'k' });
+    const own = new AnthropicBackend({ env: {}, model: 'claude-x-1', apiKey: 'k' });
     expect(own.maxRequestsPerCall).toBe(4);
     expect(own.requestCount).toBe(0);
-    const injected = new AnthropicBackend({ env: {}, client: { messages: { create: async () => ({ content: [] }) } } as never });
+    const injected = new AnthropicBackend({ env: {}, model: 'claude-x-1', client: { messages: { create: async () => ({ content: [] }) } } as never });
     expect(injected.requestCount).toBeUndefined();
   });
 

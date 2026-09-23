@@ -85,8 +85,9 @@ describe('mcp server over an in-memory transport', () => {
       }
       expect((await call('ask', { question: 'q?', root: '../..' })).isError).toBe(true);
       expect(existsSync(join(outside, '.glassbox'))).toBe(false);
-      const bad = await call('ask', { question: 'q?', paths: ['src/auth/session.ts'], model: '--help' });
-      expect(bad.isError).toBe(true);
+      // No tool takes a model: only the user's own GLASSBOX_MODEL or plugin option can override their selection.
+      const { tools } = await client.listTools();
+      for (const t of tools) expect(Object.keys(t.inputSchema.properties ?? {}), t.name).not.toContain('model');
       // A subdirectory of the project is fine.
       expect((await call('graph', { node: 'verifySession', root: '.' })).isError).toBe(false);
     } finally {

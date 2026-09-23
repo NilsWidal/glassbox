@@ -68,8 +68,9 @@ describe('createBackend', () => {
     expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'claude-cli' }, claudeCli: noManaged }).model).toBeUndefined();
     expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'claude-cli' }, claudeCli: noManaged }).modelSource).toBe('Claude Code default');
     expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'codex-cli' } }).model).toBeUndefined();
-    // An API call must name a model: the documented fallback, when nothing else resolves.
-    expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'anthropic' } }).model).toBe('claude-haiku-4-5-20251001');
+    // An API call must name a model, and glassbox picks none: it asks for GLASSBOX_MODEL.
+    expect(() => createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'anthropic' } })).toThrow(/Set GLASSBOX_MODEL/);
+    expect(createBackend({ env: { ...empty, GLASSBOX_BACKEND: 'anthropic', GLASSBOX_MODEL: 'claude-x-1' } }).model).toBe('claude-x-1');
     expect(createBackend({ env: { GLASSBOX_BACKEND: 'fake' } }).name).toBe('fake');
   });
 

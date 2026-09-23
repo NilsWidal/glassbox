@@ -19,10 +19,13 @@ export interface AnthropicClientLike {
 export interface AnthropicOptions {
   /**
    * Default: GLASSBOX_MODEL, else ANTHROPIC_MODEL or the Claude Code settings
-   * model when it is a full API id, else ANTHROPIC_API_FALLBACK_MODEL (an API
-   * call must name a model). See resolveAnthropicModel.
+   * model when it is a full API id. glassbox has no model default of its own,
+   * so with none of these the backend throws and asks for GLASSBOX_MODEL.
+   * See resolveAnthropicModel.
    */
   model?: string;
+  /** Project whose Claude Code settings may name the model. Default CLAUDE_PROJECT_DIR, else the current directory. */
+  projectDir?: string;
   apiKey?: string;
   samples?: number;
   timeoutMs?: number;
@@ -92,7 +95,7 @@ export class AnthropicBackend implements Backend {
       this.model = opts.model;
       this.modelSource = `${opts.model} from the model option`;
     } else {
-      const c = resolveAnthropicModel({ env });
+      const c = resolveAnthropicModel({ env, ...(opts.projectDir !== undefined ? { projectDir: opts.projectDir } : {}) });
       this.model = c.model;
       this.modelSource = `${c.model} from ${c.source}`;
     }

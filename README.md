@@ -22,7 +22,7 @@ id    07a2d2cbb919   (glassbox explain 07a2d2cbb919)
 
 This is the real output format, run on the bundled sample repo with the test backend, so the numbers are illustrative. `Δp` is how much the answer's probability changes when glassbox hides those lines and asks again. The highlights are measured, not the model's say-so. `escalate` is the confidence band: `act`, `confirm` or `escalate`.
 
-> Status (v0.3.1, 2026-09-23): early, working, tested (610 unit tests, plus live runs against the real `claude` and `codex` CLIs). Not yet published to npm. The plugin runs from this repository, so you do not need npm.
+> Status (v0.3.1, 2026-09-23): early, working, tested (612 unit tests, plus live runs against the real `claude` and `codex` CLIs). Not yet published to npm. The plugin runs from this repository, so you do not need npm.
 
 ## Install
 

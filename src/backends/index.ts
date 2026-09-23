@@ -17,6 +17,12 @@ export interface BackendConfig {
    * openai-compat use GLASSBOX_MODEL, else codex-cli uses Codex's own model.
    */
   model?: string;
+  /**
+   * Project whose Claude Code settings and session file give the model
+   * (claude-cli, anthropic). CLAUDE_PROJECT_DIR wins when set; default the
+   * current directory.
+   */
+  projectDir?: string;
   /** Samples per call for sampling backends. Default GLASSBOX_SAMPLES, else 3. */
   samples?: number;
   /** Per-call timeout. Default GLASSBOX_TIMEOUT_MS, else 120 s. */
@@ -50,13 +56,14 @@ export function createBackend(config: BackendConfig = {}): Backend {
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
   };
   const withModel = model !== undefined ? { model } : {};
+  const project = config.projectDir !== undefined ? { projectDir: config.projectDir } : {};
   switch (name) {
     case 'claude-cli':
-      return new ClaudeCliBackend({ ...common, ...withModel, ...config.claudeCli });
+      return new ClaudeCliBackend({ ...common, ...withModel, ...project, ...config.claudeCli });
     case 'codex-cli':
       return new CodexCliBackend({ ...common, ...withModel, ...config.codexCli });
     case 'anthropic':
-      return new AnthropicBackend({ ...common, ...withModel, ...config.anthropic });
+      return new AnthropicBackend({ ...common, ...withModel, ...project, ...config.anthropic });
     case 'openai-compat': {
       const { samples: _samples, ...rest } = common;
       return new OpenAICompatBackend({ ...rest, ...withModel, ...config.openaiCompat });

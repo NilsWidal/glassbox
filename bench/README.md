@@ -43,7 +43,7 @@ An item looks like this:
 
 ```sh
 glassbox bench --backend fake                     # harness check, no model calls
-glassbox bench --backend claude-cli --samples 3   # the Claude Code login, model 'haiku' by default
+glassbox bench --backend claude-cli --samples 3 -m haiku   # the Claude Code login; haiku is this benchmark's pinned model, not a glassbox default (without -m it uses the model you selected in Claude Code)
 glassbox bench --backend codex-cli --samples 3    # the Codex login, Codex's configured model unless -m is given
 ```
 

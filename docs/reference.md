@@ -13,7 +13,7 @@ glassbox runs on the model of the agent you are already using, through that agen
 
 glassbox has no model default of its own for these: `claude-cli` passes the model you selected in Claude Code (an override in `GLASSBOX_MODEL` or the plugin `model` option, else the running session's model, else `ANTHROPIC_MODEL`, else `model` from your Claude Code settings, else no `--model` flag at all; details in [Claude Code](claude-code.md#which-model-it-uses)), and `codex-cli` passes no `-m` and no reasoning effort unless you set `GLASSBOX_MODEL` or `GLASSBOX_CODEX_EFFORT`. `glassbox status` and the `cost` line show the model and where it came from.
 
-The optional `anthropic` API backend must name a model in every request. It uses `GLASSBOX_MODEL`, else `ANTHROPIC_MODEL` or your Claude Code settings `model` when that is a full API id such as `claude-opus-4-8` (an alias like `opus` is not; a `[1m]` suffix is dropped), else `claude-haiku-4-5-20251001`.
+The optional `anthropic` API backend must name a model in every request. It uses `GLASSBOX_MODEL`, else `ANTHROPIC_MODEL` or your Claude Code settings `model` when that is a full API model id starting with `claude-` (an alias like `opus` is not; a `[1m]` suffix is dropped). If none of these is an API id it stops with an error asking you to set `GLASSBOX_MODEL`: glassbox never picks a model for you.
 
 `auto` (the default) picks the backend from the host agent. Your existing Claude or ChatGPT login is used. Optional API backends (`anthropic`, `openai-compat`) exist for CI and headless use.
 

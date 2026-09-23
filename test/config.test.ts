@@ -5,7 +5,7 @@ describe('config', () => {
   it('has host-CLI defaults', () => {
     // No glassbox default for the host CLIs: they mirror the model selected in Claude Code / Codex.
     expect(DEFAULT_MODELS['claude-cli']).toBeUndefined();
-    expect(DEFAULT_MODELS.anthropic).toBe('claude-haiku-4-5-20251001');
+    expect(DEFAULT_MODELS.anthropic).toBeUndefined();
     expect(DEFAULT_MODELS['codex-cli']).toBeUndefined();
   });
   it('GLASSBOX_MODEL overrides the default', () => {

@@ -2,7 +2,7 @@ export * from './types.js';
 export * from './engine/index.js';
 export { DEFAULT_MODELS, isBackendName, resolveBackendName, resolveModel } from './config.js';
 export {
-  ANTHROPIC_API_FALLBACK_MODEL,
+  NO_API_MODEL_MESSAGE,
   claudeSettingsFiles,
   claudeSettingsModel,
   describeChoice,
