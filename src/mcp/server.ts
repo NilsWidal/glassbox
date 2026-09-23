@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { safeNodeId } from '../agents-md/render.js';
 import { ask, makeQuestion } from '../ask.js';
 import { createBackend, type BackendConfig } from '../backends/index.js';
 import { MODEL_ID } from '../backends/process.js';
@@ -456,7 +457,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
           if (!node) {
             return failure(
               matches.length
-                ? `"${a.node}" matches ${matches.length} nodes: ${matches.slice(0, 8).map((n) => n.id).join(', ')}`
+                ? `"${a.node}" matches ${matches.length} nodes: ${matches.slice(0, 8).map((n) => safeNodeId(n.id)).join(', ')}`
                 : `no node "${a.node}"`,
             );
           }

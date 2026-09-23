@@ -108,14 +108,14 @@ This builds the code graph and its tags in `.glassbox/` (which gets its own `.gi
 
 At session start (the plugin's `SessionStart` hook, or `glassbox hook session-start --host codex` in Codex), glassbox checks, in well under a second and without starting any model:
 
-- auto-init is on: the plugin's `auto_init` option (default on), `GLASSBOX_AUTO_INIT` (`0` or `1`, wins over the option), and `"autoInit": false` in `.glassbox/config.json` (a config that git tracks can only turn it off);
+- auto-init is on: first `GLASSBOX_AUTO_INIT` (`0` or `1`), then `"autoInit"` in `.glassbox/config.json` (a config that git tracks can only turn it off), then the plugin's `auto_init` option, default on;
 - the session is inside a git work tree, and its root is not your home directory or `/`;
 - the repo has no `.glassbox/graph.db` yet, and git does not track anything in `.glassbox/`;
 - it has at most `GLASSBOX_AUTO_INIT_MAX_FILES` (default 5000) TypeScript, JavaScript or Python files, counted with `git ls-files` (so `.gitignore` is respected).
 
 When all hold, it creates `.glassbox/` with its `.gitignore`, takes a lock (so two sessions never index twice), and starts `glassbox init --structure-only` as a detached background process, as an argument list without a shell. The session gets one line saying glassbox is indexing. The background init parses the code and writes the graph; it makes no model calls and never writes `AGENTS.md` or `CLAUDE.md`. When it is done, and only when the worker and the edit hooks (`enable_hooks`) are on, it starts the background worker to tag nodes within its daily budget.
 
-In later sessions, the hook adds a code map of at most about 1,500 characters: the areas, their entry points, the riskiest nodes once tags exist, and how to use the MCP tools. Paths and names are in code format and cut to a safe character set, as in the AGENTS.md block, and the map says they are data, not instructions. `GLASSBOX_AUTO_INIT=0` turns off both the auto-init and this code map. A failed or skipped auto-init is not retried for a day; `glassbox status` shows why.
+In later sessions, the hook adds a code map of at most about 1,500 characters: the areas, their entry points, the riskiest nodes once tags exist, and how to use the MCP tools. Paths and names are in code format and cut to a safe character set, as in the AGENTS.md block, and the map says they are data, not instructions. `GLASSBOX_AUTO_INIT=0` turns off both the auto-init and this code map. A failed auto-init, or one skipped because git could not count the files within 1 s, is not retried for a day; `glassbox status` shows why.
 
 ### MCP tools
 

@@ -188,9 +188,16 @@ export type AutoInitCheck =
 /**
  * Whether the session-start hook should start an auto-init, for a start
  * directory without a graph. Cheap: two or three git calls and small file
- * reads, no node:sqlite.
+ * reads, no node:sqlite. Its only write: when the file count fails or times
+ * out, a skipped state in .glassbox/autoinit.json, so the retry back-off
+ * applies.
  */
-export function checkAutoInit(start: string, env: NodeJS.ProcessEnv, now = Date.now()): AutoInitCheck {
+export function checkAutoInit(
+  start: string,
+  env: NodeJS.ProcessEnv,
+  now = Date.now(),
+  count: (root: string) => number | undefined = countSourceFiles,
+): AutoInitCheck {
   if (env.GLASSBOX_NESTED === '1') return { action: 'none', reason: 'nested glassbox call' };
   if (envFlag(env.GLASSBOX_AUTO_INIT) === false) return { action: 'none', reason: 'auto-init is off' };
   const root = gitWorkTreeRoot(start);
@@ -211,8 +218,18 @@ export function checkAutoInit(start: string, env: NodeJS.ProcessEnv, now = Date.
     if (failed && now - (prev?.finishedAt ?? 0) < AUTOINIT_RETRY_MS) return { action: 'none', reason: `last auto-init: ${failed}`, root };
   }
   const max = autoInitMaxFiles(env);
-  const files = countSourceFiles(root);
-  if (files === undefined) return { action: 'none', reason: 'could not count the source files', root };
+  const files = count(root);
+  if (files === undefined) {
+    // Recorded, so the retry back-off applies and later sessions do not pay for a slow count again.
+    const reason = `could not count the source files within ${COUNT_TIMEOUT_MS / 1000} s`;
+    try {
+      ensureStoreDirSync(root, STORE_DIR);
+      writeAutoInitState(root, { finishedAt: now, skipped: reason });
+    } catch {
+      // Best effort: without the record the next session simply counts again.
+    }
+    return { action: 'none', reason, root };
+  }
   if (files === 0) return { action: 'none', reason: 'no supported source files', root };
   if (files > max) return { action: 'none', reason: `${files} source files, more than GLASSBOX_AUTO_INIT_MAX_FILES (${max})`, root };
   return { action: 'init', root, files };

@@ -72,6 +72,13 @@ describe('plugin manifests', () => {
     expect(h.hooks.Stop![0]!.hooks[0]!.timeout * 1000).toBeGreaterThanOrEqual(GATE_TIMEOUT_CAP_MS + 5000);
   });
 
+  it('hooks.json says SessionStart acts in any git repo (auto-init), the others only with a graph', async () => {
+    const h = await readJson<{ description: string }>('hooks/hooks.json');
+    expect(h.description).toMatch(/auto-init/);
+    expect(h.description).toMatch(/any git repo without a glassbox graph/);
+    expect(h.description).not.toMatch(/All of them do nothing in a repo without a glassbox graph/);
+  });
+
   it('plugin.json turns auto-init on by default', async () => {
     const p = await readJson<{ userConfig: Record<string, { type: string; default?: unknown; description: string }> }>('.claude-plugin/plugin.json');
     expect(p.userConfig.auto_init).toMatchObject({ type: 'boolean', default: true });
@@ -312,12 +319,16 @@ describe('hook script', () => {
     const on = await runHook('session-start', {}, '{}', fresh);
     expect(on.code).toBe(0);
     expect(on.calls).toBe(`hook session-start --host claude-code --root ${fresh}`);
-    const offEnvs: Record<string, string>[] = [{ GLASSBOX_AUTO_INIT: '0' }, { CLAUDE_PLUGIN_OPTION_AUTO_INIT: 'false' }, { GLASSBOX_AUTO_INIT: 'off', CLAUDE_PLUGIN_OPTION_AUTO_INIT: 'true' }];
+    const offEnvs: Record<string, string>[] = [{ GLASSBOX_AUTO_INIT: '0' }, { GLASSBOX_AUTO_INIT: 'off', CLAUDE_PLUGIN_OPTION_AUTO_INIT: 'true' }];
     for (const env of offEnvs) {
       const off = await runHook('session-start', env, '{}', fresh);
       expect(off.calls, JSON.stringify(env)).toBe('');
       expect(off.ms).toBeLessThan(1000);
     }
+    // The plugin option is left to node: a local .glassbox/config.json "autoInit": true wins over it.
+    expect((await runHook('session-start', { CLAUDE_PLUGIN_OPTION_AUTO_INIT: 'false' }, '{}', fresh)).calls).toBe(
+      `hook session-start --host claude-code --root ${fresh}`,
+    );
     // The edit hooks still refresh a repo with a graph when auto-init is off.
     expect((await runHook('session-start', { GLASSBOX_AUTO_INIT: '0', GLASSBOX_HOOKS: '1' })).calls).toBe(
       `hook session-start --host claude-code --root ${project}`,

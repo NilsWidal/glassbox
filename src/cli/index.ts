@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Argument, Command, CommanderError, InvalidArgumentError, Option } from 'commander';
+import { safeNodeId } from '../agents-md/render.js';
 import { ask, makeQuestion, type AskOptions } from '../ask.js';
 import { createBackend, type BackendConfig } from '../backends/index.js';
 import { isBackendName } from '../config.js';
@@ -644,7 +645,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
         if (!node) {
           io.stderr(
             matches.length
-              ? `glassbox: "${ref}" matches ${matches.length} nodes: ${matches.slice(0, 8).map((n) => n.id).join(', ')}\n`
+              ? `glassbox: "${ref}" matches ${matches.length} nodes: ${matches.slice(0, 8).map((n) => safeNodeId(n.id)).join(', ')}\n`
               : `glassbox: no node "${ref}"\n`,
           );
           setCode(1);

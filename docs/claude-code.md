@@ -45,7 +45,7 @@ Claude Code asks for these when you enable the plugin. You can change them later
 | `ambient` | off | Adds graph context to each prompt about code. See [Ambient mode](#ambient-mode). `GLASSBOX_AMBIENT` and `.glassbox/config.json` override it. |
 | `gate` | off | Checks the turn's diff before Claude finishes. See [Ambient mode](#ambient-mode). `GLASSBOX_GATE` and `.glassbox/config.json` override it. |
 | `concise_rules` | off | Adds the concise answer rules to the AGENTS.md block, for Codex and other agents. `GLASSBOX_CONCISE_RULES` and `.glassbox/config.json` override it. In Claude Code itself, use the output style instead. |
-| `auto_init` | on | Builds the code graph in the background at session start in a git repo without one, and adds the code map at later session starts. See [Auto-init](#auto-init). `GLASSBOX_AUTO_INIT` and `"autoInit": false` in `.glassbox/config.json` override it. |
+| `auto_init` | on | Builds the code graph in the background at session start in a git repo without one, and adds the code map at later session starts. See [Auto-init](#auto-init). `GLASSBOX_AUTO_INIT` and `"autoInit"` in `.glassbox/config.json` override it (a config that git tracks can only turn it off). |
 | `enable_hooks` | off | Turns on the graph-refresh hooks (after edits and at session start), and lets the background worker tag an auto-inited graph within its daily budget. |
 | `anthropic_api_key` | empty | Only for the `anthropic` backend. Stored in your system keychain, not in settings files. |
 | `openai_api_key` | empty | Only for the `openai-compat` backend. Stored in your system keychain. |
@@ -61,7 +61,7 @@ How these settings combine with environment variables you set yourself:
 
 You do not need to run `glassbox init` by hand. The `SessionStart` hook checks, without starting any model and typically in about 100 ms (most of it starting `node`):
 
-- auto-init is on (`auto_init`, default on; `GLASSBOX_AUTO_INIT=0` or `1` wins; `"autoInit": false` in `.glassbox/config.json` turns it off, and a config that git tracks can only turn it off);
+- auto-init is on: first `GLASSBOX_AUTO_INIT` (`0` or `1`), then `"autoInit"` in `.glassbox/config.json` (a config that git tracks can only turn it off), then the `auto_init` option, default on;
 - the project is inside a git work tree whose root is not your home directory or `/`;
 - there is no `.glassbox/graph.db` yet, and git tracks nothing in `.glassbox/`;
 - the repo has at most 5,000 TypeScript, JavaScript or Python files (`GLASSBOX_AUTO_INIT_MAX_FILES`), counted with `git ls-files`, so `.gitignore` is respected.
@@ -75,7 +75,7 @@ From the next session on, the hook adds a code map of at most about 1,500 charac
 - `/glassbox:init` (or `node .../plugin-dist/glassbox.mjs init`): the full init. It asks your Claude Code model the tag questions about every function (`claude -p`, default model `haiku`), writes the `AGENTS.md` block and adds the `@AGENTS.md` import to `CLAUDE.md`. Arguments are passed on, for example `/glassbox:init --no-claude-md`. On a large repo it takes several minutes.
 - With `enable_hooks` on, the background worker tags the untagged nodes a little at a time, within its daily budget (100 model runs a day by default, at most 24 nodes per run, at least 60 s between runs). On a large repo that takes days, not minutes. With `enable_hooks` off, nothing tags the graph until you run `/glassbox:init`.
 
-`/glassbox:status` (or `glassbox status`) shows which of these states the repo is in: indexing, structure-only, or tagged N of M. A failed or skipped auto-init (for example a repo over the file cap) is not retried for a day, and the status says why.
+`/glassbox:status` (or `glassbox status`) shows which of these states the repo is in: indexing, structure-only, or tagged N of M. A failed auto-init, or one skipped because git could not count the files within 1 s, is not retried for a day, and the status says why. A repo found over the file cap at session start is counted again at the next one (that count is quick).
 
 Outside Claude Code, run the full init with the same bundle the plugin uses:
 
@@ -113,7 +113,7 @@ Each hook runs `sh ${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh <event>` in exec
 - `GLASSBOX_NESTED=1` is set. glassbox sets this on its own nested `claude -p` calls, so they never trigger hooks;
 - for `prompt`, `stop` and `post-edit`, the repo has no `.glassbox/graph.db`;
 - for `post-edit`, `enable_hooks` (or `GLASSBOX_HOOKS=1`) is off;
-- for `session-start`, both auto-init (`auto_init`, `GLASSBOX_AUTO_INIT`) and `enable_hooks` are off. `session-start` runs without a graph, since that is where auto-init starts; Node then checks the git repo, the file count and the lock.
+- for `session-start`, `GLASSBOX_AUTO_INIT=0` is set and `enable_hooks` is off. `session-start` runs without a graph, since that is where auto-init starts. Node then applies the rest of the switch (`"autoInit"` in `.glassbox/config.json`, then the `auto_init` option, in that order) and checks the git repo, the file count and the lock.
 
 `prompt` and `stop` can be turned on in `.glassbox/config.json`, so for those the script starts Node, which reads the config and returns at once when the switch is off. The script passes the hook JSON on stdin, passes a stop signal from Claude Code on to Node (so the gate ends its `claude -p` processes), discards errors and always exits 0.
 

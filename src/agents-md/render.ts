@@ -216,3 +216,14 @@ export function renderCodeMap(summary: AgentsMdSummary, opts: CodeMapOptions = {
   }
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
+
+/**
+ * A graph node id (`path#name`) for messages an agent reads: the path as a
+ * path token and the name as a plain token (the code map's charset), in code
+ * format, so a file name cannot carry markdown or instructions verbatim.
+ */
+export function safeNodeId(id: string): string {
+  const hash = id.indexOf('#');
+  const shown = hash < 0 ? pathToken(id) : `${pathToken(id.slice(0, hash))}#${token(id.slice(hash + 1), 60)}`;
+  return `\`${shown}\``;
+}
