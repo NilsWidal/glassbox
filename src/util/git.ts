@@ -9,9 +9,9 @@ const MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_UNTRACKED = 50;
 const IMPORT_FORMS = new Set([IMPORT_LINE, '@./AGENTS.md']);
 
-function git(cwd: string, args: string[], okCodes: number[] = [0]): Promise<string> {
+function git(cwd: string, args: string[], okCodes: number[] = [0], signal?: AbortSignal): Promise<string> {
   return new Promise((ok, fail) => {
-    execFile('git', args, { cwd, maxBuffer: MAX_BUFFER }, (err, stdout, stderr) => {
+    execFile('git', args, { cwd, maxBuffer: MAX_BUFFER, ...(signal ? { signal } : {}) }, (err, stdout, stderr) => {
       const code = err ? (err as NodeJS.ErrnoException & { code?: number | string }).code : 0;
       if (!err || (typeof code === 'number' && okCodes.includes(code))) return ok(stdout);
       const first = String(stderr || err.message).split('\n').find((l) => l.trim()) ?? 'git failed';
@@ -22,30 +22,51 @@ function git(cwd: string, args: string[], okCodes: number[] = [0]): Promise<stri
 
 /**
  * Uncommitted changes against HEAD, plus new untracked files (not ignored) as
- * additions, so triage sees files that were just created. Left out:
- * untracked files that may hold secrets (.env, keys), changes that only touch
- * the glassbox block in AGENTS.md, and a CLAUDE.md change that only adds the
- * `@AGENTS.md` import, since glassbox wrote those itself.
+ * additions, so triage sees files that were just created. Left out: every
+ * file that may hold secrets (.env, keys), tracked or untracked, changes that
+ * only touch the glassbox block in AGENTS.md, and a CLAUDE.md change that only
+ * adds the `@AGENTS.md` import, since glassbox wrote those itself. `signal`
+ * stops the git calls.
  */
-export async function workingDiff(cwd: string): Promise<string> {
+export async function workingDiff(cwd: string, opts: { signal?: AbortSignal } = {}): Promise<string> {
+  const run = (args: string[], okCodes: number[] = [0]) => git(cwd, args, okCodes, opts.signal);
   try {
-    await git(cwd, ['rev-parse', '--is-inside-work-tree']);
-  } catch {
+    await run(['rev-parse', '--is-inside-work-tree']);
+  } catch (err) {
+    if (opts.signal?.aborted) throw err;
     throw new Error('not a git repository; pass a diff (--diff <file>, or the diff argument)');
   }
-  const tracked = await git(cwd, ['diff', 'HEAD']).catch(() => git(cwd, ['diff', '--cached']));
-  const untracked = (await git(cwd, ['ls-files', '--others', '--exclude-standard', '-z']))
+  const tracked = await run(['diff', 'HEAD']).catch(() => run(['diff', '--cached']));
+  const untracked = (await run(['ls-files', '--others', '--exclude-standard', '-z']))
     .split('\0')
     .filter((f) => f && !SECRET_FILE.test(f));
-  const parts = [tracked];
+  const parts = [withoutSecretFiles(tracked)];
   for (const file of untracked.slice(0, MAX_UNTRACKED)) {
     // --no-index exits 1 when the files differ, which is always the case here.
-    parts.push(await git(cwd, ['diff', '--no-index', '--', '/dev/null', file], [0, 1]).catch(() => ''));
+    parts.push(await run(['diff', '--no-index', '--', '/dev/null', file], [0, 1]).catch(() => ''));
   }
   return withoutGlassboxChanges(parts.filter(Boolean).join(''), {
-    head: (file) => git(cwd, ['show', `HEAD:${file}`]).catch(() => null),
+    head: (file) => run(['show', `HEAD:${file}`]).catch(() => null),
     work: (file) => readFile(join(cwd, file), 'utf8').catch(() => null),
   });
+}
+
+/** Every path a diff section names: the a/ and b/ paths, ---/+++ lines and rename or copy sources and targets. */
+function sectionPaths(text: string): string[] {
+  const out: string[] = [];
+  const header = /^diff --git a\/(.+?) b\/(.+)$/m.exec(text);
+  if (header) out.push(header[1]!, header[2]!);
+  for (const m of text.matchAll(/^(?:---|\+\+\+) (?:[ab]\/)?(.+?)\t?$/gm)) if (m[1] !== '/dev/null') out.push(m[1]!);
+  for (const m of text.matchAll(/^(?:rename|copy) (?:from|to) (.+)$/gm)) out.push(m[1]!);
+  return out.map((p) => p.trim().replace(/^"|"$/g, ''));
+}
+
+/** Drops the sections of a diff whose file (old or new path) looks like it holds secrets. */
+export function withoutSecretFiles(diff: string): string {
+  return splitDiff(diff)
+    .filter((s) => !sectionPaths(s.text).some((p) => SECRET_FILE.test(p)))
+    .map((s) => s.text)
+    .join('');
 }
 
 /** One file's part of a unified diff: from its `diff --git` line to the next. */

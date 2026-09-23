@@ -9,9 +9,9 @@
 
 - Pilot, small n: 6 tasks x 2 arms x 2 repeats (24 runs) on one model (haiku). Differences of this size can come from run-to-run noise alone; nothing here is statistically tested.
 - 3 of the 6 tasks run on the glassbox sample fixture, a 16-file repo whose comments point at the answers; the other 3 run on tomli at a pinned commit with a bug the harness injects.
-- The ambient arm is the plugin (--plugin-dir) with the UserPromptSubmit context hook on and the AGENTS.md/CLAUDE.md block from glassbox init. The end-of-turn gate, the concise output style, the background worker and the glassbox MCP server are off (--strict-mcp-config), so this measures ambient context only.
+- The ambient arm is the whole glassbox plugin setup against none: the plugin (--plugin-dir) with its UserPromptSubmit context hook on and its skill, plus the AGENTS.md/CLAUDE.md block from glassbox init. The baseline has none of these. The end-of-turn gate, the concise output style, the background worker and the glassbox MCP server are off (--strict-mcp-config). So a difference between the arms cannot be put down to the injected context alone: on fx-q-sql-strings the hook added 0 characters and the arms still differ.
 - The model calls glassbox init made to tag the graph are one-time preparation and are not counted in any run's cost or tokens.
-- Both arms skip user settings, user plugins and MCP servers (--setting-sources project,local --strict-mcp-config) and use the same allowed tool list.
+- Both arms skip user settings and MCP servers (--setting-sources project,local --strict-mcp-config) and use the same allowed tool list. They were not plugin-free: every run in both arms loaded the agents-md and telemetry plugins (from the session's init event), and the ambient arm also loaded glassbox. Those two plugins were the same in both arms, so they add no difference between the arms.
 
 ## Per arm
 

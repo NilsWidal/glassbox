@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { closeSync, existsSync, linkSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadProjectConfigSafe, featureEnabled, type ProjectConfig } from '../project-config.js';
 import type { Backend } from '../types.js';
@@ -18,8 +19,10 @@ export interface WorkerLimits {
   minIntervalMs: number;
   /** Most nodes re-tagged per run. */
   maxNodesPerRun: number;
-  /** A lock older than this is taken over even if its process looks alive. */
+  /** A lock older than this is taken over even if its process looks alive (its pid was likely reused). */
   lockMaxAgeMs: number;
+  /** Longest one run may take; it stops its model calls and exits then. Kept below lockMaxAgeMs. */
+  maxRunMs: number;
 }
 
 export const DEFAULT_WORKER_LIMITS: Readonly<WorkerLimits> = Object.freeze({
@@ -27,7 +30,15 @@ export const DEFAULT_WORKER_LIMITS: Readonly<WorkerLimits> = Object.freeze({
   minIntervalMs: 60_000,
   maxNodesPerRun: 24,
   lockMaxAgeMs: 30 * 60_000,
+  maxRunMs: 20 * 60_000,
 });
+
+/**
+ * Bounds no setting can pass, from the environment or .glassbox/config.json:
+ * at most 1000 model runs a day, at least 10 s between runs, at most 100
+ * nodes per run.
+ */
+export const WORKER_HARD_LIMITS = Object.freeze({ maxDailyCalls: 1000, minIntervalMs: 10_000, maxNodesPerRun: 100 });
 
 export interface WorkerRunSummary {
   asked: number;
@@ -51,6 +62,12 @@ export interface WorkerState {
   lastError?: string;
   /** Why the last run did no work, if it did none. */
   lastSkip?: string;
+  /**
+   * Stale nodes are waiting for a run that could not start yet (rate limited,
+   * a worker already running, or no budget left). The next hook call starts
+   * the worker once it is allowed.
+   */
+  pending?: boolean;
 }
 
 export interface WorkerLock {
@@ -63,16 +80,23 @@ function int(v: string | undefined): number | undefined {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
 }
 
-/** Limits from GLASSBOX_WORKER_* variables, then .glassbox/config.json `worker`, then the defaults. */
+/**
+ * Limits from GLASSBOX_WORKER_* variables, then .glassbox/config.json `worker`,
+ * then the defaults, each clamped to WORKER_HARD_LIMITS.
+ */
 export function workerLimits(env: NodeJS.ProcessEnv, config: ProjectConfig = {}): WorkerLimits {
   const w = config.worker ?? {};
+  const floor = (v: number | undefined) => (v !== undefined ? Math.floor(v) : undefined);
   const intervalSec = int(env.GLASSBOX_WORKER_MIN_INTERVAL_SEC) ?? w.minIntervalSec;
+  const daily = int(env.GLASSBOX_WORKER_DAILY_CALLS) ?? floor(w.dailyCalls) ?? DEFAULT_WORKER_LIMITS.dailyCalls;
+  const nodes = int(env.GLASSBOX_WORKER_MAX_NODES) ?? floor(w.maxNodesPerRun) ?? DEFAULT_WORKER_LIMITS.maxNodesPerRun;
+  const interval = intervalSec !== undefined ? intervalSec * 1000 : DEFAULT_WORKER_LIMITS.minIntervalMs;
   return {
-    dailyCalls: int(env.GLASSBOX_WORKER_DAILY_CALLS) ?? (w.dailyCalls !== undefined ? Math.floor(w.dailyCalls) : DEFAULT_WORKER_LIMITS.dailyCalls),
-    minIntervalMs: intervalSec !== undefined ? intervalSec * 1000 : DEFAULT_WORKER_LIMITS.minIntervalMs,
-    maxNodesPerRun:
-      int(env.GLASSBOX_WORKER_MAX_NODES) ?? (w.maxNodesPerRun !== undefined ? Math.floor(w.maxNodesPerRun) : DEFAULT_WORKER_LIMITS.maxNodesPerRun),
+    dailyCalls: Math.min(daily, WORKER_HARD_LIMITS.maxDailyCalls),
+    minIntervalMs: Math.max(interval, WORKER_HARD_LIMITS.minIntervalMs),
+    maxNodesPerRun: Math.min(nodes, WORKER_HARD_LIMITS.maxNodesPerRun),
     lockMaxAgeMs: DEFAULT_WORKER_LIMITS.lockMaxAgeMs,
+    maxRunMs: DEFAULT_WORKER_LIMITS.maxRunMs,
   };
 }
 
@@ -112,6 +136,7 @@ export function readWorkerState(root: string, now = Date.now()): WorkerState {
   if (raw.lastResult && typeof raw.lastResult === 'object') state.lastResult = raw.lastResult;
   if (typeof raw.lastError === 'string') state.lastError = raw.lastError.slice(0, 500);
   if (typeof raw.lastSkip === 'string') state.lastSkip = raw.lastSkip.slice(0, 200);
+  if (raw.pending === true) state.pending = true;
   return state;
 }
 
@@ -143,16 +168,76 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
+function readLockAt(file: string): WorkerLock | undefined {
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw err;
+  }
+  try {
+    const v = JSON.parse(text) as Partial<WorkerLock>;
+    if (typeof v.pid === 'number' && typeof v.startedAt === 'number') return { pid: v.pid, startedAt: v.startedAt };
+  } catch {
+    // Handled below.
+  }
+  // A lock file that exists but does not parse is still a lock (maybe being written),
+  // as old as the file itself, so a broken one ages out instead of blocking forever.
+  let mtime = Date.now();
+  try {
+    mtime = statSync(file).mtimeMs;
+  } catch {
+    // Gone between the read and the stat; the caller's next step sees that.
+  }
+  return { pid: -1, startedAt: Math.floor(mtime) };
+}
+
 export function readLock(root: string): WorkerLock | undefined {
   try {
-    const v = JSON.parse(readFileSync(storeFile(root, WORKER_LOCK_FILE), 'utf8')) as Partial<WorkerLock>;
-    if (typeof v.pid === 'number' && typeof v.startedAt === 'number') return { pid: v.pid, startedAt: v.startedAt };
-    return { pid: -1, startedAt: 0 };
-  } catch (err) {
-    // A lock file that exists but does not parse is still a lock (being written); treat it as fresh.
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    return readLockAt(storeFile(root, WORKER_LOCK_FILE));
+  } catch {
     return { pid: -1, startedAt: Date.now() };
   }
+}
+
+function sameLock(a: WorkerLock | undefined, b: WorkerLock): boolean {
+  return a !== undefined && a.pid === b.pid && a.startedAt === b.startedAt;
+}
+
+/**
+ * Moves a stale lock out of the way without a window where two workers both
+ * think they took it over: the lock is renamed to a name only this process
+ * uses, then checked. When what was moved is not the stale lock read before
+ * (another worker replaced it in between), it is put back with link(), which
+ * never overwrites a lock that appeared since, and the takeover fails.
+ * True when the lock file is now gone and this process may try to create one.
+ */
+function takeOverStaleLock(file: string, stale: WorkerLock): boolean {
+  const aside = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.stale`;
+  try {
+    renameSync(file, aside);
+  } catch (err) {
+    // Someone else already moved it: the O_EXCL create decides who gets the new lock.
+    return (err as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+  let moved: WorkerLock | undefined;
+  try {
+    moved = readLockAt(aside);
+  } catch {
+    moved = undefined;
+  }
+  if (sameLock(moved, stale)) {
+    rmSync(aside, { force: true });
+    return true;
+  }
+  try {
+    linkSync(aside, file);
+  } catch {
+    // A newer lock is already in place; it wins.
+  }
+  rmSync(aside, { force: true });
+  return false;
 }
 
 /** A lock holds while its process is alive and it is younger than lockMaxAgeMs. */
@@ -169,7 +254,9 @@ export function lockHeld(
 
 /**
  * Takes the worker lock (created with O_EXCL, so two workers never both get
- * it). A lock left by a dead or long-running process is removed first.
+ * it). A lock left by a dead process, or older than maxAgeMs, is taken over
+ * first with takeOverStaleLock, so two workers that both saw the same stale
+ * lock cannot both end up running.
  */
 export function acquireLock(
   root: string,
@@ -180,7 +267,7 @@ export function acquireLock(
   const existing = readLock(root);
   if (existing) {
     if (lockHeld(existing, now, opts.maxAgeMs, opts.alive)) return false;
-    rmSync(file, { force: true });
+    if (!takeOverStaleLock(file, existing)) return false;
   }
   let fd: number;
   try {
@@ -231,20 +318,37 @@ export const spawnDetached: DetachedSpawner = (cmd, args, opts) => {
   child.unref();
 };
 
+/** Reasons a start was refused that go away with time, so the stale nodes are marked pending. */
+const DEFERRED_REASONS = new Set(['rate limited', 'a worker is running', 'daily call budget used']);
+
+export interface StartOptions {
+  env: NodeJS.ProcessEnv;
+  entry: string;
+  spawner?: DetachedSpawner;
+  now?: number;
+  host?: string;
+}
+
 /**
  * Starts `node <entry> worker run --root <root>` detached when the checks
  * pass, and records the spawn time so a burst of edits starts one worker.
+ * When the start is only put off (rate limited, a worker running, no budget
+ * left today), it records `pending` so a later hook call starts the worker.
  * Never throws: a hook must not fail because the worker could not start.
  */
-export function maybeStartWorker(
-  root: string,
-  opts: { env: NodeJS.ProcessEnv; entry: string; spawner?: DetachedSpawner; now?: number; host?: string },
-): StartDecision {
+export function maybeStartWorker(root: string, opts: StartOptions): StartDecision {
   try {
     const now = opts.now ?? Date.now();
     const decision = shouldStartWorker(root, opts.env, now);
-    if (!decision.start) return decision;
+    if (!decision.start) {
+      if (DEFERRED_REASONS.has(decision.reason)) {
+        const state = readWorkerState(root, now);
+        if (!state.pending) writeWorkerState(root, { ...state, pending: true });
+      }
+      return decision;
+    }
     const state = readWorkerState(root, now);
+    delete state.pending;
     writeWorkerState(root, { ...state, lastSpawnAt: now });
     const env: NodeJS.ProcessEnv = { ...opts.env };
     if (opts.host) env.GLASSBOX_HOST = opts.host;
@@ -255,6 +359,27 @@ export function maybeStartWorker(
   }
 }
 
+/**
+ * Starts the worker when an earlier start was put off (`pending` in
+ * worker.json) and it is now allowed. Cheap when nothing is pending: one small
+ * JSON read. Never throws.
+ */
+export function resumePendingWorker(root: string, opts: StartOptions): StartDecision {
+  try {
+    if (opts.env.GLASSBOX_NESTED === '1') return { start: false, reason: 'nested glassbox call' };
+    if (!existsSync(join(root, STORE_DIR, WORKER_STATE_FILE))) return { start: false, reason: 'nothing pending' };
+    if (!readWorkerState(root, opts.now ?? Date.now()).pending) return { start: false, reason: 'nothing pending' };
+    return maybeStartWorker(root, opts);
+  } catch (err) {
+    return { start: false, reason: `could not start: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/** True when worker.json says a re-tag run is waiting. */
+export function workerPending(root: string, now = Date.now()): boolean {
+  return existsSync(join(root, STORE_DIR, WORKER_STATE_FILE)) && readWorkerState(root, now).pending === true;
+}
+
 export interface WorkerRunOptions {
   /** Built only when there is work to do and budget left. Should be a fast-mode backend (1 sample). */
   backend: () => Backend;
@@ -262,6 +387,8 @@ export interface WorkerRunOptions {
   now?: () => number;
   /** Skip the minimum-interval check (an explicit `glassbox worker run`). The budget still applies. */
   ignoreInterval?: boolean;
+  /** Overrides limits.maxRunMs (tests). */
+  maxRunMs?: number;
 }
 
 export interface WorkerRunResult {
@@ -275,7 +402,11 @@ export interface WorkerRunResult {
 /**
  * One worker run: take the lock, re-parse changed files (no model calls),
  * then re-tag stale nodes in fast mode, at most maxNodesPerRun and never past
- * the daily budget. Every model run is counted, failed ones included.
+ * the daily budget. The worst case of the run is charged to the budget before
+ * any model call and settled to the real count afterwards, so a run that is
+ * killed half way still counts. The run stops its model calls after
+ * maxRunMs. Nodes left stale (the node limit, the budget or the time cap)
+ * are marked pending for a later run.
  */
 export async function runWorker(root: string, opts: WorkerRunOptions): Promise<WorkerRunResult> {
   const now = opts.now ?? Date.now;
@@ -286,19 +417,27 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
     return { ran: false, reason: 'a worker is running', state: readWorkerState(root, now()) };
   }
   let state = readWorkerState(root, now());
-  const skip = (reason: string): WorkerRunResult => {
-    state = { ...state, lastSkip: reason };
+  const skip = (reason: string, pending?: boolean): WorkerRunResult => {
+    state = { ...readWorkerState(root, now()), lastSkip: reason };
+    if (pending === true) state.pending = true;
+    else if (pending === false) delete state.pending;
     writeWorkerState(root, state);
     return { ran: false, reason, state };
   };
+  const maxRunMs = Math.min(opts.maxRunMs ?? limits.maxRunMs, limits.lockMaxAgeMs - 60_000);
+  const abort = new AbortController();
+  const cap = setTimeout(() => abort.abort(new Error(`worker stopped at its ${Math.round(maxRunMs / 1000)} s time cap`)), Math.max(0, maxRunMs));
+  let charged = 0;
   try {
-    if (state.callsToday >= limits.dailyCalls) return skip('daily call budget used');
+    if (state.callsToday >= limits.dailyCalls) return skip('daily call budget used', true);
     if (!opts.ignoreInterval && state.lastStartedAt !== undefined && now() - state.lastStartedAt < limits.minIntervalMs) {
-      return skip('rate limited');
+      return skip('rate limited', true);
     }
     const startedAt = now();
     state = { ...state, lastStartedAt: startedAt };
     delete state.lastSkip;
+    // Edits from here on set it again, so the run after this one picks them up.
+    delete state.pending;
     writeWorkerState(root, state);
 
     const [{ GraphStore }, { indexRepo }, { tagPass, isTagTarget, tagsFresh, defaultTagQuestions, inferAreas }] = await Promise.all([
@@ -317,9 +456,15 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
       const runsPerCall = Math.max(1, backend.samples ?? 1);
       // Worst case one node per call, so the node limit alone keeps the run inside the budget.
       const affordable = Math.floor((limits.dailyCalls - state.callsToday) / runsPerCall);
-      const limit = Math.min(limits.maxNodesPerRun, affordable);
-      if (limit <= 0) return skip('daily call budget used');
-      const r = await tagPass(root, backend, { store, limit, concurrency: 2, decide: { permutations: 1 } });
+      const limit = Math.min(limits.maxNodesPerRun, affordable, todo);
+      if (limit <= 0) return skip('daily call budget used', true);
+      // Charge the worst case up front; settled below. A killed run keeps the charge.
+      charged = limit * runsPerCall;
+      state = readWorkerState(root, now());
+      state.callsToday += charged;
+      writeWorkerState(root, state);
+
+      const r = await tagPass(root, backend, { store, limit, concurrency: 2, decide: { permutations: 1, signal: abort.signal } });
       const calls = r.calls + r.failed.length;
       const summary: WorkerRunSummary = {
         asked: r.asked,
@@ -330,17 +475,27 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
         latencyMs: r.latencyMs,
       };
       state = { ...readWorkerState(root, now()), lastFinishedAt: now(), lastResult: summary };
-      state.callsToday += summary.modelRuns;
+      state.callsToday = Math.max(0, state.callsToday - charged) + summary.modelRuns;
+      charged = 0;
       if (state.lastStartedAt === undefined) state.lastStartedAt = startedAt;
-      if (r.failed.length) state.lastError = r.failed[0]!.error.slice(0, 500);
+      if (abort.signal.aborted) state.lastError = String((abort.signal.reason as Error | undefined)?.message ?? 'worker stopped at its time cap');
+      else if (r.failed.length) state.lastError = r.failed[0]!.error.slice(0, 500);
       else delete state.lastError;
+      if (r.deferred > 0 || r.failed.length > 0) state.pending = true;
       writeWorkerState(root, state);
       return { ran: true, summary, state };
     } finally {
       store.close();
     }
   } catch (err) {
-    state = { ...state, lastFinishedAt: now(), lastError: (err instanceof Error ? err.message : String(err)).slice(0, 500) };
+    const fresh = (() => {
+      try {
+        return readWorkerState(root, now());
+      } catch {
+        return state;
+      }
+    })();
+    state = { ...fresh, lastFinishedAt: now(), lastError: (err instanceof Error ? err.message : String(err)).slice(0, 500), pending: true };
     try {
       writeWorkerState(root, state);
     } catch {
@@ -348,6 +503,7 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
     }
     return { ran: false, reason: state.lastError!, state };
   } finally {
+    clearTimeout(cap);
     releaseLock(root);
   }
 }

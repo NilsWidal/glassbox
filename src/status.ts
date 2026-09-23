@@ -155,7 +155,8 @@ export function renderStatus(s: StatusReport, now = Date.now()): string {
   out.push(
     `worker   ${w.running ? `running (pid ${w.running.pid}, since ${time(w.running.startedAt)})` : 'idle'}; ` +
       `today ${w.state.callsToday}/${w.limits.dailyCalls} model runs` +
-      (w.nextRunAt > now ? `; next run allowed ${time(w.nextRunAt)}` : ''),
+      (w.nextRunAt > now ? `; next run allowed ${time(w.nextRunAt)}` : '') +
+      (w.state.pending ? '; re-tag pending (starts on the next hook call)' : ''),
   );
   if (w.state.lastResult && w.state.lastFinishedAt) {
     const r = w.state.lastResult;

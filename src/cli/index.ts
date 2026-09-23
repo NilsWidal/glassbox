@@ -43,8 +43,18 @@ import type { ForegroundSpawner } from '../launcher.js';
 export interface CliIo {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
-  /** Reads all of stdin (for --diff -). */
-  readStdin: () => Promise<string>;
+  /**
+   * Reads all of stdin (for --diff -). With `maxBytes`, stops reading once
+   * more than that arrived and returns undefined, so an oversized input is
+   * never held in memory.
+   */
+  readStdin: (maxBytes?: number) => Promise<string | undefined>;
+  /**
+   * Calls `onStop` when the process is told to stop (SIGTERM, SIGINT or
+   * SIGHUP) and returns a function that removes the handler. Used by the Stop
+   * hook to end its model calls before the host kills it.
+   */
+  onTerminate?: (onStop: () => void) => () => void;
   env: NodeJS.ProcessEnv;
   cwd: string;
   /** Test hook: extra backend config merged into the one built from flags. */
@@ -55,6 +65,9 @@ export interface CliIo {
   now?: () => number;
 }
 
+/** The events `glassbox hook` handles; any other event exits 0 without output. */
+export const HOOK_EVENTS = ['prompt', 'stop', 'post-edit', 'session-start'] as const;
+
 /** This file, which `node <entry> worker run` starts again as the background worker. */
 export const CLI_ENTRY = fileURLToPath(import.meta.url);
 
@@ -62,19 +75,50 @@ function version(): string {
   return packageVersion();
 }
 
-async function readAll(stream: NodeJS.ReadableStream): Promise<string> {
+/**
+ * Reads a stream to the end as UTF-8. With `maxBytes`, stops as soon as more
+ * than that arrived: the stream is destroyed and the result is undefined.
+ */
+export async function readStreamCapped(stream: NodeJS.ReadableStream, maxBytes = Infinity): Promise<string | undefined> {
   const parts: Buffer[] = [];
-  for await (const chunk of stream) parts.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  let size = 0;
+  for await (const chunk of stream) {
+    const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += b.length;
+    if (size > maxBytes) {
+      (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+      return undefined;
+    }
+    parts.push(b);
+  }
   return Buffer.concat(parts).toString('utf8');
 }
+
+const TERMINATE_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 
 const defaultIo: CliIo = {
   stdout: (t) => process.stdout.write(t),
   stderr: (t) => process.stderr.write(t),
-  readStdin: () => readAll(process.stdin),
+  readStdin: (maxBytes) => readStreamCapped(process.stdin, maxBytes),
+  onTerminate: (onStop) => {
+    const handler = () => {
+      onStop();
+      // The abort ends the work; if anything still holds the process, leave anyway.
+      setTimeout(() => process.exit(0), 3000).unref();
+    };
+    for (const sig of TERMINATE_SIGNALS) process.once(sig, handler);
+    return () => {
+      for (const sig of TERMINATE_SIGNALS) process.removeListener(sig, handler);
+    };
+  },
   env: process.env,
   cwd: process.cwd(),
 };
+
+/** Reads all of stdin; the commands that take a diff or prompt from stdin have no size cap. */
+async function readStdinAll(io: CliIo): Promise<string> {
+  return (await io.readStdin()) ?? '';
+}
 
 function int(name: string, min: number) {
   return (v: string): number => {
@@ -123,7 +167,7 @@ async function runAsk(words: string[], flags: AskFlags, io: CliIo): Promise<numb
   const scope: AskScope = {};
   if (flags.path?.length) scope.paths = flags.path;
   if (flags.node?.length) scope.nodes = flags.node;
-  if (flags.diff !== undefined) scope.diff = flags.diff === '-' ? await io.readStdin() : await readFile(resolve(io.cwd, flags.diff), 'utf8');
+  if (flags.diff !== undefined) scope.diff = flags.diff === '-' ? await readStdinAll(io) : await readFile(resolve(io.cwd, flags.diff), 'utf8');
   if (!scope.paths && !scope.nodes && scope.diff === undefined) scope.paths = ['.'];
 
   if (flags.backend !== undefined && !isBackendName(flags.backend)) {
@@ -285,7 +329,7 @@ async function runIndex(flags: IndexFlags, io: CliIo, store: GraphStore, root: s
 }
 
 async function readDiff(flags: { diff?: string }, io: CliIo, root: string): Promise<string> {
-  if (flags.diff === '-') return io.readStdin();
+  if (flags.diff === '-') return readStdinAll(io);
   if (flags.diff !== undefined) return readFile(resolve(io.cwd, flags.diff), 'utf8');
   // Default: uncommitted changes against HEAD, plus new untracked files.
   return workingDiff(root);
@@ -689,7 +733,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     .option('--json', 'print JSON')
     .action(async (flags: { prompt: string; maxChars?: number; minScore?: number; root?: string; json?: boolean }) => {
       const { ambientContext } = await import('../ambient/context.js');
-      const prompt = flags.prompt === '-' ? await io.readStdin() : flags.prompt;
+      const prompt = flags.prompt === '-' ? await readStdinAll(io) : flags.prompt;
       const r = ambientContext({
         root: rootOf(flags, io),
         prompt,
@@ -742,14 +786,20 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
 
   program
     .command('hook')
-    .description('entry point for agent hooks: reads the hook JSON on stdin; always exits 0 and prints nothing on error')
-    .addArgument(new Argument('<event>', 'hook event').choices(['prompt', 'stop', 'post-edit', 'session-start']))
+    .description(
+      'entry point for agent hooks: reads the hook JSON on stdin; exits 0 and prints nothing on any error or an unknown event',
+    )
+    .addArgument(new Argument('<event>', `hook event: ${HOOK_EVENTS.join(', ')}`))
     .addOption(new Option('--host <host>', 'the agent running the hook').choices(['claude-code', 'codex']))
     .option('--root <dir>', 'repo root (default: CLAUDE_PROJECT_DIR, the hook input cwd, or the current directory)')
     .action(async (event: string, flags: { host?: string; root?: string }) => {
       setCode(0);
       // GLASSBOX_NESTED: this is glassbox's own model call; do nothing before even reading stdin.
       if (io.env.GLASSBOX_NESTED === '1') return;
+      // An unknown event is not an error: a host may send events this version does not know.
+      if (!(HOOK_EVENTS as readonly string[]).includes(event)) return;
+      const stop = new AbortController();
+      const off = event === 'stop' ? io.onTerminate?.(() => stop.abort()) : undefined;
       try {
         const hooks = await import('../hooks/index.js');
         const text = await readStdinCapped(io, HOOK_STDIN_MS, hooks.MAX_HOOK_INPUT);
@@ -763,6 +813,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
           ...(flags.host ? { host: flags.host } : {}),
           ...(io.spawnDetached ? { spawner: io.spawnDetached } : {}),
           ...(io.now ? { now: io.now } : {}),
+          signal: stop.signal,
           backend: ({ samples, env }) =>
             createBackend({ env: withPluginOptions(env), ...(samples !== undefined ? { samples } : {}), ...io.backendConfig }),
         };
@@ -774,6 +825,8 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
         if (out) io.stdout(`${out}\n`);
       } catch {
         // Fail open: the agent carries on as if the hook were not there.
+      } finally {
+        off?.();
       }
     });
 
@@ -815,17 +868,17 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
 
 const HOOK_STDIN_MS = 2000;
 
-/** Reads stdin, giving up (empty input) after `ms` or past `max` characters. */
+/** Reads stdin, giving up (empty input) after `ms` or once more than `max` bytes arrived. */
 async function readStdinCapped(io: CliIo, ms: number, max: number): Promise<string> {
   let timer: NodeJS.Timeout | undefined;
   try {
     const text = await Promise.race([
-      io.readStdin(),
+      io.readStdin(max),
       new Promise<string>((done) => {
         timer = setTimeout(() => done(''), ms);
       }),
     ]);
-    return text.length > max ? '' : text;
+    return text === undefined || text.length > max ? '' : text;
   } finally {
     clearTimeout(timer);
   }

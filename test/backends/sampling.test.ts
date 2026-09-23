@@ -1,5 +1,8 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runProcess, CliTimeoutError, unknownFlag } from '../../src/backends/process.js';
+import { runProcess, CliTimeoutError, descendantPids, unknownFlag } from '../../src/backends/process.js';
 import { averageSamples, mapLimit, resolveSamples, resolveTimeoutMs, runSamples } from '../../src/backends/sampling.js';
 
 describe('averageSamples', () => {
@@ -68,6 +71,54 @@ describe('runProcess', () => {
 
   it('times out', async () => {
     await expect(runProcess(process.execPath, ['-e', 'setTimeout(()=>{}, 10000)'], { timeoutMs: 100 })).rejects.toBeInstanceOf(CliTimeoutError);
+  });
+
+  // A child that starts a grandchild (like `claude -p` starting its own tools) and writes its pid.
+  const PARENT = (pidFile: string) =>
+    `const {spawn}=require('child_process');const fs=require('fs');` +
+    `const c=spawn(process.execPath,['-e','setTimeout(()=>{},30000)'],{stdio:'ignore'});` +
+    `fs.writeFileSync(${JSON.stringify(pidFile)},String(c.pid));setTimeout(()=>{},30000);`;
+
+  async function waitFor(check: () => boolean, ms = 4000): Promise<boolean> {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      if (check()) return true;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return check();
+  }
+
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it.skipIf(process.platform === 'win32')('kills the whole process tree on abort and on timeout', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'glassbox-tree-'));
+    try {
+      for (const how of ['abort', 'timeout'] as const) {
+        const pidFile = join(dir, `${how}.pid`);
+        const abort = new AbortController();
+        const run = runProcess(process.execPath, ['-e', PARENT(pidFile)], how === 'abort' ? { signal: abort.signal } : { timeoutMs: 1500 });
+        run.catch(() => {});
+        expect(await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').length > 0)).toBe(true);
+        const grandchild = Number(readFileSync(pidFile, 'utf8'));
+        expect(alive(grandchild)).toBe(true);
+        if (how === 'abort') abort.abort(new Error('stop'));
+        await expect(run).rejects.toBeDefined();
+        expect(await waitFor(() => !alive(grandchild))).toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('finds descendants, and none for a process without children', () => {
+    expect(descendantPids(2 ** 22 + 12345)).toEqual([]);
   });
 
   it('rejects with ENOENT for a missing binary', async () => {

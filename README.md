@@ -38,8 +38,8 @@ Configuration:
 | `GLASSBOX_MODE` | `fast`, `balanced` (default), `explained`, `strict` or `auto`; see [Modes](#modes) |
 | `GLASSBOX_AMBIENT`, `GLASSBOX_GATE`, `GLASSBOX_WORKER` | `1` or `0`: turn the ambient context hook, the end-of-turn gate and the background re-tagging worker on or off (see [Ambient mode](#ambient-mode)) |
 | `GLASSBOX_CONCISE_RULES` | `1` or `0`: add the concise answer rules to the AGENTS.md block (see [Concise answers](#concise-answers)) |
-| `GLASSBOX_GATE_TIMEOUT_MS` | Longest the end-of-turn gate may take before it lets the turn end (default 45000) |
-| `GLASSBOX_WORKER_DAILY_CALLS`, `GLASSBOX_WORKER_MIN_INTERVAL_SEC`, `GLASSBOX_WORKER_MAX_NODES` | Worker limits: model runs per day (default 100), seconds between runs (default 60), nodes re-tagged per run (default 24) |
+| `GLASSBOX_GATE_TIMEOUT_MS` | Longest the end-of-turn gate may take before it lets the turn end (default 45000, at most 50000) |
+| `GLASSBOX_WORKER_DAILY_CALLS`, `GLASSBOX_WORKER_MIN_INTERVAL_SEC`, `GLASSBOX_WORKER_MAX_NODES` | Worker limits: model runs per day (default 100, at most 1000), seconds between runs (default 60, at least 10), nodes re-tagged per run (default 24, at most 100) |
 | `GLASSBOX_SAMPLES` | Samples averaged per call on the CLI and Anthropic backends (1 to 16, default 3) |
 | `GLASSBOX_TIMEOUT_MS` | Timeout per model call in milliseconds (default 120000) |
 | `GLASSBOX_CODEX_EFFORT` | Reasoning effort for `codex-cli` (default `low`, since these are quick judgments) |
@@ -122,7 +122,8 @@ In Claude Code the plugin wires them up (see [docs/claude-code.md](docs/claude-c
 `glassbox context --prompt "<text>"` (or `-` for stdin) prints graph matches for a prompt: `file:line`, node name, stored tags and direct callers, at most about 1,500 characters.
 
 - It uses only the stored graph. A rule-based check first skips prompts that are not about code.
-- It prints nothing when there is no graph, when no node clears the match floor, or when most matching files changed after the last parse.
+- It prints nothing when there is no graph, when git tracks the graph (it came with the clone), when no node clears the match floor, or when most matching files changed after the last parse.
+- The matches come inside a fenced block that the header marks as data, not instructions. Only paths without whitespace (each segment at most 64 characters) and plain identifiers are shown, so a file name cannot carry a sentence into the context.
 - On the sample repo it takes about 10 ms in process, and about 100 ms as a hook (starting `node` is most of it).
 
 The `UserPromptSubmit` hook adds this text to the prompt as extra context. On with the plugin's `ambient` option, `GLASSBOX_AMBIENT=1` or `"ambient": {"enabled": true}` in `.glassbox/config.json`.
@@ -131,7 +132,7 @@ The `UserPromptSubmit` hook adds this text to the prompt as extra context. On wi
 
 The `Stop` hook runs when the agent is about to finish a turn:
 
-1. It hashes the working diff (`git diff HEAD` plus untracked files). No diff, or the same hash as the last check, means it does nothing.
+1. It hashes the working diff (`git diff HEAD` plus untracked files, without any file that may hold secrets, such as `.env` or key files, tracked or not). No diff, or the same hash as the last check, means it does nothing.
 2. Otherwise it rates the diff with `triage` in `fast` mode (one sample, one option order), or `balanced` when `"gate": {"mode": "balanced"}` is set.
 3. If a hunk is rated High risk and its answer is in the `act` band, it blocks the stop once. The agent gets a short reason that names the lines, for example:
 
@@ -142,7 +143,7 @@ The `Stop` hook runs when the agent is about to finish a turn:
    Check these lines (and their tests) before finishing, or state why they are safe. glassbox asks once per change.
    ```
 
-It never blocks twice in a row: it does nothing when the host says the turn already continued because of a Stop hook (`stop_hook_active`), and it records each diff hash before rating it, so a diff is checked once whatever the outcome. It gives up after 45 s (`"gate": {"timeoutMs": ...}` or `GLASSBOX_GATE_TIMEOUT_MS`), and a timeout or any error lets the turn end normally. On with the plugin's `gate` option, `GLASSBOX_GATE=1` or `"gate": {"enabled": true}`. The last outcome is in `.glassbox/gate.json`.
+It never blocks twice in a row: it does nothing when the host says the turn already continued because of a Stop hook (`stop_hook_active`), and it records each diff hash before rating it, so a diff is checked once whatever the outcome. It gives up after 45 s (`GLASSBOX_GATE_TIMEOUT_MS`, else `"gate": {"timeoutMs": ...}`; never more than 50 s, so it ends before the 60 s hook timeout), counting from before it reads the diff, and a timeout or any error lets the turn end normally. On a timeout, or when the host stops the hook, it stops its model calls and the processes they started. On with the plugin's `gate` option, `GLASSBOX_GATE=1` or `"gate": {"enabled": true}`. The last outcome is in `.glassbox/gate.json`.
 
 The `act` band needs the model to put about 0.9 or more on High, so the gate stays quiet on most diffs. Near that line a `fast` rating can go either way between runs: in a test on the sample repo, the same diff (deleting a session expiry check) blocked on one run and passed on the next. Use `"mode": "balanced"` for steadier ratings at about twice the model runs.
 
@@ -159,7 +160,9 @@ After an edit marks nodes stale, a detached worker (`glassbox worker run`) re-pa
 
 - It holds a lock file so only one runs.
 - It waits at least 60 s between runs and re-tags at most 24 nodes per run.
-- It stops at a daily budget of 100 model runs.
+- It stops at a daily budget of 100 model runs. Each run charges its worst case to the budget before its first model call and settles to the real count at the end, so a run that is killed half way still counts.
+- A run stops its model calls after 20 minutes.
+- When an edit comes while the worker may not start yet (too soon after the last run, a run in progress, or no budget left), `worker.json` records a pending re-tag, and the next hook call (prompt, stop, edit or session start) starts the worker once it is allowed. `glassbox status` shows it.
 
 Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 
@@ -167,7 +170,7 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 
 `glassbox status` shows the graph (nodes, stale nodes, tagged share, last parse), the mode and where it came from, which hooks and the concise rules are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
 
-`.glassbox/config.json` is local to your checkout (the folder is git-ignored). Every field is optional:
+`.glassbox/config.json` is meant to be local to your checkout (`glassbox init` git-ignores the folder). Every field is optional:
 
 ```json
 {
@@ -179,11 +182,13 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 }
 ```
 
-For each switch the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else off.
+For each setting the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else the default. The worker limits and the gate timeout are clamped to the bounds in the environment table under [No extra keys or models](#no-extra-keys-or-models), whatever sets them.
+
+A `.glassbox/config.json` that git tracks came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, and `"conciseRules": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
 
 ### Hook entry points
 
-`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin and prints what the host expects (`additionalContext` for `prompt`, `{"decision":"block","reason":...}` for `stop`, nothing for the others). It always exits 0 and prints nothing on any error, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/`. `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
+`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin (at most 1 MiB; more is dropped unread) and prints what the host expects (`additionalContext` for `prompt`, `{"decision":"block","reason":...}` for `stop`, nothing for the others). It always exits 0 and prints nothing on any error, for an event it does not know, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/`. `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
 
 ### Ambient mode in Codex
 
@@ -229,7 +234,7 @@ Read these numbers with care:
 
 [bench/ab/](bench/ab/README.md) runs the same tasks through `claude -p` (or `codex exec`) with and without glassbox ambient mode, in fresh copies of the repo, and records success, cost, tokens, tool calls, wall time and answer length. It ships 23 tasks on the sample fixture and two small MIT projects (tomli and schedule) pinned to a commit.
 
-A first **pilot, small n** (2026-09-23): Claude Code with haiku, 6 tasks x 2 arms x 2 repeats, ambient context hook on, gate and concise style off.
+A first **pilot, small n** (2026-09-23): Claude Code with haiku, 6 tasks x 2 arms x 2 repeats. The ambient arm is the whole glassbox plugin setup (context hook, AGENTS.md block and skill) against none, with the gate, concise style, worker and MCP server off. Both arms also loaded two unrelated plugins (`agents-md`, `telemetry`), the same in each arm.
 
 | arm | passed | total cost | mean tool calls | mean wall time | mean answer words |
 |---|---|---|---|---|---|

@@ -7,7 +7,7 @@ import { ambientEnabled, gateEnabled } from '../status.js';
 import type { Backend } from '../types.js';
 import { sha256 } from '../util/hash.js';
 import { assertNotSymlinkSync } from '../util/safefs.js';
-import { maybeStartWorker, type DetachedSpawner } from '../worker/index.js';
+import { maybeStartWorker, resumePendingWorker, workerPending, type DetachedSpawner, type StartOptions } from '../worker/index.js';
 
 /**
  * Entry points for agent hooks (`glassbox hook <event>`). Each reads the
@@ -22,6 +22,14 @@ export const GATE_STATE_FILE = 'gate.json';
 export const MAX_HOOK_INPUT = 1024 * 1024;
 const MAX_PROMPT = 20_000;
 export const DEFAULT_GATE_TIMEOUT_MS = 45_000;
+/**
+ * Longest the gate may ever take, whatever the settings say: below the 60 s
+ * the plugin's hooks.json gives the Stop hook, so glassbox stops its own
+ * model calls (and their processes) before the host kills the hook.
+ */
+export const GATE_TIMEOUT_CAP_MS = 50_000;
+/** Most graph matches the prompt hook may list, whatever the config says. */
+const MAX_AMBIENT_HITS = 20;
 const MAX_REASON_HUNKS = 6;
 
 /** The fields glassbox reads from Claude Code and Codex hook input. */
@@ -85,6 +93,8 @@ export interface HookContext {
   now?: () => number;
   /** Builds the gate's backend with the given samples per call. */
   backend?: (opts: { samples?: number; env: NodeJS.ProcessEnv }) => Backend;
+  /** Aborted when the hook process is told to stop (SIGTERM from the host); the gate then stops its model calls. */
+  signal?: AbortSignal;
 }
 
 function rootFor(input: HookInput, ctx: HookContext): string | undefined {
@@ -95,6 +105,21 @@ function rootFor(input: HookInput, ctx: HookContext): string | undefined {
 
 function hostEnv(ctx: HookContext): NodeJS.ProcessEnv {
   return ctx.host && !ctx.env.GLASSBOX_HOST?.trim() ? { ...ctx.env, GLASSBOX_HOST: ctx.host } : ctx.env;
+}
+
+function startOptions(ctx: HookContext, entry: string): StartOptions {
+  return {
+    env: hostEnv(ctx),
+    entry,
+    ...(ctx.spawner ? { spawner: ctx.spawner } : {}),
+    ...(ctx.now ? { now: ctx.now() } : {}),
+    ...(ctx.host ? { host: ctx.host } : {}),
+  };
+}
+
+/** Starts a re-tag run that an earlier hook had to put off, once it is allowed. Never throws. */
+function resumeWorker(root: string, ctx: HookContext): void {
+  if (ctx.entry) resumePendingWorker(root, startOptions(ctx, ctx.entry));
 }
 
 /** The v0.1 edit hooks switch: GLASSBOX_HOOKS, else the plugin's enable_hooks option. Default off. */
@@ -112,6 +137,7 @@ export function promptHook(input: HookInput, ctx: HookContext): string {
   if (ctx.env.GLASSBOX_NESTED === '1') return '';
   const root = rootFor(input, ctx);
   if (!root) return '';
+  resumeWorker(root, ctx);
   const config = loadProjectConfigSafe(root);
   if (!ambientEnabled(ctx.env, config)) return '';
   const prompt = (input.prompt ?? '').slice(0, MAX_PROMPT);
@@ -122,7 +148,7 @@ export function promptHook(input: HookInput, ctx: HookContext): string {
     prompt,
     ...(a.maxChars !== undefined ? { maxChars: Math.min(a.maxChars, 4000) } : {}),
     ...(a.minScore !== undefined ? { minScore: a.minScore } : {}),
-    ...(a.maxHits !== undefined ? { maxHits: a.maxHits } : {}),
+    ...(a.maxHits !== undefined ? { maxHits: Math.min(a.maxHits, MAX_AMBIENT_HITS) } : {}),
   });
   if (!r.text) return '';
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: r.text } });
@@ -166,15 +192,7 @@ export async function postEditHook(input: HookInput, ctx: HookContext): Promise<
   if (files.length === 0) return '';
   const { refresh } = await import('../memory/refresh.js');
   const r = await refresh(root, { files: files.map((f) => resolve(input.cwd ?? root, f)) });
-  if (r.stale.length && ctx.entry) {
-    maybeStartWorker(root, {
-      env: hostEnv(ctx),
-      entry: ctx.entry,
-      ...(ctx.spawner ? { spawner: ctx.spawner } : {}),
-      ...(ctx.now ? { now: ctx.now() } : {}),
-      ...(ctx.host ? { host: ctx.host } : {}),
-    });
-  }
+  if (ctx.entry && (r.stale.length || workerPending(root))) maybeStartWorker(root, startOptions(ctx, ctx.entry));
   return '';
 }
 
@@ -187,15 +205,7 @@ export async function sessionStartHook(input: HookInput, ctx: HookContext): Prom
   if (!root) return '';
   const { refresh } = await import('../memory/refresh.js');
   const r = await refresh(root, { syncMd: { claudeMd: false } });
-  if (r.stale.length && ctx.entry) {
-    maybeStartWorker(root, {
-      env: hostEnv(ctx),
-      entry: ctx.entry,
-      ...(ctx.spawner ? { spawner: ctx.spawner } : {}),
-      ...(ctx.now ? { now: ctx.now() } : {}),
-      ...(ctx.host ? { host: ctx.host } : {}),
-    });
-  }
+  if (ctx.entry && (r.stale.length || workerPending(root))) maybeStartWorker(root, startOptions(ctx, ctx.entry));
   return '';
 }
 
@@ -258,42 +268,63 @@ export async function stopHook(input: HookInput, ctx: HookContext): Promise<stri
   if (ctx.env.GLASSBOX_NESTED === '1' || input.stop_hook_active === true) return '';
   const root = rootFor(input, ctx);
   if (!root) return '';
+  resumeWorker(root, ctx);
   const config = loadProjectConfigSafe(root);
   if (!gateEnabled(ctx.env, config)) return '';
-  const { workingDiff } = await import('../util/git.js');
-  const diff = await workingDiff(root);
-  if (!diff.trim()) return '';
-  const hash = sha256(diff);
-  const now = ctx.now ?? Date.now;
-  const prev = readGateState(root);
-  if (prev?.lastHash === hash) return '';
-  const flagged = prev?.flagged ?? [];
-  const keep = flagged.length ? { flagged } : {};
-  // Recorded before the check, so a slow or failing check is not retried on the same diff.
-  writeGateState(root, { lastHash: hash, at: now(), ...keep });
-
   const mode = config.gate?.mode === 'balanced' ? 'balanced' : 'fast';
   const settings = MODE_SETTINGS[mode];
-  const timeoutMs = Math.max(1000, Math.min(config.gate?.timeoutMs ?? envMs(ctx.env.GLASSBOX_GATE_TIMEOUT_MS) ?? DEFAULT_GATE_TIMEOUT_MS, 600_000));
+  const timeoutMs = gateTimeoutMs(ctx.env, config.gate?.timeoutMs);
+  const now = ctx.now ?? Date.now;
+
+  // The timer starts before the diff is read, so git counts against the timeout too.
   const abort = new AbortController();
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      abort.abort(new GateTimeout('gate timed out'));
-      reject(new GateTimeout('gate timed out'));
-    }, timeoutMs);
+    const stop = (err: Error) => {
+      abort.abort(err);
+      reject(err);
+    };
+    timer = setTimeout(() => stop(new GateTimeout('gate timed out')), timeoutMs);
+    if (ctx.signal?.aborted) stop(new GateTimeout('gate stopped'));
+    else ctx.signal?.addEventListener('abort', () => stop(new GateTimeout('gate stopped')), { once: true });
   });
+  timeout.catch(() => {});
+  let hash: string | undefined;
+  let flagged: string[] = [];
   try {
+    const { workingDiff } = await import('../util/git.js');
+    const diff = await Promise.race([workingDiff(root, { signal: abort.signal }), timeout]);
+    if (!diff.trim()) return '';
+    hash = sha256(diff);
+    const prev = readGateState(root);
+    if (prev?.lastHash === hash) return '';
+    flagged = prev?.flagged ?? [];
+    // Recorded before the check, so a slow or failing check is not retried on the same diff.
+    writeGateState(root, { lastHash: hash, at: now(), ...(flagged.length ? { flagged } : {}) });
+
     const r = await Promise.race([gate(root, diff, ctx, settings, abort.signal, new Set(flagged)), timeout]);
     const all = [...flagged, ...r.flagged].slice(-MAX_FLAGGED);
     writeGateState(root, { lastHash: hash, at: now(), outcome: r.reason ? 'block' : 'pass', ...(all.length ? { flagged: all } : {}) });
     return r.reason ? JSON.stringify({ decision: 'block', reason: r.reason }) : '';
   } catch (err) {
-    writeGateState(root, { lastHash: hash, at: now(), outcome: err instanceof GateTimeout ? 'timeout' : 'error', ...keep });
+    if (hash !== undefined) {
+      writeGateState(root, { lastHash: hash, at: now(), outcome: err instanceof GateTimeout ? 'timeout' : 'error', ...(flagged.length ? { flagged } : {}) });
+    }
     return '';
   } finally {
     clearTimeout(timer);
+    // Stops any model call still running (and its child processes) once the gate is done.
+    if (!abort.signal.aborted) abort.abort(new GateTimeout('gate finished'));
   }
+}
+
+/**
+ * The gate's timeout: GLASSBOX_GATE_TIMEOUT_MS, then `gate.timeoutMs` from
+ * .glassbox/config.json, then 45 s; never under 1 s or over GATE_TIMEOUT_CAP_MS.
+ */
+export function gateTimeoutMs(env: NodeJS.ProcessEnv, configured?: number): number {
+  const ms = envMs(env.GLASSBOX_GATE_TIMEOUT_MS) ?? configured ?? DEFAULT_GATE_TIMEOUT_MS;
+  return Math.max(1000, Math.min(ms, GATE_TIMEOUT_CAP_MS));
 }
 
 function envMs(v: string | undefined): number | undefined {

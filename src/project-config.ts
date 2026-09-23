@@ -1,15 +1,19 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { assertNotSymlinkSync, within } from './util/safefs.js';
+import { trackedByGit } from './util/tracked.js';
 
 // Same directory as the graph store; kept local so reading the config never loads node:sqlite.
 const STORE_DIR = '.glassbox';
 export const PROJECT_CONFIG_FILE = 'config.json';
 
 /**
- * Per-project settings in <repo>/.glassbox/config.json. The store directory is
- * git-ignored, so this is a local, per-checkout file. Every field is optional;
- * values of the wrong type are dropped rather than trusted.
+ * Per-project settings in <repo>/.glassbox/config.json. glassbox git-ignores
+ * the store directory it creates, so this is meant as a local, per-checkout
+ * file. A config that git tracks came with the repo, so someone else wrote it:
+ * only its switches that turn a feature off are kept (see onlyDisables).
+ * Every field is optional; values of the wrong type are dropped rather than
+ * trusted, and the worker and gate limits are clamped where they are used.
  */
 export interface ProjectConfig {
   /** Default mode for ask, where, triage and decide: fast, balanced, explained, strict or auto. */
@@ -88,9 +92,24 @@ export function parseProjectConfig(value: unknown): ProjectConfig {
 }
 
 /**
+ * What a config that git tracks may still do: turn features off. Everything
+ * else (turning the gate or ambient context on, the mode, limits, timeouts)
+ * is dropped, so a cloned repo cannot switch on model calls or raise budgets.
+ */
+export function onlyDisables(config: ProjectConfig): ProjectConfig {
+  const out: ProjectConfig = {};
+  if (config.ambient?.enabled === false) out.ambient = { enabled: false };
+  if (config.gate?.enabled === false) out.gate = { enabled: false };
+  if (config.worker?.enabled === false) out.worker = { enabled: false };
+  if (config.conciseRules === false) out.conciseRules = false;
+  return out;
+}
+
+/**
  * Reads <root>/.glassbox/config.json. A missing file is an empty config. A
  * symlinked file, one outside the root, or invalid JSON throws (callers on a
- * hook path catch and fail open).
+ * hook path catch and fail open). A file that git tracks is reduced to
+ * onlyDisables().
  */
 export function loadProjectConfig(root: string): ProjectConfig {
   const file = join(root, STORE_DIR, PROJECT_CONFIG_FILE);
@@ -104,11 +123,13 @@ export function loadProjectConfig(root: string): ProjectConfig {
     throw err;
   }
   if (!within(realpathSync(root), realpathSync(dirname(file)))) throw new Error(`refusing to read ${file}: it resolves outside ${root}`);
+  let config: ProjectConfig;
   try {
-    return parseProjectConfig(JSON.parse(text));
+    config = parseProjectConfig(JSON.parse(text));
   } catch {
     throw new Error(`${file} is not valid JSON`);
   }
+  return trackedByGit(root, file) ? onlyDisables(config) : config;
 }
 
 /** Like loadProjectConfig, but an unreadable config is an empty one (for hooks, which must fail open). */

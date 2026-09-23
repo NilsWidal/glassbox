@@ -1,15 +1,17 @@
 # glassbox A/B harness
 
-Runs the same coding tasks through an agent CLI twice, once with glassbox ambient mode and once without, and compares the runs. It exists so that glassbox only claims what a measurement shows.
+Runs the same coding tasks through an agent CLI twice, once with the glassbox setup and once without, and compares the runs. It exists so that glassbox only claims what a measurement shows.
 
 - **baseline**: the agent CLI with no glassbox at all.
-- **ambient**: the same CLI with glassbox loaded. For Claude Code that is the plugin (`claude -p --plugin-dir <glassbox>`) with the ambient context hook on, after `glassbox init` built and tagged the code graph and wrote the `AGENTS.md` block. For Codex it is the `AGENTS.md` block only, since `codex exec` loads no plugin.
+- **ambient**: the same CLI with the whole glassbox setup. For Claude Code that is the plugin (`claude -p --plugin-dir <glassbox>`) with its ambient context hook on and its skill, plus the `AGENTS.md`/`CLAUDE.md` block that `glassbox init` wrote after it built and tagged the code graph. For Codex it is the `AGENTS.md` block only, since `codex exec` loads no plugin. The arm is named after the context hook, but it measures the whole setup against none, not the injected context alone.
 
 ## Results so far
 
 **Pilot, small n (2026-09-23).** Claude Code 2.1.280, model haiku, 6 tasks x 2 arms x 2 repeats = 24 runs. Full tables: [results/pilot-2026-09-23-claude-haiku.md](results/pilot-2026-09-23-claude-haiku.md).
 
 Each cell is baseline / ambient, the mean of the 2 repeats.
+
+What the two arms were: the ambient arm is the whole glassbox plugin setup (context hook, `AGENTS.md`/`CLAUDE.md` block and skill) against none; the gate, the concise style, the worker and the MCP server were off. Both arms also loaded two other plugins, `agents-md` and `telemetry`, in every run (from the session's init event), so they were not plugin-free, but those two were the same in both arms. The pilot ran before the harness changes described under [What one run does](#what-one-run-does) (the repo's own agent settings stripped, an allowlisted environment, a shorter tool list, process-group kills); it was not re-run.
 
 | task | kind | passed | cost | tool calls | tokens (all) | wall time | answer words | ambient context (chars) |
 |---|---|---|---|---|---|---|---|---|
@@ -27,7 +29,7 @@ What this pilot shows, and what it does not:
 - **Cost: no difference.** $0.600 without glassbox and $0.608 with it, over 12 runs each.
 - **Lookups: fewer on short "where is X" questions and the one-file edit.** The hook added context on 5 of the 6 tasks. On the 3 of those that ask to find or change one spot (2 questions, 1 edit), the ambient runs made about half the tool calls (for example 1 instead of 3 on `tomli-q-parse-float-guard`): Claude read one file straight away instead of searching first. That saved tokens but not always money: on `fx-q-session-expiry` the ambient runs cost slightly more.
 - **Bug fixes: worse, not better.** On both tomli bug tasks the ambient runs used more tool calls, tokens and time (on `tomli-bug-literal-quote`, 14 tool calls against 6). The pilot does not show why; one ambient run wrote extra test scripts before fixing the bug.
-- **Noise is as large as the effects.** On `fx-q-sql-strings` the hook added nothing (0 characters), yet the arms still differ by 2x in tool calls, because one baseline run made 13 calls and the other 5. Two repeats per arm cannot separate an effect of this size from chance.
+- **Noise is as large as the effects.** On `fx-q-sql-strings` the hook added nothing (0 characters), yet the arms still differ by 2x in tool calls, because one baseline run made 13 calls and the other 5. Two repeats per arm cannot separate an effect of this size from chance. It also shows the arms differ in more than the injected context: the `AGENTS.md` block and the skill were there even when the hook said nothing.
 - **Answer length: not measured as a claim.** The concise output style was off in this pilot; the ambient answers were about as long as the baseline ones.
 
 So far glassbox makes no claim that ambient mode makes the agent more successful, cheaper, faster or more concise. The next step is more repeats, harder tasks (the other 17 are ready) and the concise style as its own arm.
@@ -86,12 +88,14 @@ Options: `--tasks a,b`, `--pilot`, `--repo <name>`, `--agent claude|codex`, `--m
 
 ### What one run does
 
-1. Copies the repo into a fresh temp directory (file times kept, no `.git`), applies the task's `setup`, and makes it a one-commit git repo.
+1. Copies the repo into a fresh temp directory (file times kept), applies the task's `setup`, and makes it a one-commit git repo. Left out at any depth: `.git`, build folders, and the repo's own agent settings (`.claude/`, `.mcp.json`, `.codex/`, `CLAUDE.local.md`), so a repo's hooks or permission lists never configure the agent under test.
 2. Ambient arm only: copies in the graph that `glassbox init` built and tagged once per repo (with the agent's own CLI, 1 sample per tag question), then re-parses with `glassbox init --no-tags`, which makes no model call.
 3. Starts the agent with the prompt on stdin and an argument list (no shell):
-   - Claude: `claude -p --output-format stream-json --verbose --include-hook-events --no-session-persistence --setting-sources project,local --strict-mcp-config --permission-mode acceptEdits --model haiku --max-budget-usd 1 --allowedTools ...`, plus `--plugin-dir <glassbox>` in the ambient arm. User settings, user plugins and MCP servers are left out of both arms so they start from the same setup. `stream-json` ends with the same `result` object as `--output-format json` and also carries the tool calls and hook output.
+   - Claude: `claude -p --output-format stream-json --verbose --include-hook-events --no-session-persistence --setting-sources project,local --strict-mcp-config --permission-mode acceptEdits --model haiku --max-budget-usd 1 --allowedTools ...`, plus `--plugin-dir <glassbox>` in the ambient arm. User settings and MCP servers are left out of both arms so they start from the same setup. Plugins the installation enables outside user settings can still load in both arms; the results list the plugins each run loaded. `stream-json` ends with the same `result` object as `--output-format json` and also carries the tool calls and hook output.
    - Codex: `codex exec --json --skip-git-repo-check --sandbox workspace-write -C <workspace> -c model_reasoning_effort=low -`.
-   - The ambient arm sets `GLASSBOX_AMBIENT=1` and `GLASSBOX_GATE=0`, `GLASSBOX_HOOKS=0`, `GLASSBOX_WORKER=0`, so only the ambient context hook runs. Inherited `GLASSBOX_*` variables are removed from both arms.
+   - The ambient arm sets `GLASSBOX_AMBIENT=1` and `GLASSBOX_GATE=0`, `GLASSBOX_HOOKS=0`, `GLASSBOX_WORKER=0`, so only the ambient context hook runs.
+   - The agent's environment is an allowlist, not this shell's: `PATH`, `HOME`, user, locale, terminal, temp dir, proxy and CA settings, plus the login variables of the agent CLI being run (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR` for Claude; `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CODEX_HOME` for Codex). Cloud credentials, tokens and other keys never reach the repo code the agent runs.
+   - The agent runs in its own process group. On a timeout the whole group gets SIGTERM, then SIGKILL 5 s later, and anything left in the group when the agent exits is killed, so no test run or shell outlives the run and writes into a deleted workspace.
 4. Restores `protect` paths, runs the checks, and deletes the workspace.
 
 The two arms of a task run one after the other, and which arm goes first alternates from task to task.
@@ -113,6 +117,7 @@ The results also keep each run's answer (first 4,000 characters), tools by name,
 
 ## Limits
 
-- The runs are headless with a fixed allowed-tool list (read, search, edit, and `python3`, `node`, `git diff` and a few read-only shell commands). Other tool calls are denied and counted, in both arms.
+- The runs are headless with a fixed allowed-tool list (read, search, edit, and `python3`, `node`, `git diff` and a few read-only shell commands; no `find` or `sed`, which can run commands or write files). Other tool calls are denied and counted, in both arms.
+- The Claude arm is not sandboxed: `python3` and `node` run the repo's code with your user's rights (the Codex arm runs in `workspace-write`). Only run tasks on repos you are willing to execute, pinned to a commit you have read.
 - The one-time tagging during `glassbox init` costs model calls that no run's numbers include. Over a real session that cost is spread over many prompts; in this harness it is not charged to anyone.
 - Codex: its ambient arm has no prompt hook (Codex hooks need to be trusted interactively first), so it only tests the `AGENTS.md` block. The Codex path has unit tests on recorded output but has not had a pilot.

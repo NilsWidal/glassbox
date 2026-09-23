@@ -9,6 +9,7 @@
 # prompt and stop can also be turned on in .glassbox/config.json, so node reads
 # that and decides. The hook JSON on stdin goes straight to `glassbox hook`.
 # Hooks never fail the turn: errors are swallowed and the exit code is always 0.
+# A TERM, INT or HUP sent to this script is passed on to node.
 
 event="$1"
 [ "${GLASSBOX_NESTED:-}" = "1" ] && exit 0
@@ -31,5 +32,13 @@ dir="${CLAUDE_PROJECT_DIR:-$PWD}"
 bundle="${CLAUDE_PLUGIN_ROOT:-}/plugin-dist/glassbox.mjs"
 [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$bundle" ] || exit 0
 
-node "$bundle" hook "$event" --host claude-code --root "$dir" 2>/dev/null
+# node runs as a child with stdin passed on explicitly, so that a stop signal from
+# the host (on its hook timeout) can be forwarded: the Stop gate then ends its
+# model calls and their processes instead of leaving them running.
+node "$bundle" hook "$event" --host claude-code --root "$dir" <&0 2>/dev/null &
+pid=$!
+trap 'kill -TERM "$pid" 2>/dev/null' TERM INT HUP
+wait "$pid"
+# A trapped signal ends the first wait early; wait again for node to finish.
+wait "$pid" 2>/dev/null
 exit 0

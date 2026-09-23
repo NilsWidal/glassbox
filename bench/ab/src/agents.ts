@@ -78,21 +78,54 @@ export const DEFAULT_ALLOWED_TOOLS = [
   'Bash(head:*)',
   'Bash(tail:*)',
   'Bash(wc:*)',
-  'Bash(find:*)',
   'Bash(grep:*)',
-  'Bash(sed -n:*)',
   'Bash(git diff:*)',
   'Bash(git status:*)',
   'Bash(git log:*)',
   'Bash(git show:*)',
 ];
 
-/** Variables removed from the agent's environment so nothing from this shell leaks into a run. */
-const SCRUB = /^(GLASSBOX_|CLAUDECODE$|CLAUDE_CODE_ENTRYPOINT$|CLAUDE_PROJECT_DIR$|CLAUDE_PLUGIN_|CODEX_SANDBOX|CODEX_THREAD)/;
+/**
+ * The only variables the agent gets from this shell: what any program needs to
+ * run (path, home, user, locale, terminal, temp dir, proxy and CA settings).
+ * The agent runs the repo's own code, so nothing else (cloud credentials,
+ * tokens, other API keys) is passed through.
+ */
+export const AGENT_ENV_ALLOW = [
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TERM',
+  'TMPDIR',
+  'TZ',
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'NO_PROXY',
+  'https_proxy',
+  'http_proxy',
+  'no_proxy',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+] as const;
 
+/** Plus the login variables of the agent CLI being run, and only that one. */
+export const AGENT_AUTH_ENV: Readonly<Record<AgentName, readonly string[]>> = {
+  claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR'],
+  codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_HOME'],
+};
+
+/** The agent's environment: the allowlist above from `base`, plus the arm's glassbox switches. */
 export function agentEnv(base: NodeJS.ProcessEnv, opts: Pick<AgentOptions, 'arm' | 'gate' | 'agent'>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(base)) if (!SCRUB.test(k) && v !== undefined) env[k] = v;
+  for (const k of [...AGENT_ENV_ALLOW, ...AGENT_AUTH_ENV[opts.agent]]) {
+    const v = base[k];
+    if (v !== undefined) env[k] = v;
+  }
   if (opts.arm === 'ambient') {
     env.GLASSBOX_AMBIENT = '1';
     env.GLASSBOX_GATE = opts.gate ? '1' : '0';
@@ -108,8 +141,11 @@ export function agentEnv(base: NodeJS.ProcessEnv, opts: Pick<AgentOptions, 'arm'
  * Builds the command line. The prompt goes on stdin, so no argument can be mistaken for it.
  *
  * Claude: `claude -p --output-format stream-json --verbose --include-hook-events`, with user
- * settings, user plugins and all MCP servers left out (`--setting-sources project,local
- * --strict-mcp-config`) so both arms start from the same clean setup. The ambient arm adds
+ * settings and all MCP servers left out (`--setting-sources project,local --strict-mcp-config`).
+ * The workspace has no `.claude/`, `.mcp.json`, `.codex/` or `CLAUDE.local.md` of the repo's own
+ * (see copyTree), so the project and local sources hold nothing the repo wrote. Plugins the
+ * installation enables outside user settings can still load, in both arms alike (the results
+ * list them per run). The ambient arm adds
  * `--plugin-dir <glassbox>`. stream-json carries the same final `result` event as
  * `--output-format json`, plus the tool calls and hook output needed for the metrics.
  *

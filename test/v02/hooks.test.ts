@@ -5,8 +5,11 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FakeBackend } from '../../src/backends/fake.js';
 import {
+  DEFAULT_GATE_TIMEOUT_MS,
+  GATE_TIMEOUT_CAP_MS,
   editHooksEnabled,
   editedFiles,
+  gateTimeoutMs,
   findGraphRoot,
   parseHookInput,
   postEditHook,
@@ -16,6 +19,8 @@ import {
   type HookContext,
 } from '../../src/hooks/index.js';
 import { GraphStore } from '../../src/memory/store.js';
+import type { Backend } from '../../src/types.js';
+import { localDay, readWorkerState, writeWorkerState } from '../../src/worker/index.js';
 import { fixtureCopy } from '../query/helpers.js';
 import { cli, indexedFixture, rules } from './helpers.js';
 
@@ -206,6 +211,100 @@ describe('stop hook (end-of-turn gate)', () => {
   });
 });
 
+describe('gate timeout and stopping', () => {
+  const RISKY = (text: string) => text.replace('session.expiresAt < Date.now()', 'session.expiresAt <= Date.now()');
+
+  it('takes the env over the config and never goes past the cap under the hook timeout', () => {
+    expect(gateTimeoutMs({})).toBe(DEFAULT_GATE_TIMEOUT_MS);
+    expect(gateTimeoutMs({}, 20_000)).toBe(20_000);
+    expect(gateTimeoutMs({ GLASSBOX_GATE_TIMEOUT_MS: '30000' }, 20_000)).toBe(30_000);
+    expect(gateTimeoutMs({}, 600_000)).toBe(GATE_TIMEOUT_CAP_MS);
+    expect(gateTimeoutMs({ GLASSBOX_GATE_TIMEOUT_MS: '3600000' })).toBe(GATE_TIMEOUT_CAP_MS);
+    expect(gateTimeoutMs({ GLASSBOX_GATE_TIMEOUT_MS: 'x' }, 10)).toBe(1000);
+    expect(GATE_TIMEOUT_CAP_MS).toBeLessThan(60_000);
+  });
+
+  it('stops its model call when the hook process is told to stop, and records it', async () => {
+    const copy = await indexedFixture({ git: true });
+    try {
+      const file = join(copy, 'src/auth/session.ts');
+      writeFileSync(file, RISKY(readFileSync(file, 'utf8')));
+      let aborted = false;
+      const hang: Backend = {
+        name: 'hang',
+        capabilities: { hasLogprobs: false, batch: true },
+        answerBatch: (_s, _q, opts) =>
+          new Promise((_ok, fail) => {
+            opts?.signal?.addEventListener(
+              'abort',
+              () => {
+                aborted = true;
+                fail(opts.signal!.reason as Error);
+              },
+              { once: true },
+            );
+          }),
+      };
+      const stop = new AbortController();
+      const started = Date.now();
+      const pending = stopHook({ cwd: copy }, { env: { GLASSBOX_GATE: '1' }, cwd: copy, backend: () => hang, signal: stop.signal });
+      setTimeout(() => stop.abort(), 300);
+      expect(await pending).toBe('');
+      expect(Date.now() - started).toBeLessThan(5000);
+      expect(aborted).toBe(true);
+      expect(readGateState(copy)?.outcome).toBe('timeout');
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+
+  it('counts reading the diff against the timeout: an already stopped hook reads nothing', async () => {
+    const copy = await indexedFixture({ git: true });
+    try {
+      const file = join(copy, 'src/auth/session.ts');
+      writeFileSync(file, RISKY(readFileSync(file, 'utf8')));
+      const backend = new FakeBackend({ rules });
+      const stop = new AbortController();
+      stop.abort();
+      expect(await stopHook({ cwd: copy }, { env: { GLASSBOX_GATE: '1' }, cwd: copy, backend: () => backend, signal: stop.signal })).toBe('');
+      expect(backend.calls).toHaveLength(0);
+      expect(readGateState(copy)).toBeUndefined();
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('pending re-tag', () => {
+  it('the prompt and stop hooks start a worker an earlier edit had to put off', async () => {
+    const copy = await indexedFixture({ git: true });
+    try {
+      const T = new Date(2026, 8, 23, 12, 0, 0).getTime();
+      writeWorkerState(copy, { day: localDay(T), callsToday: 0, lastSpawnAt: T - 120_000, pending: true });
+      const spawned: string[][] = [];
+      const c: HookContext = {
+        env: {},
+        cwd: copy,
+        entry: '/x/glassbox.mjs',
+        now: () => T,
+        spawner: (_cmd, args) => void spawned.push([...args]),
+      };
+      // Ambient is off, so the prompt hook prints nothing, but it still starts the pending run.
+      expect(promptHook({ cwd: copy, prompt: 'where is verifySession?' }, c)).toBe('');
+      expect(spawned).toEqual([['/x/glassbox.mjs', 'worker', 'run', '--root', copy, '--quiet']]);
+      expect(readWorkerState(copy, T).pending).toBeUndefined();
+      writeWorkerState(copy, { ...readWorkerState(copy, T), lastSpawnAt: T - 120_000, pending: true });
+      expect(await stopHook({ cwd: copy }, c)).toBe('');
+      expect(spawned).toHaveLength(2);
+      // Nothing pending: no start.
+      expect(await stopHook({ cwd: copy }, { ...c, now: () => T + 600_000 })).toBe('');
+      expect(spawned).toHaveLength(2);
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('stop hook: more gate cases', () => {
   const RISKY = (text: string) => text.replace('session.expiresAt < Date.now()', 'session.expiresAt <= Date.now()');
 
@@ -319,6 +418,52 @@ describe('glassbox hook (CLI entry)', () => {
     expect(nested).toEqual({ code: 0, out: '', err: '' });
     expect(read).toBe(false);
   }, 10_000);
+
+  it('exits 0 with no output for an unknown event', async () => {
+    let read = false;
+    const r = await cli(root, ['hook', 'pre-compact'], { readStdin: async () => ((read = true), '{}') });
+    expect(r).toEqual({ code: 0, out: '', err: '' });
+    expect(read).toBe(false);
+    expect((await cli(root, ['hook', '--help'])).out).toMatch(/prompt, stop, post-edit, session-start/);
+  });
+
+  it('reads stdin with the 1 MiB cap and stops the gate when the process is told to stop', async () => {
+    const asked: (number | undefined)[] = [];
+    let onStop: (() => void) | undefined;
+    let removed = false;
+    const r = await cli(root, ['hook', 'stop'], {
+      env: { GLASSBOX_GATE: '1' },
+      readStdin: async (max) => (asked.push(max), JSON.stringify({ cwd: root })),
+      onTerminate: (fn) => {
+        onStop = fn;
+        return () => void (removed = true);
+      },
+    });
+    expect(r.code).toBe(0);
+    expect(asked).toEqual([1024 * 1024]);
+    expect(onStop).toBeTypeOf('function');
+    expect(removed).toBe(true);
+    // Only the stop hook listens for termination.
+    onStop = undefined;
+    await cli(root, ['hook', 'prompt'], { readStdin: async () => '{}', onTerminate: (fn) => ((onStop = fn), () => {}) });
+    expect(onStop).toBeUndefined();
+  });
+
+  it('drops an oversized stdin without buffering it', async () => {
+    const { Readable } = await import('node:stream');
+    const { readStreamCapped } = await import('../../src/cli/index.js');
+    let produced = 0;
+    const endless = new Readable({
+      read() {
+        produced += 64 * 1024;
+        this.push(Buffer.alloc(64 * 1024, 120));
+      },
+    });
+    expect(await readStreamCapped(endless, 1024 * 1024)).toBeUndefined();
+    expect(endless.destroyed).toBe(true);
+    expect(produced).toBeLessThan(4 * 1024 * 1024);
+    expect(await readStreamCapped(Readable.from([Buffer.from('{"a":'), Buffer.from('1}')]), 100)).toBe('{"a":1}');
+  });
 
   it('does nothing in a directory without .glassbox', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'glassbox-nohook-'));

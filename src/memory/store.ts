@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { assertNotSymlinkSync, ensureStoreDirSync } from '../util/safefs.js';
+import { trackedByGit } from '../util/tracked.js';
 import type { EdgeKind, GraphEdge, GraphNode, NodeKind, Tag } from '../types.js';
 
 export const STORE_DIR = '.glassbox';
@@ -142,16 +142,6 @@ export function storeProblem(file: string): string | undefined {
   }
 }
 
-/** True when git tracks the store file, i.e. it came with the repo instead of being built here. */
-function trackedByGit(repoRoot: string, file: string): boolean {
-  try {
-    execFileSync('git', ['ls-files', '--error-unmatch', '--', file], { cwd: repoRoot, stdio: 'ignore', timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function toNode(r: Row): StoredNode {
   return {
     id: String(r.id),
@@ -217,15 +207,18 @@ export class GraphStore {
 
   /**
    * Opens <repoRoot>/.glassbox/graph.db read-only for a fast lookup, or returns
-   * undefined when there is none. Unlike open(), it never checks git, deletes
-   * or rebuilds anything, so callers must treat what it returns as untrusted
-   * text (a cloned repo may ship its own store).
+   * undefined when there is none or when git tracks it (a store committed to
+   * the repo came with the clone). Unlike open(), it never deletes or rebuilds
+   * anything, so callers must still treat what it returns as untrusted text.
    */
   static openForRead(repoRoot: string): GraphStore | undefined {
     const dir = join(repoRoot, STORE_DIR);
     const file = join(dir, STORE_FILE);
     if (!existsSync(file)) return undefined;
-    for (const f of [dir, file, `${file}-wal`, `${file}-shm`]) assertNotSymlinkSync(f);
+    const files = [file, `${file}-wal`, `${file}-shm`];
+    for (const f of [dir, ...files]) assertNotSymlinkSync(f);
+    // A store that git tracks came with the clone; its rows are someone else's text. open() rebuilds it.
+    if (files.some((f) => existsSync(f) && trackedByGit(repoRoot, f))) return undefined;
     return new GraphStore(file, { readOnly: true });
   }
 

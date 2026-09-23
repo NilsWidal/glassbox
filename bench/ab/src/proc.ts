@@ -24,16 +24,47 @@ export interface ProcResult {
 export type RunProc = (req: ProcRequest) => Promise<ProcResult>;
 
 const MAX_CAPTURE = 64 * 1024 * 1024;
+/** Time between SIGTERM and SIGKILL when a run is stopped. */
+export const KILL_GRACE_MS = 5000;
+
+/** Process groups of children still running, killed if this process exits first. */
+const live = new Set<number>();
+let exitHook = false;
+
+/** Sends a signal to a whole process group (the child and everything it started). */
+export function killGroup(pid: number | undefined, sig: NodeJS.Signals): void {
+  if (pid === undefined) return;
+  try {
+    process.kill(process.platform === 'win32' ? pid : -pid, sig);
+  } catch {
+    // The group is already gone.
+  }
+}
+
+function track(pid: number | undefined): void {
+  if (pid === undefined) return;
+  live.add(pid);
+  if (!exitHook) {
+    exitHook = true;
+    process.on('exit', () => {
+      for (const p of live) killGroup(p, 'SIGKILL');
+    });
+  }
+}
 
 export const runProc: RunProc = (req) =>
   new Promise((resolveResult) => {
     const started = performance.now();
+    // Its own process group, so a timeout stops the agent and every process it started
+    // (shells, test runs), not just the direct child.
     const child = spawn(req.cmd, req.args, {
       cwd: req.cwd,
       env: req.env ?? process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
+      detached: process.platform !== 'win32',
     });
+    track(child.pid);
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     let outLen = 0;
@@ -48,10 +79,12 @@ export const runProc: RunProc = (req) =>
       if (errLen < MAX_CAPTURE) err.push(b);
       errLen += b.length;
     });
+    let escalate: NodeJS.Timeout | undefined;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 5000).unref();
+      killGroup(child.pid, 'SIGTERM');
+      // Referenced until close, so the SIGKILL happens even if nothing else keeps this process alive.
+      escalate = setTimeout(() => killGroup(child.pid, 'SIGKILL'), KILL_GRACE_MS);
     }, req.timeoutMs);
     child.on('error', (e) => {
       spawnError = e.message;
@@ -60,6 +93,11 @@ export const runProc: RunProc = (req) =>
     child.stdin.end(req.stdin ?? '');
     child.on('close', (code) => {
       clearTimeout(timer);
+      clearTimeout(escalate);
+      // Anything the program left running in its group (a background server, a stuck test)
+      // must not outlive the run and write into a workspace that is about to be deleted.
+      killGroup(child.pid, 'SIGKILL');
+      if (child.pid !== undefined) live.delete(child.pid);
       resolveResult({
         code,
         stdout: Buffer.concat(out).toString('utf8'),

@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeBackend } from '../../src/backends/fake.js';
+import type { Backend } from '../../src/types.js';
 import { refresh } from '../../src/memory/refresh.js';
 import { renderStatus, status } from '../../src/status.js';
 import {
@@ -15,6 +16,7 @@ import {
   readLock,
   readWorkerState,
   releaseLock,
+  resumePendingWorker,
   runWorker,
   shouldStartWorker,
   workerLimits,
@@ -55,9 +57,34 @@ describe('worker lock', () => {
     expect(acquireLock(dir, T0 + 31 * 60_000, { alive: () => true })).toBe(true);
   });
 
-  it('treats an unreadable lock file as held for now', () => {
-    writeFileSync(join(dir, '.glassbox', WORKER_LOCK_FILE), '{');
+  it('treats an unreadable lock file as held for now, but lets it age out', () => {
+    const file = join(dir, '.glassbox', WORKER_LOCK_FILE);
+    writeFileSync(file, '{');
     expect(lockHeld(readLock(dir), Date.now())).toBe(true);
+    const old = new Date(Date.now() - 31 * 60_000);
+    utimesSync(file, old, old);
+    expect(lockHeld(readLock(dir), Date.now())).toBe(false);
+    expect(acquireLock(dir)).toBe(true);
+    expect(readLock(dir)?.pid).toBe(process.pid);
+  });
+
+  it('never lets two workers both take over the same stale lock', () => {
+    const file = join(dir, '.glassbox', WORKER_LOCK_FILE);
+    writeFileSync(file, JSON.stringify({ pid: 999_999, startedAt: T0 }));
+    const fresh = { pid: 424_242, startedAt: T0 + 5 };
+    // Worker A reads the stale lock; before A moves it, worker B takes it over and writes its own.
+    const alive = (pid: number) => {
+      if (pid === 999_999) {
+        rmSync(file);
+        writeFileSync(file, JSON.stringify(fresh));
+      }
+      return false;
+    };
+    expect(acquireLock(dir, T0 + 10, { alive })).toBe(false);
+    // B's lock is still in place, and A left nothing behind.
+    expect(readLock(dir)).toEqual(fresh);
+    expect(readdirSync(join(dir, '.glassbox')).filter((f) => f.includes('.stale'))).toEqual([]);
+    expect(acquireLock(dir, T0 + 20, { alive: () => true })).toBe(false);
   });
 });
 
@@ -79,11 +106,23 @@ describe('worker state and limits', () => {
 
   it('reads limits from env, then config, then defaults', () => {
     expect(workerLimits({})).toMatchObject({ dailyCalls: 100, minIntervalMs: 60_000, maxNodesPerRun: 24 });
-    expect(workerLimits({}, { worker: { dailyCalls: 10, minIntervalSec: 5 } })).toMatchObject({ dailyCalls: 10, minIntervalMs: 5000 });
+    expect(workerLimits({}, { worker: { dailyCalls: 10, minIntervalSec: 30 } })).toMatchObject({ dailyCalls: 10, minIntervalMs: 30_000 });
     expect(workerLimits({ GLASSBOX_WORKER_DAILY_CALLS: '3', GLASSBOX_WORKER_MAX_NODES: '2' }, { worker: { dailyCalls: 10 } })).toMatchObject({
       dailyCalls: 3,
       maxNodesPerRun: 2,
     });
+  });
+
+  it('clamps every limit to the hard bounds, from config and env alike', () => {
+    const huge = { worker: { dailyCalls: 1e9, minIntervalSec: 0, maxNodesPerRun: 1e9 } };
+    expect(workerLimits({}, huge)).toMatchObject({ dailyCalls: 1000, minIntervalMs: 10_000, maxNodesPerRun: 100 });
+    expect(workerLimits({ GLASSBOX_WORKER_DAILY_CALLS: '999999', GLASSBOX_WORKER_MIN_INTERVAL_SEC: '0', GLASSBOX_WORKER_MAX_NODES: '5000' })).toMatchObject({
+      dailyCalls: 1000,
+      minIntervalMs: 10_000,
+      maxNodesPerRun: 100,
+    });
+    const l = workerLimits({});
+    expect(l.maxRunMs).toBeLessThan(l.lockMaxAgeMs);
   });
 });
 
@@ -123,6 +162,26 @@ describe('starting the worker', () => {
     } finally {
       await rm(bare, { recursive: true, force: true });
     }
+  });
+
+  it('records a put-off start as pending and starts it on a later call once allowed', () => {
+    const spawned: string[][] = [];
+    const spawner = (_cmd: string, args: readonly string[]) => void spawned.push([...args]);
+    const opts = { env: {}, entry: '/x/glassbox.mjs', spawner };
+    expect(resumePendingWorker(root, { ...opts, now: T0 })).toEqual({ start: false, reason: 'nothing pending' });
+    expect(maybeStartWorker(root, { ...opts, now: T0 }).start).toBe(true);
+    expect(readWorkerState(root, T0).pending).toBeUndefined();
+    // An edit 5 s later is rate limited: nothing starts, but the re-tag is remembered.
+    expect(maybeStartWorker(root, { ...opts, now: T0 + 5000 })).toMatchObject({ reason: 'rate limited' });
+    expect(readWorkerState(root, T0 + 5000).pending).toBe(true);
+    expect(resumePendingWorker(root, { ...opts, now: T0 + 30_000 })).toMatchObject({ reason: 'rate limited' });
+    expect(spawned).toHaveLength(1);
+    // No further edit: the next hook call after the interval starts it and clears the flag.
+    expect(resumePendingWorker(root, { ...opts, now: T0 + 61_000 })).toEqual({ start: true });
+    expect(spawned).toHaveLength(2);
+    expect(readWorkerState(root, T0 + 61_000).pending).toBeUndefined();
+    expect(resumePendingWorker(root, { ...opts, now: T0 + 200_000 })).toEqual({ start: false, reason: 'nothing pending' });
+    expect(resumePendingWorker(root, { ...opts, env: { GLASSBOX_NESTED: '1' }, now: T0 })).toMatchObject({ start: false });
   });
 
   it('never throws, even when spawning fails', () => {
@@ -205,6 +264,59 @@ describe('runWorker', () => {
     expect(r.summary!.failed).toBeGreaterThan(0);
     expect(r.state.lastError).toMatch(/fake failure/);
     expect(r.state.callsToday).toBe(backend.calls.length);
+  });
+
+  it('charges the worst case before the first model call and settles to the real count', async () => {
+    await touch('src/billing/retry.ts');
+    writeWorkerState(root, { day: localDay(T0), callsToday: 10 });
+    const inner = new FakeBackend({ rules });
+    let seen: number | undefined;
+    const spy: Backend = {
+      name: 'spy',
+      capabilities: inner.capabilities,
+      answerBatch: (state, questions) => {
+        seen ??= readWorkerState(root, T0).callsToday;
+        return inner.answerBatch(state, questions);
+      },
+    };
+    const r = await runWorker(root, { env: { GLASSBOX_WORKER_MAX_NODES: '6' }, backend: () => spy, now: () => T0 });
+    expect(r.ran).toBe(true);
+    // While the calls ran, the budget already held the worst case (one call per node), so a
+    // worker killed at this point would still have counted them.
+    expect(seen).toBeGreaterThanOrEqual(10 + r.summary!.asked);
+    expect(r.state.callsToday).toBe(10 + r.summary!.modelRuns);
+    expect(readWorkerState(root, T0).callsToday).toBe(10 + r.summary!.modelRuns);
+  });
+
+  it('stops its model calls at the time cap and leaves the rest pending', async () => {
+    await touch('src/billing/retry.ts');
+    const hang: Backend = {
+      name: 'hang',
+      capabilities: { hasLogprobs: false, batch: true },
+      // Like the CLI backends: a call made after the abort fails at once, a running one when it comes.
+      answerBatch: (_state, _q, opts) =>
+        new Promise((_ok, fail) => {
+          if (opts?.signal?.aborted) return fail(opts.signal.reason as Error);
+          opts?.signal?.addEventListener('abort', () => fail(opts.signal!.reason as Error), { once: true });
+        }),
+    };
+    const started = Date.now();
+    const r = await runWorker(root, { env: {}, backend: () => hang, now: () => T0, maxRunMs: 50 });
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(r.ran).toBe(true);
+    expect(r.state.lastError).toMatch(/time cap/);
+    expect(r.state.pending).toBe(true);
+    expect(existsSync(join(root, '.glassbox', WORKER_LOCK_FILE))).toBe(false);
+  });
+
+  it('marks nodes left over by the node limit as pending', async () => {
+    await touch('src/billing/retry.ts');
+    await touch('src/auth/session.ts');
+    const r = await runWorker(root, { env: { GLASSBOX_WORKER_MAX_NODES: '1' }, backend: () => new FakeBackend({ rules }), now: () => T0 });
+    expect(r.summary!.deferred).toBeGreaterThan(0);
+    expect(r.state.pending).toBe(true);
+    const s = await cli(root, ['status'], { now: () => T0 });
+    expect(s.out).toContain('re-tag pending');
   });
 
   it('glassbox worker run and glassbox status', async () => {

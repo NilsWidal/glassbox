@@ -5,14 +5,30 @@ import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { RunProc } from './proc.ts';
 import type { Replace, Repo, Task } from './tasks.ts';
 
-/** Directory names never copied into a workspace. */
-const SKIP_DIRS = new Set(['.git', '.glassbox', 'node_modules', '__pycache__', '.pytest_cache', '.mypy_cache', '.venv']);
+/**
+ * Names never copied into a workspace, at any depth: VCS and build folders, and the repo's
+ * own agent settings. A repo's `.claude/` (hooks run as shell commands, permission lists),
+ * `.mcp.json`, `.codex/` and `CLAUDE.local.md` would otherwise configure the agent under test.
+ */
+export const SKIP_NAMES: ReadonlySet<string> = new Set([
+  '.git',
+  '.glassbox',
+  'node_modules',
+  '__pycache__',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.venv',
+  '.claude',
+  '.mcp.json',
+  '.codex',
+  'CLAUDE.local.md',
+]);
 
 export function defaultCacheDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.GLASSBOX_AB_CACHE ? resolve(env.GLASSBOX_AB_CACHE) : join(homedir(), '.cache', 'glassbox-ab');
 }
 
-/** Copies a tree, keeping file times (the glassbox graph compares them), without VCS or build folders. */
+/** Copies a tree, keeping file times (the glassbox graph compares them), without SKIP_NAMES. */
 export function copyTree(src: string, dst: string, opts: { keepGlassbox?: boolean } = {}): void {
   cpSync(src, dst, {
     recursive: true,
@@ -21,7 +37,7 @@ export function copyTree(src: string, dst: string, opts: { keepGlassbox?: boolea
       if (p === src) return true;
       const name = basename(p);
       if (name === '.glassbox') return opts.keepGlassbox === true;
-      return !SKIP_DIRS.has(name);
+      return !SKIP_NAMES.has(name);
     },
   });
 }

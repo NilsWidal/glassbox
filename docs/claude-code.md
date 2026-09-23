@@ -72,7 +72,7 @@ All four hooks are in `hooks/hooks.json` and all are off until you turn them on.
 | Event | Switch | What runs | Cost |
 |---|---|---|---|
 | Before each prompt (`UserPromptSubmit`) | `ambient` | `glassbox hook prompt`: for a prompt about code, adds up to about 1,500 characters of matching `file:line` locations, tags and callers from the graph as extra context. Nothing for chat, or when no node matches well. | No model call. About 100 ms. 5 s timeout. |
-| End of a turn (`Stop`) | `gate` | `glassbox hook stop`: when the working diff changed since the last check, rates it with `triage` in `fast` mode. If a hunk is High risk with high confidence (`act` band), Claude gets one short request to check those lines before finishing. | One `claude -p` run per new diff, usually 5 to 15 s. Gives up after 45 s. 60 s hook timeout. |
+| End of a turn (`Stop`) | `gate` | `glassbox hook stop`: when the working diff changed since the last check, rates it with `triage` in `fast` mode. If a hunk is High risk with high confidence (`act` band), Claude gets one short request to check those lines before finishing. | One `claude -p` run per new diff, usually 5 to 15 s. Gives up after 45 s (never more than 50 s) and stops the `claude -p` process tree. 60 s hook timeout. |
 | After `Edit`, `Write` or `MultiEdit` (`PostToolUse`) | `enable_hooks` | `glassbox hook post-edit`: marks the edited file's nodes, and their direct callers, as stale, and may start the background re-tagging worker. | No parsing and no model call in the hook. 5 s timeout. |
 | Session start | `enable_hooks` | `glassbox hook session-start`: re-parses changed files and rewrites the AGENTS.md block. | No model call. 30 s timeout. |
 
@@ -94,7 +94,7 @@ Each hook runs `sh ${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh <event>` in exec
 - the repo has no `.glassbox/graph.db`;
 - for `post-edit` and `session-start`, `enable_hooks` (or `GLASSBOX_HOOKS=1`) is off.
 
-`prompt` and `stop` can be turned on in `.glassbox/config.json`, so for those the script starts Node, which reads the config and returns at once when the switch is off. The script passes the hook JSON on stdin, discards errors and always exits 0.
+`prompt` and `stop` can be turned on in `.glassbox/config.json`, so for those the script starts Node, which reads the config and returns at once when the switch is off. The script passes the hook JSON on stdin, passes a stop signal from Claude Code on to Node (so the gate ends its `claude -p` processes), discards errors and always exits 0.
 
 It runs only the plugin's own bundle, `node ${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs`. It never falls back to `npx` or to a `glassbox` binary on your PATH, and does nothing if the bundle is missing. The script is POSIX `sh`, so on Windows it needs Git Bash or WSL.
 

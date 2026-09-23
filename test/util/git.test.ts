@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { syncAgentsMd, type AgentsMdSummary } from '../../src/agents-md/index.js';
 import { chunkDiff } from '../../src/scope.js';
-import { dropBlockLines, withoutGlassboxChanges, workingDiff } from '../../src/util/git.js';
+import { dropBlockLines, withoutGlassboxChanges, withoutSecretFiles, workingDiff } from '../../src/util/git.js';
 
 describe('workingDiff', () => {
   it('gives one short line outside a git repository', async () => {
@@ -52,6 +52,37 @@ describe('workingDiff filtering', () => {
     expect(diff).toContain('+++ b/b.ts');
     expect(diff).not.toContain('sk-live-123');
     expect(diff).not.toContain('deploy.pem');
+  });
+
+  it('leaves out tracked files that may hold secrets, edited, staged, renamed or deleted', async () => {
+    const { dir, git } = await repo();
+    await writeFile(join(dir, '.env'), 'API_KEY=old-secret\n');
+    const key = Array.from({ length: 20 }, (_, i) => `KEY-LINE-${i}`).join('\n');
+    await writeFile(join(dir, 'server.key'), `${key}\nKEY-OLD\n`);
+    await writeFile(join(dir, 'config.env.bak'), 'plain\n');
+    git('add', '-A');
+    git('commit', '-qm', 'init');
+    await writeFile(join(dir, '.env'), 'API_KEY=sk-live-456\n');
+    git('mv', 'server.key', 'moved.txt');
+    // Mostly the same content, so git shows it as a rename from server.key.
+    await writeFile(join(dir, 'moved.txt'), `${key}\nKEY-NEW\n`);
+    git('add', 'moved.txt');
+    await writeFile(join(dir, 'a.ts'), 'export const a = 2;\n');
+    const diff = await workingDiff(dir);
+    expect(diff).toContain('+export const a = 2;');
+    expect(diff).not.toContain('sk-live-456');
+    expect(diff).not.toContain('old-secret');
+    expect(diff).not.toContain('KEY-');
+    expect(diff).not.toContain('.env');
+  });
+
+  it('withoutSecretFiles keeps other sections as they are', () => {
+    const diff = [
+      'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n@@ -1 +1 @@\n-a\n+b\n',
+      'diff --git a/id_rsa b/id_rsa\ndeleted file mode 100644\n--- a/id_rsa\n+++ /dev/null\n@@ -1 +0,0 @@\n-PRIVATE\n',
+      'diff --git a/prod.pem b/notes.txt\nsimilarity index 90%\nrename from prod.pem\nrename to notes.txt\n',
+    ].join('');
+    expect(withoutSecretFiles(diff)).toBe(diff.slice(0, diff.indexOf('diff --git a/id_rsa')));
   });
 
   it('drops the glassbox AGENTS.md block and a CLAUDE.md that only holds the import', async () => {

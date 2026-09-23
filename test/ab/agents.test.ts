@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { agentEnv, answerLength, buildAgentCommand, parseClaudeOutput, parseCodexOutput } from '../../bench/ab/src/agents.ts';
+import { DEFAULT_ALLOWED_TOOLS, agentEnv, answerLength, buildAgentCommand, parseClaudeOutput, parseCodexOutput } from '../../bench/ab/src/agents.ts';
 import { claudeStream } from './helpers.ts';
 
-const env = { PATH: '/bin', HOME: '/h', GLASSBOX_MODE: 'strict', GLASSBOX_AMBIENT: '1', CLAUDECODE: '1', CLAUDE_PLUGIN_ROOT: '/p', KEEP: 'yes' };
+const env = { PATH: '/bin', HOME: '/h', GLASSBOX_MODE: 'strict', GLASSBOX_AMBIENT: '1', CLAUDECODE: '1', CLAUDE_PLUGIN_ROOT: '/p', LANG: 'C.UTF-8', OTHER: 'no' };
 
 describe('buildAgentCommand', () => {
   it('runs claude headless with stream-json, a clean setup and the prompt on stdin', () => {
@@ -20,7 +20,7 @@ describe('buildAgentCommand', () => {
     expect(Object.keys(c.env).filter((k) => k.startsWith('GLASSBOX_'))).toEqual([]);
     expect(c.env.CLAUDECODE).toBeUndefined();
     expect(c.env.CLAUDE_PLUGIN_ROOT).toBeUndefined();
-    expect(c.env.KEEP).toBe('yes');
+    expect(c.env).toEqual({ PATH: '/bin', HOME: '/h', LANG: 'C.UTF-8' });
   });
 
   it('loads the plugin and turns ambient context on (gate, hooks and worker off) in the ambient arm', () => {
@@ -47,9 +47,42 @@ describe('buildAgentCommand', () => {
     expect(c.env.GLASSBOX_BACKEND).toBe('codex-cli');
   });
 
-  it('scrubs inherited glassbox and host session variables', () => {
-    const e = agentEnv({ GLASSBOX_GATE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', CODEX_SANDBOX: 'seatbelt', X: '1' }, { arm: 'baseline', agent: 'claude' });
-    expect(e).toEqual({ X: '1' });
+  it('passes only an allowlisted environment, plus the login variables of the agent being run', () => {
+    const shell = {
+      PATH: '/bin',
+      HOME: '/h',
+      TMPDIR: '/t',
+      GLASSBOX_GATE: '1',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      CODEX_SANDBOX: 'seatbelt',
+      AWS_SECRET_ACCESS_KEY: 'aws',
+      GITHUB_TOKEN: 'gh',
+      NPM_TOKEN: 'npm',
+      ANTHROPIC_API_KEY: 'ant',
+      CLAUDE_CODE_OAUTH_TOKEN: 'oauth',
+      OPENAI_API_KEY: 'oai',
+    };
+    expect(agentEnv(shell, { arm: 'baseline', agent: 'claude' })).toEqual({
+      PATH: '/bin',
+      HOME: '/h',
+      TMPDIR: '/t',
+      ANTHROPIC_API_KEY: 'ant',
+      CLAUDE_CODE_OAUTH_TOKEN: 'oauth',
+    });
+    expect(agentEnv(shell, { arm: 'baseline', agent: 'codex' })).toEqual({ PATH: '/bin', HOME: '/h', TMPDIR: '/t', OPENAI_API_KEY: 'oai' });
+    const amb = agentEnv(shell, { arm: 'ambient', agent: 'claude' });
+    expect(amb.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(amb.GITHUB_TOKEN).toBeUndefined();
+    expect(amb.GLASSBOX_AMBIENT).toBe('1');
+  });
+
+  it('allows no shell tool that can run other commands or write files through its flags', () => {
+    const c = buildAgentCommand('p', '/ws', { agent: 'claude', arm: 'baseline', pluginDir: '/gb' }, env);
+    const allowed = c.args.filter((_, i) => c.args[i - 1] === '--allowedTools');
+    expect(allowed).toEqual(DEFAULT_ALLOWED_TOOLS);
+    for (const risky of ['Bash(find:*)', 'Bash(sed -n:*)', 'Bash(sed:*)', 'Bash(xargs:*)', 'Bash(sh:*)', 'Bash(bash:*)']) {
+      expect(allowed).not.toContain(risky);
+    }
   });
 });
 

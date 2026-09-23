@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GraphStore, META_FILE, loadSqlite } from '../../src/memory/store.js';
-import { envFlag, featureEnabled, loadProjectConfig, loadProjectConfigSafe, parseProjectConfig } from '../../src/project-config.js';
+import { envFlag, featureEnabled, loadProjectConfig, loadProjectConfigSafe, onlyDisables, parseProjectConfig } from '../../src/project-config.js';
 
 let dir: string;
 beforeEach(async () => {
@@ -99,5 +99,45 @@ describe('graph store additions', () => {
       process.emitWarning = original;
     }
     expect(seen).toEqual(['other warning']);
+  });
+});
+
+describe('a project config that git tracks', () => {
+  it('keeps only the switches that turn features off', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+    mkdirSync(join(dir, '.glassbox'));
+    const hostile = {
+      mode: 'strict',
+      ambient: { enabled: true, maxChars: 4000 },
+      gate: { enabled: true, timeoutMs: 600_000 },
+      conciseRules: true,
+      worker: { enabled: true, dailyCalls: 1e9, minIntervalSec: 0, maxNodesPerRun: 1e9 },
+    };
+    writeFileSync(join(dir, '.glassbox', 'config.json'), JSON.stringify(hostile));
+    // Untracked (the normal case): trusted as written.
+    expect(loadProjectConfig(dir)).toMatchObject({ mode: 'strict', gate: { enabled: true } });
+    git('init', '-q');
+    git('add', '-f', '.glassbox/config.json');
+    git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-qm', 'config');
+    expect(loadProjectConfig(dir)).toEqual({});
+    writeFileSync(
+      join(dir, '.glassbox', 'config.json'),
+      JSON.stringify({ ambient: { enabled: false, maxHits: 50 }, gate: { enabled: false }, worker: { enabled: false, dailyCalls: 5 }, conciseRules: false }),
+    );
+    expect(loadProjectConfig(dir)).toEqual({ ambient: { enabled: false }, gate: { enabled: false }, worker: { enabled: false }, conciseRules: false });
+    expect(onlyDisables({ gate: { enabled: true }, ambient: { enabled: false } })).toEqual({ ambient: { enabled: false } });
+  });
+
+  it('also applies to the graph: openForRead skips a store that git tracks', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+    GraphStore.open(dir).close();
+    expect(GraphStore.openForRead(dir)).toBeDefined();
+    GraphStore.openForRead(dir)?.close();
+    git('init', '-q');
+    git('add', '-f', '.glassbox/graph.db');
+    git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-qm', 'store');
+    expect(GraphStore.openForRead(dir)).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -65,9 +65,11 @@ describe('plugin manifests', () => {
       expect(handler.timeout, event).toBeLessThanOrEqual(maxTimeout);
     }
     expect(h.hooks.PostToolUse![0]!.matcher).toBe('Edit|Write|MultiEdit');
-    // The Stop hook must outlive the gate's own default timeout, so the gate (not Claude Code) ends a slow check.
-    const { DEFAULT_GATE_TIMEOUT_MS } = await import('../src/hooks/index.js');
-    expect(h.hooks.Stop![0]!.hooks[0]!.timeout * 1000).toBeGreaterThan(DEFAULT_GATE_TIMEOUT_MS);
+    // The Stop hook must outlive the gate's longest possible timeout (whatever the settings say),
+    // so the gate (not Claude Code) ends a slow check and stops its model processes.
+    const { DEFAULT_GATE_TIMEOUT_MS, GATE_TIMEOUT_CAP_MS } = await import('../src/hooks/index.js');
+    expect(GATE_TIMEOUT_CAP_MS).toBeGreaterThanOrEqual(DEFAULT_GATE_TIMEOUT_MS);
+    expect(h.hooks.Stop![0]!.hooks[0]!.timeout * 1000).toBeGreaterThanOrEqual(GATE_TIMEOUT_CAP_MS + 5000);
   });
 
   it('plugin.json offers ambient, gate and concise_rules options, all off by default', async () => {
@@ -201,6 +203,35 @@ describe('hook script', () => {
     const r = await runHook('stop', { CLAUDE_PLUGIN_ROOT: failing }, '{}');
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('{"decision":"block","reason":"x"}');
+  });
+
+  it('passes a stop signal from the host on to node, and still exits 0', async () => {
+    const slow = join(tmp, 'slow');
+    await mkdir(join(slow, 'plugin-dist'), { recursive: true });
+    await writeFile(
+      join(slow, 'plugin-dist', 'glassbox.mjs'),
+      `import { appendFileSync } from 'node:fs';\n` +
+        `let input = '';\nprocess.stdin.on('data', (d) => (input += d));\n` +
+        `process.stdin.on('end', () => appendFileSync(${JSON.stringify(log)}, 'stdin ' + input + '\\n'));\n` +
+        `process.on('SIGTERM', () => { appendFileSync(${JSON.stringify(log)}, 'SIGTERM\\n'); process.exit(0); });\n` +
+        `setTimeout(() => {}, 20000);\n`,
+    );
+    await rm(log, { force: true });
+    const child = spawn('sh', [HOOK, 'stop'], {
+      env: { PATH: process.env.PATH ?? '', CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_ROOT: slow },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+    child.stdin.end('{"hook":"json"}');
+    const deadline = Date.now() + 5000;
+    while (!(await readFile(log, 'utf8').catch(() => '')).includes('stdin') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+    const started = Date.now();
+    child.kill('SIGTERM');
+    const code = await new Promise<number | null>((done) => child.on('close', (c) => done(c)));
+    expect(code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(5000);
+    const calls = await readFile(log, 'utf8');
+    expect(calls).toContain('stdin {"hook":"json"}');
+    expect(calls).toContain('SIGTERM');
   });
 
   it('runs only the plugin bundle: never npx or a `glassbox` from PATH, and nothing without the bundle', async () => {

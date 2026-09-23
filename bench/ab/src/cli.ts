@@ -206,6 +206,8 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // Agents run in their own process groups; exiting (which kills those groups) is the way to stop them.
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => process.exit(130));
   main(process.argv.slice(2), {
     run: runProc,
     stdout: (s) => process.stdout.write(s),

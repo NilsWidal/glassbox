@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ProcRequest } from '../../bench/ab/src/proc.ts';
 import { runProc } from '../../bench/ab/src/proc.ts';
+import { copyTree } from '../../bench/ab/src/workspace.ts';
 import { armOrder, runAll, validateTasks, type RunConfig } from '../../bench/ab/src/runner.ts';
 import { loadTaskSet, parseTaskSet, selectTasks } from '../../bench/ab/src/tasks.ts';
 import { AB, claudeStream, fakeProc } from './helpers.ts';
@@ -194,4 +195,55 @@ describe('validateTasks', () => {
     const res = await validateTasks({ set, tasks, checksDir: join(AB, 'checks'), cacheDir: join(dir, 'cache') }, { run: runProc, log: () => {}, tmpRoot });
     for (const r of res) expect(r, r.taskId).toMatchObject({ failsBefore: true, passesAfter: true });
   }, 120_000);
+});
+
+describe('workspace copies', () => {
+  it("leave out the repo's own agent settings, at any depth", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'glassbox-ab-copy-'));
+    try {
+      const src = join(dir, 'src');
+      for (const d of ['.claude', '.codex', 'pkg/.claude', 'lib']) mkdirSync(join(src, d), { recursive: true });
+      writeFileSync(join(src, '.claude', 'settings.json'), '{"hooks":{}}');
+      writeFileSync(join(src, 'pkg', '.claude', 'settings.local.json'), '{}');
+      writeFileSync(join(src, '.codex', 'config.toml'), '');
+      writeFileSync(join(src, '.mcp.json'), '{}');
+      writeFileSync(join(src, 'CLAUDE.local.md'), 'run this');
+      writeFileSync(join(src, 'CLAUDE.md'), 'kept');
+      writeFileSync(join(src, 'lib', 'a.py'), 'x = 1');
+      copyTree(src, join(dir, 'dst'));
+      expect(readdirSync(join(dir, 'dst')).sort()).toEqual(['CLAUDE.md', 'lib', 'pkg']);
+      expect(readdirSync(join(dir, 'dst', 'pkg'))).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('runProc', () => {
+  it.skipIf(process.platform === 'win32')('kills the whole process group on a timeout', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'glassbox-ab-proc-'));
+    try {
+      const pidFile = join(dir, 'pid');
+      const script =
+        `const {spawn}=require('child_process');const fs=require('fs');` +
+        `const c=spawn(process.execPath,['-e','setTimeout(()=>{},30000)'],{stdio:'ignore'});` +
+        `fs.writeFileSync(${JSON.stringify(pidFile)},String(c.pid));setTimeout(()=>{},30000);`;
+      const r = await runProc({ cmd: process.execPath, args: ['-e', script], cwd: dir, timeoutMs: 1500 });
+      expect(r.timedOut).toBe(true);
+      const grandchild = Number(readFileSync(pidFile, 'utf8'));
+      const alive = () => {
+        try {
+          process.kill(grandchild, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const end = Date.now() + 4000;
+      while (alive() && Date.now() < end) await new Promise((res) => setTimeout(res, 50));
+      expect(alive()).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
