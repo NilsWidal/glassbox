@@ -148,7 +148,7 @@ The `act` band needs the model to put about 0.9 or more on High, so the gate sta
 
 ### Concise answers
 
-Six rules for shorter replies: lead with the answer, cite `file:line` instead of pasting code, never paste unchanged code, one line per reason, no closing recap, and one line on what was not checked. They come in two forms, both off by default:
+Six rules meant to shorten replies (their effect is not measured yet; see [the A/B pilot](#ambient-mode-ab-pilot)): lead with the answer, cite `file:line` instead of pasting code, never paste unchanged code, one line per reason, no closing recap, and one line on what was not checked. They come in two forms, both off by default:
 
 - **Claude Code output style.** The plugin ships `output-styles/concise.md`. Select it with `/output-style glassbox:concise`, in `/config`, or with `"outputStyle": "glassbox:concise"` in a settings file. For one run: `claude --settings '{"outputStyle":"glassbox:concise"}'`. It keeps Claude Code's coding instructions and changes only how replies are written. Claude Code's built-in Concise style is similar; this one adds the `file:line` and no-unchanged-code rules.
 - **AGENTS.md section.** An `### Answer style` section with the same rules inside the glassbox block, for Codex and any other agent that reads AGENTS.md. On with the plugin's `concise_rules` option, `GLASSBOX_CONCISE_RULES=1` or `"conciseRules": true` in `.glassbox/config.json`; the block is rewritten on the next `sync-md`, `refresh --sync-md`, `init`, launcher start or session-start hook.
@@ -225,7 +225,22 @@ Read these numbers with care:
 - **n is small.** One wrong answer moves accuracy by more than a point, and faithfulness ran on only 4 items per backend.
 - **Still open:** the planned benchmark of about 200 human-labeled questions over 2 or 3 real open-source repos, and harder items that no comment gives away.
 
-**Ambient mode is not measured yet.** An A/B comparison of agent runs with ambient mode on and off (success, tokens, tool calls, time, answer length) is planned. Until it reports, glassbox makes no claim that ambient context, the gate or the concise style make answers better or shorter.
+## Ambient mode A/B pilot
+
+[bench/ab/](bench/ab/README.md) runs the same tasks through `claude -p` (or `codex exec`) with and without glassbox ambient mode, in fresh copies of the repo, and records success, cost, tokens, tool calls, wall time and answer length. It ships 23 tasks on the sample fixture and two small MIT projects (tomli and schedule) pinned to a commit.
+
+A first **pilot, small n** (2026-09-23): Claude Code with haiku, 6 tasks x 2 arms x 2 repeats, ambient context hook on, gate and concise style off.
+
+| arm | passed | total cost | mean tool calls | mean wall time | mean answer words |
+|---|---|---|---|---|---|
+| baseline (no glassbox) | 12/12 | $0.600 | 5.2 | 20.4 s | 69 |
+| ambient | 12/12 | $0.608 | 5.3 | 22.1 s | 75 |
+
+- No difference in success or cost. Every run passed in both arms.
+- Mixed on effort. On two "where is X" questions and a one-file edit, the ambient runs made about half the tool calls. On two injected-bug fixes in tomli they made more tool calls and took longer.
+- With 2 repeats per arm, run-to-run noise is as large as these differences.
+
+So glassbox does not claim that ambient context, the gate or the concise style make the agent more successful, cheaper, faster or its answers shorter. Per-task numbers and caveats: [bench/ab/README.md](bench/ab/README.md).
 
 ## Library use
 

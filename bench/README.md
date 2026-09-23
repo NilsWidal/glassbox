@@ -2,6 +2,8 @@
 
 A small labeled benchmark for checking how accurate and how well calibrated glassbox's answers are on each backend, and whether its highlighted evidence is faithful.
 
+The A/B harness for agent runs with and without ambient mode is in [ab/](ab/README.md).
+
 ## Read this first: what the labels are
 
 - **The labels are author-constructed.** Every question in `questions.json` was written by the glassbox author against the fixture repo in `test/fixtures/sample-repo`. Each answer is true because of how that fixture code is written, and each item quotes the line that makes it true in its `evidence` field (a unit test checks that every evidence line exists in the item's files).

@@ -1,0 +1,610 @@
+{
+  "repos": {
+    "fixture": {
+      "type": "path",
+      "path": "../../test/fixtures/sample-repo",
+      "license": "MIT (part of glassbox)"
+    },
+    "tomli": {
+      "type": "git",
+      "url": "https://github.com/hukkin/tomli",
+      "commit": "5a77b12a7a9f052ce5a20c335d2825658f6aea52",
+      "license": "MIT"
+    },
+    "schedule": {
+      "type": "git",
+      "url": "https://github.com/dbader/schedule",
+      "commit": "82a43db1b938d8fdf60103bd41f329e06c8d3651",
+      "license": "MIT"
+    }
+  },
+  "tasks": [
+    {
+      "id": "fx-q-session-expiry",
+      "repo": "fixture",
+      "kind": "question",
+      "pilot": true,
+      "prompt": "Which function checks whether a session has expired? Give the function name and its file path.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "verifySession"
+        },
+        {
+          "type": "answer",
+          "pattern": "src/auth/session\\.ts"
+        }
+      ],
+      "referenceAnswer": "verifySession in src/auth/session.ts:38."
+    },
+    {
+      "id": "fx-q-sql-strings",
+      "repo": "fixture",
+      "kind": "question",
+      "pilot": true,
+      "prompt": "Which functions in this repo build SQL text directly from caller input (by interpolation or concatenation)? Name each function and its file.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "handleAdminSearch"
+        },
+        {
+          "type": "answer",
+          "pattern": "findUserByEmail"
+        }
+      ],
+      "referenceAnswer": "handleAdminSearch (src/api/routes.ts) and findUserByEmail (src/db.ts)."
+    },
+    {
+      "id": "fx-q-retry-idempotency",
+      "repo": "fixture",
+      "kind": "question",
+      "prompt": "When a card charge is retried, is an idempotency key sent with each attempt? Start your answer with yes or no, then name the function that does the retrying.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "^\\W*no\\b",
+          "flags": "i"
+        },
+        {
+          "type": "answer",
+          "pattern": "retryCharge"
+        }
+      ],
+      "referenceAnswer": "No. retryCharge in src/billing/retry.ts calls chargeCard again without a key."
+    },
+    {
+      "id": "fx-q-verify-callers",
+      "repo": "fixture",
+      "kind": "question",
+      "prompt": "Which functions call verifySession directly? Name each one.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "requireAuth"
+        }
+      ],
+      "referenceAnswer": "Only requireAuth in src/auth/middleware.ts."
+    },
+    {
+      "id": "fx-q-unsafe-deserialize",
+      "repo": "fixture",
+      "kind": "question",
+      "prompt": "Where does the Python worker deserialize data in an unsafe way? Give the file and the call.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "auth_audit\\.py"
+        },
+        {
+          "type": "answer",
+          "pattern": "pickle\\.load"
+        }
+      ],
+      "referenceAnswer": "worker/auth_audit.py, AuditLog.load calls pickle.load on a file."
+    },
+    {
+      "id": "fx-edit-discount-clamp",
+      "repo": "fixture",
+      "kind": "edit",
+      "pilot": true,
+      "prompt": "InvoiceService.applyDiscount gives a negative total when the percent is above 100, and raises the total when the percent is negative. Clamp the percent to the range 0 to 100. Keep the method signature.",
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "node",
+            "--experimental-strip-types",
+            "--no-warnings",
+            "{checks}/fixture/discount-clamp.mjs"
+          ]
+        }
+      ],
+      "solution": [
+        {
+          "file": "src/billing/invoice.ts",
+          "find": "return amount - (amount * percent) / 100;",
+          "replace": "const p = Math.min(100, Math.max(0, percent));\n    return amount - (amount * p) / 100;"
+        }
+      ]
+    },
+    {
+      "id": "fx-edit-session-ttl",
+      "repo": "fixture",
+      "kind": "edit",
+      "prompt": "The session TTL comes from the SESSION_TTL environment variable (seconds) with no fallback, so it is NaN when the variable is unset or not a number. Use 3600 seconds when SESSION_TTL is unset, not a number, or not positive.",
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "node",
+            "--experimental-strip-types",
+            "--no-warnings",
+            "{checks}/fixture/session-ttl.mjs"
+          ]
+        }
+      ],
+      "solution": [
+        {
+          "file": "src/auth/session.ts",
+          "find": "const SESSION_TTL_MS = Number(process.env.SESSION_TTL) * 1000;",
+          "replace": "const ttl = Number(process.env.SESSION_TTL);\nconst SESSION_TTL_MS = (Number.isFinite(ttl) && ttl > 0 ? ttl : 3600) * 1000;"
+        }
+      ]
+    },
+    {
+      "id": "fx-edit-timing-safe",
+      "repo": "fixture",
+      "kind": "edit",
+      "prompt": "comparePassword returns early at the first mismatched character, which leaks timing. Compare with crypto.timingSafeEqual instead, and still return false (never throw) when the lengths differ.",
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "node",
+            "--experimental-strip-types",
+            "--no-warnings",
+            "{checks}/fixture/timing-safe.mjs"
+          ]
+        }
+      ],
+      "solution": [
+        {
+          "file": "src/auth/password.ts",
+          "find": "import { createHash } from 'node:crypto';",
+          "replace": "import { createHash, timingSafeEqual } from 'node:crypto';"
+        },
+        {
+          "file": "src/auth/password.ts",
+          "find": "  if (hashed.length !== stored.length) return false;\n  for (let i = 0; i < hashed.length; i++) {\n    if (hashed[i] !== stored[i]) return false;\n  }\n  return true;",
+          "replace": "  const a = Buffer.from(hashed);\n  const b = Buffer.from(stored);\n  return a.length === b.length && timingSafeEqual(a, b);"
+        }
+      ]
+    },
+    {
+      "id": "fx-edit-mask-card",
+      "repo": "fixture",
+      "kind": "edit",
+      "prompt": "chargeCard logs the full card number. Log only the last 4 digits (for example ****1234) and keep the amount in the log line.",
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "node",
+            "--experimental-strip-types",
+            "--no-warnings",
+            "{checks}/fixture/mask-card.mjs"
+          ]
+        }
+      ],
+      "solution": [
+        {
+          "file": "src/billing/stripeClient.ts",
+          "find": "console.log(`charging card ${cardNumber} for ${amountCents}`);",
+          "replace": "console.log(`charging card ****${cardNumber.slice(-4)} for ${amountCents}`);"
+        }
+      ]
+    },
+    {
+      "id": "fx-py-decimal-amount",
+      "repo": "fixture",
+      "kind": "edit",
+      "prompt": "parse_amount in the Python worker parses money as a float. Make it return a decimal.Decimal instead, still accepting strings like \"$1,234.10\".",
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/fixture/decimal_amount.py"
+          ]
+        }
+      ],
+      "solution": [
+        {
+          "file": "worker/utils.py",
+          "find": "import time\n",
+          "replace": "import time\nfrom decimal import Decimal\n"
+        },
+        {
+          "file": "worker/utils.py",
+          "find": "return float(text.replace(\"$\", \"\").replace(\",\", \"\"))",
+          "replace": "return Decimal(text.replace(\"$\", \"\").replace(\",\", \"\"))"
+        }
+      ]
+    },
+    {
+      "id": "fx-py-no-shell",
+      "repo": "fixture",
+      "kind": "edit",
+      "prompt": "fetch_invoices in the Python worker builds a shell command from customer_id and runs it with shell=True. Run it without a shell, passing the command as a list of arguments.",
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/fixture/no_shell.py"
+          ]
+        }
+      ],
+      "solution": [
+        {
+          "file": "worker/billing_sync.py",
+          "find": "\"billing-cli export --customer \" + customer_id, shell=True, capture_output=True, text=True",
+          "replace": "[\"billing-cli\", \"export\", \"--customer\", customer_id], capture_output=True, text=True"
+        }
+      ]
+    },
+    {
+      "id": "tomli-bug-literal-quote",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "pilot": true,
+      "prompt": "tomli returns literal strings with a trailing apostrophe: tomli.loads(\"a = 'x'\") gives {'a': \"x'\"}. Find and fix the bug in the library. Do not edit the tests. Run the tests with: PYTHONPATH=src python3 -m unittest discover -s tests -t .",
+      "setup": [
+        {
+          "file": "src/tomli/_parser.py",
+          "find": "return pos + 1, src[start_pos:pos]  # Skip ending apostrophe",
+          "replace": "return pos + 1, src[start_pos : pos + 1]  # Skip ending apostrophe"
+        }
+      ],
+      "protect": [
+        "tests"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/tomli/check.py",
+            "literal"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-c",
+            "import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)"
+          ],
+          "timeoutSec": 180
+        }
+      ]
+    },
+    {
+      "id": "tomli-bug-false",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "pilot": true,
+      "prompt": "tomli.loads('a = false') raises a TOMLDecodeError, while 'a = true' parses fine. Find and fix the bug in the library. Do not edit the tests. Run the tests with: PYTHONPATH=src python3 -m unittest discover -s tests -t .",
+      "setup": [
+        {
+          "file": "src/tomli/_parser.py",
+          "find": "return pos + 5, False",
+          "replace": "return pos + 4, False"
+        }
+      ],
+      "protect": [
+        "tests"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/tomli/check.py",
+            "false"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-c",
+            "import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)"
+          ],
+          "timeoutSec": 180
+        }
+      ]
+    },
+    {
+      "id": "tomli-bug-surrogate",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "prompt": "tomli accepts the escape \\uD800 in a basic string, but a surrogate code point is not a Unicode scalar value and TOML requires an error. Fix the library so it raises TOMLDecodeError. Do not edit the tests. Run the tests with: PYTHONPATH=src python3 -m unittest discover -s tests -t .",
+      "setup": [
+        {
+          "file": "src/tomli/_parser.py",
+          "find": "(57344 <= codepoint <= 1114111)",
+          "replace": "(55296 <= codepoint <= 1114111)"
+        }
+      ],
+      "protect": [
+        "tests"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/tomli/check.py",
+            "surrogate"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-c",
+            "import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)"
+          ],
+          "timeoutSec": 180
+        }
+      ]
+    },
+    {
+      "id": "tomli-bug-crlf",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "prompt": "Documents with Windows line endings fail to parse: tomli.loads('a = 1\\r\\nb = 2\\r\\n') raises TOMLDecodeError. Fix the library. Do not edit the tests. Run the tests with: PYTHONPATH=src python3 -m unittest discover -s tests -t .",
+      "setup": [
+        {
+          "file": "src/tomli/_parser.py",
+          "find": "src = __s.replace(\"\\r\\n\", \"\\n\")",
+          "replace": "src = __s + \"\""
+        }
+      ],
+      "protect": [
+        "tests"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/tomli/check.py",
+            "crlf"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-c",
+            "import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)"
+          ],
+          "timeoutSec": 180
+        }
+      ]
+    },
+    {
+      "id": "tomli-q-parse-float-guard",
+      "repo": "tomli",
+      "kind": "question",
+      "pilot": true,
+      "prompt": "In tomli, which function stops a user-supplied parse_float from returning a dict or a list, and which exception does it raise then?",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "make_safe_parse_float"
+        },
+        {
+          "type": "answer",
+          "pattern": "ValueError"
+        }
+      ],
+      "referenceAnswer": "make_safe_parse_float in src/tomli/_parser.py wraps it and raises ValueError."
+    },
+    {
+      "id": "tomli-q-array-tables",
+      "repo": "tomli",
+      "kind": "question",
+      "prompt": "In tomli, which function handles an array-of-tables header like [[fruits]] when parsing a document? Give the function name and file.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "create_list_rule"
+        },
+        {
+          "type": "answer",
+          "pattern": "_parser\\.py"
+        }
+      ],
+      "referenceAnswer": "create_list_rule in src/tomli/_parser.py."
+    },
+    {
+      "id": "sched-bug-get-jobs",
+      "repo": "schedule",
+      "kind": "bugfix",
+      "prompt": "scheduler.get_jobs('reports') returns the jobs that are not tagged 'reports' instead of the ones that are. Find and fix the bug. Do not edit the tests. Run the tests with: python3 -m unittest test_schedule",
+      "setup": [
+        {
+          "file": "schedule/__init__.py",
+          "find": "return [job for job in self.jobs if tag in job.tags]",
+          "replace": "return [job for job in self.jobs if tag not in job.tags]"
+        }
+      ],
+      "protect": [
+        "test_schedule.py"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/schedule/check.py",
+            "get-jobs"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-m",
+            "unittest",
+            "test_schedule"
+          ],
+          "timeoutSec": 180
+        }
+      ]
+    },
+    {
+      "id": "sched-bug-idle",
+      "repo": "schedule",
+      "kind": "bugfix",
+      "prompt": "idle_seconds is negative when the next job is in the future, so code that sleeps for idle_seconds never waits. Find and fix the bug. Do not edit the tests. Run the tests with: python3 -m unittest test_schedule",
+      "setup": [
+        {
+          "file": "schedule/__init__.py",
+          "find": "return (self.next_run - datetime.datetime.now()).total_seconds()",
+          "replace": "return (datetime.datetime.now() - self.next_run).total_seconds()"
+        }
+      ],
+      "protect": [
+        "test_schedule.py"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/schedule/check.py",
+            "idle"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-m",
+            "unittest",
+            "test_schedule"
+          ],
+          "timeoutSec": 180
+        }
+      ]
+    },
+    {
+      "id": "sched-bug-weekday",
+      "repo": "schedule",
+      "kind": "bugfix",
+      "prompt": "A job set up with every().monday.at(...) on a Monday, for a time later that day, is pushed a whole week out instead of running today. Find and fix the bug. Do not edit the tests. Run the tests with: python3 -m unittest test_schedule",
+      "setup": [
+        {
+          "file": "schedule/__init__.py",
+          "find": "    if days_ahead < 0:\n        # Target day already happened this week",
+          "replace": "    if days_ahead <= 0:\n        # Target day already happened this week"
+        }
+      ],
+      "protect": [
+        "test_schedule.py"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/schedule/check.py",
+            "weekday"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-m",
+            "unittest",
+            "test_schedule"
+          ],
+          "timeoutSec": 180
+        }
+      ]
+    },
+    {
+      "id": "sched-feature-tags",
+      "repo": "schedule",
+      "kind": "feature",
+      "prompt": "Add a method Scheduler.get_tags() that returns the set of all tags used by the scheduler's jobs, and a module-level schedule.get_tags() that calls it on the default scheduler. Run the tests with: python3 -m unittest test_schedule",
+      "protect": [
+        "test_schedule.py"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "{checks}/schedule/check.py",
+            "tags"
+          ]
+        },
+        {
+          "type": "command",
+          "argv": [
+            "python3",
+            "-m",
+            "unittest",
+            "test_schedule"
+          ],
+          "timeoutSec": 180
+        }
+      ],
+      "solution": [
+        {
+          "file": "schedule/__init__.py",
+          "find": "    def clear(self, tag: Optional[Hashable] = None) -> None:\n",
+          "replace": "    def get_tags(self) -> set:\n        return {tag for job in self.jobs for tag in job.tags}\n\n    def clear(self, tag: Optional[Hashable] = None) -> None:\n"
+        },
+        {
+          "file": "schedule/__init__.py",
+          "find": "def clear(tag: Optional[Hashable] = None) -> None:\n",
+          "replace": "def get_tags() -> set:\n    return default_scheduler.get_tags()\n\n\ndef clear(tag: Optional[Hashable] = None) -> None:\n"
+        }
+      ]
+    },
+    {
+      "id": "sched-q-next-run",
+      "repo": "schedule",
+      "kind": "question",
+      "prompt": "In the schedule library, which method computes when a job should run next, right after it has run? Give the method name.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "_schedule_next_run"
+        }
+      ],
+      "referenceAnswer": "Job._schedule_next_run, called from Job.run."
+    },
+    {
+      "id": "sched-q-weekday-error",
+      "repo": "schedule",
+      "kind": "question",
+      "prompt": "In the schedule library, which function raises ScheduleValueError for an invalid weekday name such as 'funday'? Give the function name.",
+      "checks": [
+        {
+          "type": "answer",
+          "pattern": "_weekday_index"
+        }
+      ],
+      "referenceAnswer": "_weekday_index in schedule/__init__.py."
+    }
+  ]
+}

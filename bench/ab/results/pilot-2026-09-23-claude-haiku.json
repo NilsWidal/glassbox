@@ -1,0 +1,1449 @@
+{
+  "label": "pilot, small n",
+  "date": "2026-09-23",
+  "agent": "claude",
+  "model": "haiku",
+  "agentVersion": "2.1.280 (Claude Code)",
+  "glassboxVersion": "0.1.0",
+  "arms": [
+    "baseline",
+    "ambient"
+  ],
+  "repeats": 2,
+  "caveats": [
+    "Pilot, small n: 6 tasks x 2 arms x 2 repeats (24 runs) on one model (haiku). Differences of this size can come from run-to-run noise alone; nothing here is statistically tested.",
+    "3 of the 6 tasks run on the glassbox sample fixture, a 16-file repo whose comments point at the answers; the other 3 run on tomli at a pinned commit with a bug the harness injects.",
+    "The ambient arm is the plugin (--plugin-dir) with the UserPromptSubmit context hook on and the AGENTS.md/CLAUDE.md block from glassbox init. The end-of-turn gate, the concise output style, the background worker and the glassbox MCP server are off (--strict-mcp-config), so this measures ambient context only.",
+    "The model calls glassbox init made to tag the graph are one-time preparation and are not counted in any run's cost or tokens.",
+    "Both arms skip user settings, user plugins and MCP servers (--setting-sources project,local --strict-mcp-config) and use the same allowed tool list."
+  ],
+  "settings": {
+    "timeoutSec": 600,
+    "maxBudgetUsd": 1,
+    "initTags": true,
+    "concise": false,
+    "gate": false,
+    "tasks": [
+      "fx-q-session-expiry",
+      "fx-q-sql-strings",
+      "fx-edit-discount-clamp",
+      "tomli-bug-literal-quote",
+      "tomli-bug-false",
+      "tomli-q-parse-float-guard"
+    ]
+  },
+  "prep": [
+    {
+      "repo": "fixture",
+      "arm": "ambient",
+      "ok": true,
+      "wallMs": 66827
+    },
+    {
+      "repo": "tomli",
+      "arm": "ambient",
+      "ok": true,
+      "wallMs": 185068
+    }
+  ],
+  "runs": [
+    {
+      "taskId": "fx-q-session-expiry",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/verifySession/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/src/auth/session\\.ts/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 8966,
+      "answerChars": 254,
+      "answerWords": 34,
+      "answer": "The function is **`verifySession`** at **`src/auth/session.ts:38`**.\n\nIt checks if the session has expired by comparing `session.expiresAt` against the current time (`Date.now()`). If the expiry time has passed, it revokes the session and returns `null`.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 2,
+        "toolsByName": {
+          "Grep": 1,
+          "Read": 1
+        },
+        "numTurns": 3,
+        "costUsd": 0.0252638,
+        "inputTokens": 26,
+        "cacheReadTokens": 59708,
+        "cacheCreationTokens": 8376,
+        "outputTokens": 503,
+        "reasoningTokens": 201,
+        "totalTokens": 68613,
+        "durationMs": 7304,
+        "durationApiMs": 7252,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-q-session-expiry",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/verifySession/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/src/auth/session\\.ts/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 8436,
+      "answerChars": 250,
+      "answerWords": 34,
+      "answer": "The function is **`verifySession`** in **`src/auth/session.ts`** (lines 38–46).\n\nIt checks if `session.expiresAt < Date.now()`. If the expiration timestamp is in the past, it revokes the session and returns `null`, indicating the session has expired.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 1,
+        "toolsByName": {
+          "Read": 1
+        },
+        "numTurns": 2,
+        "costUsd": 0.025959799999999998,
+        "inputTokens": 18,
+        "cacheReadTokens": 38708,
+        "cacheCreationTokens": 9768,
+        "outputTokens": 507,
+        "reasoningTokens": 304,
+        "totalTokens": 49001,
+        "durationMs": 6924,
+        "durationApiMs": 6745,
+        "permissionDenials": 0,
+        "ambientChars": 638,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-q-session-expiry",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/verifySession/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/src/auth/session\\.ts/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 11376,
+      "answerChars": 276,
+      "answerWords": 38,
+      "answer": "The function that checks whether a session has expired is **`verifySession`** in **`src/auth/session.ts`** (lines 38-46).\n\nIt checks the expiry by comparing `session.expiresAt < Date.now()`. If the session's expiration time has passed, it revokes the token and returns `null`.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 1,
+        "toolsByName": {
+          "Read": 1
+        },
+        "numTurns": 2,
+        "costUsd": 0.0279765,
+        "inputTokens": 18,
+        "cacheReadTokens": 38715,
+        "cacheCreationTokens": 10056,
+        "outputTokens": 795,
+        "reasoningTokens": 585,
+        "totalTokens": 49584,
+        "durationMs": 10100,
+        "durationApiMs": 9941,
+        "permissionDenials": 0,
+        "ambientChars": 638,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-q-session-expiry",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/verifySession/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/src/auth/session\\.ts/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 8358,
+      "answerChars": 311,
+      "answerWords": 44,
+      "answer": "The function is **`verifySession`** located in **`src/auth/session.ts`** (line 38).\n\nIt checks if a session has expired by comparing the session's `expiresAt` timestamp against the current time (line 41): `if (session.expiresAt < Date.now())`. If the session is expired, it revokes the token and returns `null`.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 2,
+        "toolsByName": {
+          "Grep": 1,
+          "Read": 1
+        },
+        "numTurns": 3,
+        "costUsd": 0.0252388,
+        "inputTokens": 26,
+        "cacheReadTokens": 59708,
+        "cacheCreationTokens": 8371,
+        "outputTokens": 500,
+        "reasoningTokens": 194,
+        "totalTokens": 68605,
+        "durationMs": 7087,
+        "durationApiMs": 7046,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-q-sql-strings",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/handleAdminSearch/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/findUserByEmail/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 16476,
+      "answerChars": 659,
+      "answerWords": 93,
+      "answer": "I found **2 functions** that build SQL text directly from caller input through string interpolation or concatenation:\n\n1. **`findUserByEmail`** (`src/db.ts:14`)\n   - Uses string concatenation: `\"SELECT * FROM users WHERE email = '\" + email + \"'\"`\n   - Vulnerable to SQL injection via the `email` parameter\n\n2. **`handleAdminSearch`** (`src/api/routes.ts:26`)\n   - Uses template string interpolation: `` `SELECT * FROM invoices WHERE customer LIKE '%${term}%'` ``\n   - Vulnerable to SQL injection via the `term` parameter\n\nBoth functions are already marked as \"Risky\" in the code comments and build SQL queries by directly interpolating unsanitized user input.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 5,
+        "toolsByName": {
+          "Glob": 1,
+          "Grep": 2,
+          "Read": 2
+        },
+        "numTurns": 6,
+        "costUsd": 0.042613700000000004,
+        "inputTokens": 50,
+        "cacheReadTokens": 137157,
+        "cacheCreationTokens": 11164,
+        "outputTokens": 1304,
+        "reasoningTokens": 467,
+        "totalTokens": 149675,
+        "durationMs": 15227,
+        "durationApiMs": 15017,
+        "permissionDenials": 0,
+        "ambientChars": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-q-sql-strings",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/handleAdminSearch/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/findUserByEmail/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 14486,
+      "answerChars": 667,
+      "answerWords": 92,
+      "answer": "Found two functions that build SQL text directly from caller input:\n\n1. **`findUserByEmail`** in `src/db.ts:14` — concatenates the email parameter directly into SQL:\n   ```typescript\n   return query(\"SELECT * FROM users WHERE email = '\" + email + \"'\")[0];\n   ```\n\n2. **`handleAdminSearch`** in `src/api/routes.ts:26` — interpolates the search term directly into SQL:\n   ```typescript\n   rows = query(`SELECT * FROM invoices WHERE customer LIKE '%${term}%'`);\n   ```\n\nBoth functions are already marked as \"Risky\" in the source comments. These patterns are vulnerable to SQL injection if the input parameters (`email` and `term`) contain SQL metacharacters or commands.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 5,
+        "toolsByName": {
+          "Glob": 1,
+          "Grep": 2,
+          "Read": 2
+        },
+        "numTurns": 6,
+        "costUsd": 0.0325,
+        "inputTokens": 34,
+        "cacheReadTokens": 83110,
+        "cacheCreationTokens": 9290,
+        "outputTokens": 1115,
+        "reasoningTokens": 371,
+        "totalTokens": 93549,
+        "durationMs": 13098,
+        "durationApiMs": 13049,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-q-sql-strings",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/handleAdminSearch/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/findUserByEmail/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 33699,
+      "answerChars": 539,
+      "answerWords": 73,
+      "answer": "Based on my search of the repository, I found **2 functions** that build SQL text directly from caller input:\n\n1. **`findUserByEmail`** in `src/db.ts:14`\n   - Concatenates email directly: `\"SELECT * FROM users WHERE email = '\" + email + \"'\"`\n\n2. **`handleAdminSearch`** in `src/api/routes.ts:26`\n   - Interpolates search term: `` `SELECT * FROM invoices WHERE customer LIKE '%${term}%'` ``\n\nBoth functions construct SQL queries using string interpolation/concatenation with unsanitized caller input, creating SQL injection vulnerabilities.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 13,
+        "toolsByName": {
+          "Bash": 1,
+          "Grep": 6,
+          "Read": 6
+        },
+        "numTurns": 14,
+        "costUsd": 0.0765706,
+        "inputTokens": 114,
+        "cacheReadTokens": 348236,
+        "cacheCreationTokens": 13774,
+        "outputTokens": 2817,
+        "reasoningTokens": 626,
+        "totalTokens": 364941,
+        "durationMs": 32627,
+        "durationApiMs": 31998,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-q-sql-strings",
+      "repo": "fixture",
+      "kind": "question",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/handleAdminSearch/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/findUserByEmail/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 13919,
+      "answerChars": 578,
+      "answerWords": 77,
+      "answer": "Found **2 functions** that build SQL text directly from caller input:\n\n1. **`findUserByEmail`** (`src/db.ts:14`)\n   - Builds SQL via string concatenation: `\"SELECT * FROM users WHERE email = '\" + email + \"'\"`\n\n2. **`handleAdminSearch`** (`src/api/routes.ts:23`)\n   - Builds SQL via template literal interpolation: `` `SELECT * FROM invoices WHERE customer LIKE '%${term}%'` ``\n\nBoth have inline comments marking them as risky. These are SQL injection vulnerabilities—the functions directly interpolate caller-supplied input into SQL strings without parameterization or escaping.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 4,
+        "toolsByName": {
+          "Grep": 1,
+          "Glob": 1,
+          "Read": 2
+        },
+        "numTurns": 5,
+        "costUsd": 0.0318032,
+        "inputTokens": 26,
+        "cacheReadTokens": 62722,
+        "cacheCreationTokens": 10360,
+        "outputTokens": 957,
+        "reasoningTokens": 350,
+        "totalTokens": 74065,
+        "durationMs": 12310,
+        "durationApiMs": 12063,
+        "permissionDenials": 0,
+        "ambientChars": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-edit-discount-clamp",
+      "repo": "fixture",
+      "kind": "edit",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "node --experimental-strip-types --no-warnings {checks}/fixture/discount-clamp.mjs",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 15446,
+      "answerChars": 334,
+      "answerWords": 50,
+      "answer": "Done! I've fixed the `applyDiscount` method by clamping the percent to the range [0, 100] using `Math.max(0, Math.min(100, percent))`. This prevents:\n- Negative totals when percent exceeds 100 (now caps at 100% discount)\n- Increased totals when percent is negative (now treated as 0% discount)\n\nThe method signature remains unchanged.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 4,
+        "toolsByName": {
+          "Glob": 1,
+          "Grep": 1,
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 5,
+        "costUsd": 0.0344191,
+        "inputTokens": 42,
+        "cacheReadTokens": 106061,
+        "cacheCreationTokens": 9143,
+        "outputTokens": 1097,
+        "reasoningTokens": 395,
+        "totalTokens": 116343,
+        "durationMs": 13440,
+        "durationApiMs": 13376,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-edit-discount-clamp",
+      "repo": "fixture",
+      "kind": "edit",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "node --experimental-strip-types --no-warnings {checks}/fixture/discount-clamp.mjs",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 12204,
+      "answerChars": 236,
+      "answerWords": 33,
+      "answer": "Done. The `applyDiscount` method now clamps the discount percent to 0-100 using `Math.max(0, Math.min(100, percent))`. This prevents negative totals when the percent exceeds 100 and prevents price increases when the percent is negative.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 2,
+        "toolsByName": {
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 3,
+        "costUsd": 0.0320871,
+        "inputTokens": 26,
+        "cacheReadTokens": 63281,
+        "cacheCreationTokens": 10379,
+        "outputTokens": 995,
+        "reasoningTokens": 497,
+        "totalTokens": 74681,
+        "durationMs": 11039,
+        "durationApiMs": 10851,
+        "permissionDenials": 0,
+        "ambientChars": 592,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-edit-discount-clamp",
+      "repo": "fixture",
+      "kind": "edit",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "node --experimental-strip-types --no-warnings {checks}/fixture/discount-clamp.mjs",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 14878,
+      "answerChars": 211,
+      "answerWords": 33,
+      "answer": "Done! I've clamped the `percent` parameter to the range [0, 100] using `Math.max(0, Math.min(100, percent))`. Now discounts above 100% will max out at 100%, and negative discounts will be treated as 0% discount.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 2,
+        "toolsByName": {
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 3,
+        "costUsd": 0.0312308,
+        "inputTokens": 26,
+        "cacheReadTokens": 63258,
+        "cacheCreationTokens": 10227,
+        "outputTokens": 885,
+        "reasoningTokens": 415,
+        "totalTokens": 74396,
+        "durationMs": 11425,
+        "durationApiMs": 11242,
+        "permissionDenials": 0,
+        "ambientChars": 592,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "fx-edit-discount-clamp",
+      "repo": "fixture",
+      "kind": "edit",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "node --experimental-strip-types --no-warnings {checks}/fixture/discount-clamp.mjs",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 15702,
+      "answerChars": 242,
+      "answerWords": 35,
+      "answer": "Done. The `applyDiscount` method now clamps the discount percent to the 0–100 range using `Math.max(0, Math.min(100, percent))`. This prevents negative totals when percent > 100 and prevents the total from increasing when percent is negative.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 4,
+        "toolsByName": {
+          "Glob": 1,
+          "Grep": 1,
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 5,
+        "costUsd": 0.0344217,
+        "inputTokens": 42,
+        "cacheReadTokens": 106017,
+        "cacheCreationTokens": 9154,
+        "outputTokens": 1094,
+        "reasoningTokens": 448,
+        "totalTokens": 116307,
+        "durationMs": 13643,
+        "durationApiMs": 13574,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-literal-quote",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py literal",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 63697,
+      "answerChars": 1063,
+      "answerWords": 162,
+      "answer": "## Summary\n\nI found and fixed the bug in tomli's literal string parsing!\n\n**The Bug:**\nIn `src/tomli/_parser.py` at line 635, the `parse_literal_str` function was including the closing apostrophe in the returned string value:\n\n```python\n# BEFORE (buggy):\nreturn pos + 1, src[start_pos : pos + 1]  # Includes the apostrophe!\n```\n\n**The Fix:**\nChanged the string slice to exclude the apostrophe:\n\n```python\n# AFTER (fixed):\nreturn pos + 1, src[start_pos : pos]  # Excludes the apostrophe\n```\n\n**Explanation:**\nThe `skip_until` function returns the position of the delimiter (in this case, the closing apostrophe). By using `src[start_pos : pos + 1]`, we were including one extra character (the apostrophe itself). Using `src[start_pos : pos]` correctly excludes it since Python's slice notation uses exclusive end indices.\n\n**Verification:**\n- ✅ Original bug: `tomli.loads(\"a = 'x'\")` now correctly returns `{'a': 'x'}` instead of `{'a': \"x'\"}`\n- ✅ All 18 tests pass\n- ✅ Edge cases tested (empty strings, strings with spaces, literal backslashes all work correctly)",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 19,
+        "toolsByName": {
+          "Bash": 11,
+          "Read": 4,
+          "Grep": 1,
+          "Edit": 1,
+          "Write": 2
+        },
+        "numTurns": 20,
+        "costUsd": 0.1278444,
+        "inputTokens": 162,
+        "cacheReadTokens": 576734,
+        "cacheCreationTokens": 19982,
+        "outputTokens": 6009,
+        "reasoningTokens": 1389,
+        "totalTokens": 602887,
+        "durationMs": 61403,
+        "durationApiMs": 60150,
+        "permissionDenials": 2,
+        "denied": [
+          "Bash: PYTHONPATH=src python3 -c \"\nimport tomli\n\n# Test various literal strings\ntests = [\n    (\\\"a = 'hello'\\\", {'a': 'he",
+          "Bash: cat > /tmp/test_literal.py << 'EOF'\nimport sys\nsys.path.insert(0, 'src')\nimport tomli\n\ntests = [\n    (\"a = 'hello'"
+        ],
+        "ambientChars": 752,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-literal-quote",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py literal",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 32956,
+      "answerChars": 637,
+      "answerWords": 96,
+      "answer": "Perfect! All tests pass. \n\n**Summary:**\n\nFound and fixed the bug in `src/tomli/_parser.py` at line 635. The `parse_literal_str` function was incorrectly including the closing apostrophe in the returned string by using `src[start_pos : pos + 1]` instead of `src[start_pos : pos]`. \n\nThe bug occurred because `skip_until` returns the position of the found delimiter, so `pos` already points to the closing apostrophe. Adding `+ 1` to the slice end included one extra character.\n\n**Verification:**\n- Before: `tomli.loads(\"a = 'x'\")` returned `{'a': \"x'\"}` \n- After: `tomli.loads(\"a = 'x'\")` returns `{'a': 'x'}` ✓\n- All 18 unit tests pass ✓",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 6,
+        "toolsByName": {
+          "Bash": 4,
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 7,
+        "costUsd": 0.07800280000000001,
+        "inputTokens": 58,
+        "cacheReadTokens": 192348,
+        "cacheCreationTokens": 21935,
+        "outputTokens": 2968,
+        "reasoningTokens": 1398,
+        "totalTokens": 217309,
+        "durationMs": 31991,
+        "durationApiMs": 31067,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-literal-quote",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py literal",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 32589,
+      "answerChars": 410,
+      "answerWords": 64,
+      "answer": "Perfect! All tests pass. The bug has been fixed.\n\n**Summary:** The issue was in the `parse_literal_str` function at line 635. When extracting the string content between apostrophes, the code was including the closing apostrophe in the slice by using `src[start_pos : pos + 1]`. Since `skip_until` returns the position of the closing apostrophe, the correct slice should be `src[start_pos : pos]` to exclude it.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 6,
+        "toolsByName": {
+          "Bash": 4,
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 7,
+        "costUsd": 0.07440079999999999,
+        "inputTokens": 58,
+        "cacheReadTokens": 191208,
+        "cacheCreationTokens": 21531,
+        "outputTokens": 2432,
+        "reasoningTokens": 1125,
+        "totalTokens": 215229,
+        "durationMs": 31271,
+        "durationApiMs": 30252,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-literal-quote",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py literal",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 40914,
+      "answerChars": 790,
+      "answerWords": 123,
+      "answer": "Perfect! All tests pass. \n\n## Summary\n\n**The Bug:** In `parse_literal_str` (line 635 of `src/tomli/_parser.py`), the string slice was incorrectly including the trailing apostrophe:\n```python\nreturn pos + 1, src[start_pos : pos + 1]  # ❌ includes the apostrophe\n```\n\n**The Fix:** Changed it to exclude the delimiter:\n```python\nreturn pos + 1, src[start_pos : pos]  # ✅ excludes the apostrophe\n```\n\n**Why:** The `skip_until` function returns the position *of* the delimiter character, not past it. The slice `src[start_pos : pos + 1]` was including the apostrophe at index `pos` in the returned string, causing the trailing quote bug. The corrected slice `src[start_pos : pos]` properly excludes it while `pos + 1` correctly advances the position past the delimiter for the next parsing step.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 9,
+        "toolsByName": {
+          "Bash": 4,
+          "Read": 3,
+          "Grep": 1,
+          "Edit": 1
+        },
+        "numTurns": 10,
+        "costUsd": 0.0688174,
+        "inputTokens": 82,
+        "cacheReadTokens": 250764,
+        "cacheCreationTokens": 13917,
+        "outputTokens": 3165,
+        "reasoningTokens": 1065,
+        "totalTokens": 267928,
+        "durationMs": 35340,
+        "durationApiMs": 34292,
+        "permissionDenials": 0,
+        "ambientChars": 752,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-false",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py false",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 28956,
+      "answerChars": 869,
+      "answerWords": 146,
+      "answer": "Excellent! All tests pass. Here's a summary of the bug and fix:\n\n## Bug Found\nThe bug was in `src/tomli/_parser.py` at line 737 in the `parse_value` function. When parsing the boolean `false`, the code was advancing the position by only 4 characters instead of 5:\n\n```python\nif src.startswith(\"false\", pos):\n    return pos + 4, False  # ❌ \"false\" has 5 characters, not 4\n```\n\nThis left the final 'e' unparsed, causing the parser to fail with \"Expected newline or end of document after a statement\".\n\n## Fix Applied\nChanged line 737 from `pos + 4` to `pos + 5`:\n\n```python\nif src.startswith(\"false\", pos):\n    return pos + 5, False  # ✅ Correctly skip all 5 characters\n```\n\nThe `true` keyword (4 characters) was already handled correctly with `pos + 4`.\n\n## Verification\n✅ `tomli.loads('a = false')` now correctly returns `{'a': False}`  \n✅ All 18 tests pass (1 skipped)",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 7,
+        "toolsByName": {
+          "Bash": 5,
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 8,
+        "costUsd": 0.07688500000000001,
+        "inputTokens": 66,
+        "cacheReadTokens": 216480,
+        "cacheCreationTokens": 21563,
+        "outputTokens": 2409,
+        "reasoningTokens": 842,
+        "totalTokens": 240518,
+        "durationMs": 27726,
+        "durationApiMs": 26652,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-false",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py false",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 32861,
+      "answerChars": 451,
+      "answerWords": 77,
+      "answer": "Perfect! The bug is fixed. The issue was in the `parse_value` function at line 737 in `src/tomli/_parser.py`. When parsing the boolean `false`, the code was advancing the position by 4 characters instead of 5. Since \"false\" is 5 characters long, this caused the parser to leave the final 'e' unparsed, which then triggered a parse error.\n\nThe fix was simple: change `return pos + 4, False` to `return pos + 5, False`.\n\nAll tests now pass successfully!",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 9,
+        "toolsByName": {
+          "Bash": 6,
+          "Read": 2,
+          "Edit": 1
+        },
+        "numTurns": 10,
+        "costUsd": 0.0802534,
+        "inputTokens": 82,
+        "cacheReadTokens": 277314,
+        "cacheCreationTokens": 20140,
+        "outputTokens": 2432,
+        "reasoningTokens": 787,
+        "totalTokens": 299968,
+        "durationMs": 31757,
+        "durationApiMs": 30765,
+        "permissionDenials": 0,
+        "ambientChars": 699,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-false",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py false",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 33261,
+      "answerChars": 605,
+      "answerWords": 98,
+      "answer": "## Summary\n\nI found and fixed the bug! The issue was in `src/tomli/_parser.py:737`:\n\n**The Bug:** When parsing the boolean `false`, the code returned `pos + 4` instead of `pos + 5`. Since `\"false\"` has 5 characters (not 4 like `\"true\"`), this left the final \"e\" unparsed, causing the parser to encounter an unexpected character.\n\n**The Fix:** Changed line 737 from:\n```python\nreturn pos + 4, False\n```\nto:\n```python\nreturn pos + 5, False\n```\n\n**Verification:**\n- Before: `tomli.loads('a = false')` raised `TOMLDecodeError`\n- After: `tomli.loads('a = false')` returns `{'a': False}` ✓\n- All 18 tests pass ✓",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 9,
+        "toolsByName": {
+          "Bash": 7,
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 10,
+        "costUsd": 0.0888469,
+        "inputTokens": 82,
+        "cacheReadTokens": 295289,
+        "cacheCreationTokens": 22758,
+        "outputTokens": 2744,
+        "reasoningTokens": 934,
+        "totalTokens": 320873,
+        "durationMs": 32177,
+        "durationApiMs": 31047,
+        "permissionDenials": 2,
+        "denied": [
+          "Bash: git add src/tomli/_parser.py && git commit -m \"$(cat <<'EOF'\nFix boolean false parsing: return correct position\n\nT",
+          "Bash: git add src/tomli/_parser.py"
+        ],
+        "ambientChars": 699,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-bug-false",
+      "repo": "tomli",
+      "kind": "bugfix",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "command",
+          "label": "python3 {checks}/tomli/check.py false",
+          "pass": true
+        },
+        {
+          "type": "command",
+          "label": "python3 -c import sys, unittest; sys.path.insert(0, 'src'); sys.argv = ['unittest', 'discover', '-s', 'tests', '-t', '.']; unittest.main(module=None)",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 28163,
+      "answerChars": 399,
+      "answerWords": 73,
+      "answer": "Excellent! The bug is fixed and all tests pass.\n\n**Summary:**\n- **Bug:** The parser was returning `pos + 4` after parsing \"false\" instead of `pos + 5`, leaving the final 'e' unparsed\n- **Root cause:** Line 737 incorrectly used 4 instead of 5 for the length of the \"false\" keyword\n- **Fix:** Changed `return pos + 4, False` to `return pos + 5, False`\n- **Test results:** All 18 tests pass (1 skipped)",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 7,
+        "toolsByName": {
+          "Bash": 5,
+          "Read": 1,
+          "Edit": 1
+        },
+        "numTurns": 8,
+        "costUsd": 0.0768145,
+        "inputTokens": 66,
+        "cacheReadTokens": 216595,
+        "cacheCreationTokens": 21667,
+        "outputTokens": 2351,
+        "reasoningTokens": 805,
+        "totalTokens": 240679,
+        "durationMs": 26913,
+        "durationApiMs": 25949,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-q-parse-float-guard",
+      "repo": "tomli",
+      "kind": "question",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/make_safe_parse_float/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/ValueError/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 7735,
+      "answerChars": 493,
+      "answerWords": 71,
+      "answer": "The function **`make_safe_parse_float`** (at `src/tomli/_parser.py:781-799`) stops a user-supplied `parse_float` from returning a dict or a list. It raises a **`ValueError`** with the message \"parse_float must not return dicts or lists\".\n\nThe function wraps the user-supplied `parse_float` callable and checks if the returned value is a dict or list (line 795). If it is, it raises the `ValueError` immediately, preventing the parser from mixing these types with parsed TOML tables and arrays.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 1,
+        "toolsByName": {
+          "Read": 1
+        },
+        "numTurns": 2,
+        "costUsd": 0.0250958,
+        "inputTokens": 18,
+        "cacheReadTokens": 38638,
+        "cacheCreationTokens": 9392,
+        "outputTokens": 486,
+        "reasoningTokens": 187,
+        "totalTokens": 48534,
+        "durationMs": 6496,
+        "durationApiMs": 6322,
+        "permissionDenials": 0,
+        "ambientChars": 658,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-q-parse-float-guard",
+      "repo": "tomli",
+      "kind": "question",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 0,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/make_safe_parse_float/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/ValueError/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 12409,
+      "answerChars": 292,
+      "answerWords": 41,
+      "answer": "In tomli, the function **`make_safe_parse_float`** (at line 781 in `_parser.py`) stops a user-supplied `parse_float` from returning a dict or list.\n\nIt raises a **`ValueError`** with the message `\"parse_float must not return dicts or lists\"` when the parse_float callable returns either type.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 3,
+        "toolsByName": {
+          "Bash": 1,
+          "Grep": 1,
+          "Read": 1
+        },
+        "numTurns": 4,
+        "costUsd": 0.0325996,
+        "inputTokens": 34,
+        "cacheReadTokens": 85216,
+        "cacheCreationTokens": 9872,
+        "outputTokens": 860,
+        "reasoningTokens": 295,
+        "totalTokens": 95982,
+        "durationMs": 11186,
+        "durationApiMs": 10741,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-q-parse-float-guard",
+      "repo": "tomli",
+      "kind": "question",
+      "arm": "baseline",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/make_safe_parse_float/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/ValueError/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 12983,
+      "answerChars": 566,
+      "answerWords": 83,
+      "answer": "In tomli, **`make_safe_parse_float()`** is the function that prevents a user-supplied `parse_float` from returning a dict or list.\n\nIt raises **`ValueError`** with the message `\"parse_float must not return dicts or lists\"`.\n\nThe function wraps the user-supplied `parse_float` callable and checks if the returned value is an instance of dict or list (line 795–796 in `_parser.py`). This guard is necessary because dicts and lists are reserved for TOML tables and arrays respectively, and allowing a custom `parse_float` to return these types would confuse the parser.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 3,
+        "toolsByName": {
+          "Bash": 1,
+          "Grep": 1,
+          "Read": 1
+        },
+        "numTurns": 4,
+        "costUsd": 0.0334936,
+        "inputTokens": 34,
+        "cacheReadTokens": 85666,
+        "cacheCreationTokens": 10399,
+        "outputTokens": 819,
+        "reasoningTokens": 208,
+        "totalTokens": 96918,
+        "durationMs": 11814,
+        "durationApiMs": 11355,
+        "permissionDenials": 0,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    },
+    {
+      "taskId": "tomli-q-parse-float-guard",
+      "repo": "tomli",
+      "kind": "question",
+      "arm": "ambient",
+      "agent": "claude",
+      "model": "haiku",
+      "repeat": 1,
+      "success": true,
+      "checks": [
+        {
+          "type": "answer",
+          "label": "/make_safe_parse_float/",
+          "pass": true
+        },
+        {
+          "type": "answer",
+          "label": "/ValueError/",
+          "pass": true
+        }
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "wallMs": 9339,
+      "answerChars": 434,
+      "answerWords": 55,
+      "answer": "The function is **`make_safe_parse_float`** (specifically the inner `safe_parse_float` wrapper it returns), which raises **`ValueError`**.\n\nFrom src/tomli/_parser.py:781-799, when a user-supplied `parse_float` returns a dict or list, the guard raises:\n```python\nValueError(\"parse_float must not return dicts or lists\")\n```\n\nThis protects the parser because dicts and lists would be confused with TOML tables and arrays during parsing.",
+      "metrics": {
+        "isError": false,
+        "toolCalls": 1,
+        "toolsByName": {
+          "Read": 1
+        },
+        "numTurns": 2,
+        "costUsd": 0.025595299999999998,
+        "inputTokens": 18,
+        "cacheReadTokens": 38633,
+        "cacheCreationTokens": 9422,
+        "outputTokens": 574,
+        "reasoningTokens": 276,
+        "totalTokens": 48647,
+        "durationMs": 8015,
+        "durationApiMs": 7852,
+        "permissionDenials": 0,
+        "ambientChars": 658,
+        "model": "claude-haiku-4-5-20251001",
+        "plugins": [
+          "glassbox",
+          "agents-md",
+          "telemetry"
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "arms": [
+      {
+        "arm": "baseline",
+        "runs": 12,
+        "successes": 12,
+        "agentErrors": 0,
+        "median": {
+          "costUsd": 0.034420400000000004,
+          "totalTokens": 116325,
+          "outputTokens": 1106,
+          "toolCalls": 4.5,
+          "numTurns": 5.5,
+          "wallMs": 15574,
+          "answerWords": 68.5,
+          "answerChars": 404.5
+        },
+        "mean": {
+          "costUsd": 0.05005085833333334,
+          "totalTokens": 161249.41666666666,
+          "outputTokens": 1580.4166666666667,
+          "toolCalls": 5.166666666666667,
+          "numTurns": 6.166666666666667,
+          "wallMs": 20392.75,
+          "answerWords": 69.25,
+          "answerChars": 460
+        },
+        "totalCostUsd": 0.6006103
+      },
+      {
+        "arm": "ambient",
+        "runs": 12,
+        "successes": 12,
+        "agentErrors": 0,
+        "median": {
+          "costUsd": 0.03194515,
+          "totalTokens": 74538.5,
+          "outputTokens": 976,
+          "toolCalls": 3,
+          "numTurns": 4,
+          "wallMs": 14398.5,
+          "answerWords": 74,
+          "answerChars": 472
+        },
+        "mean": {
+          "costUsd": 0.050677024999999994,
+          "totalTokens": 171686.58333333334,
+          "outputTokens": 1737.75,
+          "toolCalls": 5.25,
+          "numTurns": 6.25,
+          "wallMs": 22091.333333333332,
+          "answerWords": 74.5,
+          "answerChars": 503.8333333333333
+        },
+        "totalCostUsd": 0.6081243
+      }
+    ],
+    "paired": {
+      "tasks": 6,
+      "ambientOnlyPass": 0,
+      "baselineOnlyPass": 0,
+      "deltas": {
+        "costUsd": {
+          "medianDelta": -0.0005223000000000016,
+          "ambientLower": 3,
+          "ambientHigher": 3,
+          "equal": 0,
+          "tasks": 6
+        },
+        "totalTokens": {
+          "medianDelta": -30551.5,
+          "ambientLower": 4,
+          "ambientHigher": 2,
+          "equal": 0,
+          "tasks": 6
+        },
+        "outputTokens": {
+          "medianDelta": -3,
+          "ambientLower": 3,
+          "ambientHigher": 3,
+          "equal": 0,
+          "tasks": 6
+        },
+        "toolCalls": {
+          "medianDelta": -1.5,
+          "ambientLower": 4,
+          "ambientHigher": 2,
+          "equal": 0,
+          "tasks": 6
+        },
+        "numTurns": {
+          "medianDelta": -1.5,
+          "ambientLower": 4,
+          "ambientHigher": 2,
+          "equal": 0,
+          "tasks": 6
+        },
+        "wallMs": {
+          "medianDelta": -394.5,
+          "ambientLower": 3,
+          "ambientHigher": 3,
+          "equal": 0,
+          "tasks": 6
+        },
+        "answerWords": {
+          "medianDelta": -1,
+          "ambientLower": 3,
+          "ambientHigher": 3,
+          "equal": 0,
+          "tasks": 6
+        },
+        "answerChars": {
+          "medianDelta": -2,
+          "ambientLower": 3,
+          "ambientHigher": 3,
+          "equal": 0,
+          "tasks": 6
+        }
+      }
+    }
+  }
+}

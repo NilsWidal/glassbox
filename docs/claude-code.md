@@ -18,7 +18,7 @@ The plugin brings:
 | MCP server | `.mcp.json` | Starts `node ${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs mcp`, which provides the tools `ask`, `where`, `triage`, `decide`, `explain`, `graph` and `refresh`. |
 | Skill | `skills/glassbox/SKILL.md` | Teaches Claude when to use each tool and how to read `p`, confidence, bands and highlights. |
 | Hooks | `hooks/hooks.json` | Opt-in. Graph context before each prompt, an end-of-turn risk check, and keeping the graph and the AGENTS.md block fresh while you work. |
-| Output style | `output-styles/concise.md` | Opt-in. Shorter replies that cite `file:line` instead of pasting code. |
+| Output style | `output-styles/concise.md` | Opt-in. Rules meant to shorten replies: cite `file:line` instead of pasting code. Not yet measured. |
 | Settings | `.claude-plugin/plugin.json` | The options below. |
 
 **Why a committed bundle.** A marketplace install is a plain copy of this git repository: nobody runs `npm install` in it, so there is no `node_modules` and no built `dist/` folder. The repository therefore commits `plugin-dist/`, made by `npm run bundle`:

@@ -15,8 +15,9 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "types": ["node"],
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src", "test", "vitest.config.ts"],
+  "include": ["src", "test", "bench/ab/src", "vitest.config.ts"],
   "exclude": ["test/fixtures"]
 }
