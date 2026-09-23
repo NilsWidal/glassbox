@@ -5,3 +5,11 @@ export { FakeBackend, createFakeBackend, fixedAnswer, whenContains } from './bac
 export type { FakeBackendOptions, FakeCall, FakeRule, FakeRuleContext, FakeRuleResult } from './backends/fake.js';
 export { hashState, sha256, stateText } from './util/hash.js';
 export { stableStringify } from './util/json.js';
+export { DECISION_LOG, appendDecisionLog, ask, makeQuestion } from './ask.js';
+export type { AskExplainOptions, AskOptions, AskResult } from './ask.js';
+export * from './explain/index.js';
+export { buildScope, chunkDiff, chunkHeader, chunkText, renderState, spanLabel } from './scope.js';
+export type { AskScope, BuildScopeOptions, Chunk, ScopeResult } from './scope.js';
+export { answerLabel, answerP, renderJson, renderPretty } from './render.js';
+export { createBackend, resolveBackend } from './backends/index.js';
+export type { BackendConfig } from './backends/index.js';

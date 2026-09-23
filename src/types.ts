@@ -229,6 +229,19 @@ export interface ExplainBlock {
   summary: string[];
   /** Lazy generated "why", at most 12 words. */
   why?: { text: string; kind: 'narrative' };
+  /** What the hide-and-re-ask pass cost and covered, when it ran. */
+  stats?: ExplainStats;
+}
+
+export interface ExplainStats {
+  /** Backend calls spent on explanation (prefilter, reasons and re-asks). */
+  calls: number;
+  /** Chunks the prefilter picked for re-asking. */
+  candidates: number;
+  /** Chunks actually hidden and re-asked within the budget. */
+  tested: number;
+  /** P(chosen option) on the full state that each deltaP is measured against. */
+  baselineP: number;
 }
 
 // ---------------------------------------------------------------------------
