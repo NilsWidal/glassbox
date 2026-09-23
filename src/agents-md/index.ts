@@ -7,4 +7,4 @@ export {
   renderBlock,
   type RenderedBlock,
 } from './render.js';
-export { addAgentsImport, hasAgentsImport, syncAgentsMd, upsertBlock } from './sync.js';
+export { addAgentsImport, blockLineRange, hasAgentsImport, markerLines, syncAgentsMd, upsertBlock } from './sync.js';

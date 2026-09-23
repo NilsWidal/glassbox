@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,8 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = join(REPO, 'hooks', 'glassbox-hook.sh');
-// npx runs are pinned to this exact version, so a later publish cannot change what runs.
 const PKG_VERSION = (JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { version: string }).version;
+const BUNDLE_FILES = ['glassbox.mjs', 'tree-sitter.wasm', 'tree-sitter-typescript.wasm', 'tree-sitter-tsx.wasm', 'tree-sitter-javascript.wasm', 'tree-sitter-python.wasm'];
 
 async function readJson<T>(rel: string): Promise<T> {
   return JSON.parse(await readFile(join(REPO, rel), 'utf8')) as T;
@@ -37,9 +37,13 @@ describe('plugin manifests', () => {
     expect(m.plugins).toEqual([expect.objectContaining({ name: 'glassbox', source: './' })]);
   });
 
-  it('.mcp.json starts the server with `glassbox mcp`', async () => {
+  it('.mcp.json runs the committed bundle with node, never npx', async () => {
     const m = await readJson<{ mcpServers: Record<string, { command: string; args: string[] }> }>('.mcp.json');
-    expect(m.mcpServers.glassbox!.args.slice(-2)).toEqual([`@nilswidal/glassbox@${PKG_VERSION}`, 'mcp']);
+    expect(m.mcpServers.glassbox!.command).toBe('node');
+    expect(m.mcpServers.glassbox!.args).toEqual(['${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs', 'mcp']);
+    for (const f of ['.mcp.json', 'hooks/hooks.json', 'hooks/glassbox-hook.sh']) {
+      expect(await readFile(join(REPO, f), 'utf8'), f).not.toMatch(/npx|@nilswidal\/glassbox@/);
+    }
   });
 
   it('hooks.json wires opt-in edit and session hooks with short timeouts', async () => {
@@ -83,6 +87,8 @@ describe('hook script', () => {
   let bin: string;
   let log: string;
 
+  let plugin: string;
+
   beforeAll(async () => {
     tmp = await mkdtemp(join(tmpdir(), 'glassbox-hook-'));
     project = join(tmp, 'project');
@@ -91,25 +97,30 @@ describe('hook script', () => {
     await mkdir(join(project, '.glassbox'), { recursive: true });
     await writeFile(join(project, '.glassbox', 'graph.db'), '');
     await mkdir(bin);
-    // A stand-in `glassbox` on PATH that records its arguments. It links into an
-    // @nilswidal/glassbox folder, as a global npm install does.
-    const pkgBin = join(tmp, 'lib', 'node_modules', '@nilswidal', 'glassbox', 'bin');
-    await mkdir(pkgBin, { recursive: true });
-    await writeFile(join(pkgBin, 'glassbox'), `#!/bin/sh\necho "$*" >> "${log}"\n`);
-    await chmod(join(pkgBin, 'glassbox'), 0o755);
-    await symlink(join(pkgBin, 'glassbox'), join(bin, 'glassbox'));
+    // A stand-in plugin checkout whose bundle records its arguments.
+    plugin = join(tmp, 'plugin');
+    await mkdir(join(plugin, 'plugin-dist'), { recursive: true });
+    await writeFile(
+      join(plugin, 'plugin-dist', 'glassbox.mjs'),
+      `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');\n`,
+    );
+    // A `glassbox` and an `npx` on PATH that must never run.
+    for (const name of ['glassbox', 'npx']) {
+      await writeFile(join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${log}"\n`);
+      await chmod(join(bin, name), 0o755);
+    }
   });
 
   afterAll(async () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  async function runHook(event: string, env: Record<string, string>, input = '', dir = project, path = bin) {
+  async function runHook(event: string, env: Record<string, string>, input = '', dir = project) {
     await rm(log, { force: true });
     const started = performance.now();
     const r = spawnSync('sh', [HOOK, event], {
       input,
-      env: { PATH: `${path}:${process.env.PATH ?? ''}`, CLAUDE_PROJECT_DIR: dir, ...env },
+      env: { PATH: `${bin}:${process.env.PATH ?? ''}`, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: plugin, ...env },
       encoding: 'utf8',
     });
     const ms = performance.now() - started;
@@ -139,21 +150,14 @@ describe('hook script', () => {
     expect(r.calls).toBe(`refresh --root ${project} --files=--sync-md --quiet`);
   });
 
-  it("prefers the plugin's own build and skips a foreign `glassbox` on PATH", async () => {
-    const other = join(tmp, 'other-bin');
-    await mkdir(other, { recursive: true });
-    await writeFile(join(other, 'glassbox'), `#!/bin/sh\necho "foreign $*" >> "${log}"\n`);
-    await writeFile(join(other, 'npx'), `#!/bin/sh\necho "npx $*" >> "${log}"\n`);
-    await chmod(join(other, 'glassbox'), 0o755);
-    await chmod(join(other, 'npx'), 0o755);
-    const foreign = await runHook('session-start', { GLASSBOX_HOOKS: '1' }, '', project, other);
-    expect(foreign.calls).toBe(`npx -y @nilswidal/glassbox@${PKG_VERSION} refresh --root ${project} --sync-md --no-claude-md --quiet`);
-
-    const plugin = join(tmp, 'plugin');
-    await mkdir(join(plugin, 'dist', 'cli'), { recursive: true });
-    await writeFile(join(plugin, 'dist', 'cli', 'index.js'), `require('fs').appendFileSync(${JSON.stringify(log)}, 'dist ' + process.argv.slice(2).join(' ') + '\\n');\n`);
-    const own = await runHook('session-start', { GLASSBOX_HOOKS: '1', CLAUDE_PLUGIN_ROOT: plugin });
-    expect(own.calls).toBe(`dist refresh --root ${project} --sync-md --no-claude-md --quiet`);
+  it('runs only the plugin bundle: never npx or a `glassbox` from PATH, and nothing without the bundle', async () => {
+    const r = await runHook('session-start', { GLASSBOX_HOOKS: '1' });
+    expect(r.calls).toBe(`refresh --root ${project} --sync-md --no-claude-md --quiet`);
+    const missing = await runHook('session-start', { GLASSBOX_HOOKS: '1', CLAUDE_PLUGIN_ROOT: join(tmp, 'no-plugin') });
+    expect(missing.code).toBe(0);
+    expect(missing.calls).toBe('');
+    const unset = await runHook('session-start', { GLASSBOX_HOOKS: '1', CLAUDE_PLUGIN_ROOT: '' });
+    expect(unset.calls).toBe('');
   });
 
   it('GLASSBOX_HOOKS=0 overrides the plugin option', async () => {
@@ -183,4 +187,41 @@ describe('hook script', () => {
     expect(r.stdout).toBe('');
     expect(r.calls).toBe(`refresh --root ${project} --sync-md --no-claude-md --quiet`);
   });
+});
+
+describe('committed plugin bundle', () => {
+  let tmp: string;
+  beforeAll(async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'glassbox-bundle-'));
+  });
+  afterAll(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('holds the script and the tree-sitter wasm files', async () => {
+    for (const f of BUNDLE_FILES) expect((await stat(join(REPO, 'plugin-dist', f))).size, f).toBeGreaterThan(1000);
+  });
+
+  it('runs outside the repo (no node_modules) and indexes the sample repo with the fake backend', async () => {
+    // Copy the bundle away from this repo, so nothing can resolve from node_modules.
+    const dist = join(tmp, 'plugin', 'plugin-dist');
+    await mkdir(dist, { recursive: true });
+    for (const f of BUNDLE_FILES) await copyFile(join(REPO, 'plugin-dist', f), join(dist, f));
+    const repo = join(tmp, 'repo');
+    await cp(join(REPO, 'test', 'fixtures', 'sample-repo'), repo, { recursive: true });
+    const run = (...args: string[]) =>
+      spawnSync(process.execPath, [join(dist, 'glassbox.mjs'), ...args], {
+        cwd: repo,
+        env: { PATH: process.env.PATH ?? '', GLASSBOX_BACKEND: 'fake', NODE_NO_WARNINGS: '1' },
+        encoding: 'utf8',
+      });
+    const version = run('--version');
+    expect(version.stdout.trim()).toBe(PKG_VERSION);
+    const init = run('init', '--quiet', '--json');
+    expect(init.status, init.stderr).toBe(0);
+    const out = JSON.parse(init.stdout) as { graph: { files: number; nodes: number } };
+    // TypeScript, TSX and Python files all parsed, so every grammar loaded.
+    expect(out.graph.files).toBeGreaterThanOrEqual(15);
+    expect(await readFile(join(repo, 'AGENTS.md'), 'utf8')).toContain('<!-- glassbox:start -->');
+  }, 30_000);
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { createBackend, type BackendConfig } from '../backends/index.js';
 import { isBackendName } from '../config.js';
 import { runBenchCommand, runCalibrate, runLabel, type BenchFlags, type CalibrateFlags } from '../calibrate/cli.js';
 import { loadCalibrators } from '../calibrate/store.js';
+import { packageVersion } from '../util/build.js';
 import { workingDiff } from '../util/git.js';
 import { parseReasons } from '../explain/reasons.js';
 import { renderJson, renderPretty } from '../render.js';
@@ -37,12 +38,7 @@ export interface CliIo {
 }
 
 function version(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version?: string };
-    return pkg.version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
+  return packageVersion();
 }
 
 async function readAll(stream: NodeJS.ReadableStream): Promise<string> {
@@ -165,7 +161,7 @@ function backendFrom(flags: BackendFlags, io: CliIo): Backend {
 
 class UsageError extends Error {}
 
-/** node:sqlite is loaded only by commands that use the graph, so `ask` stays warning-free. */
+/** node:sqlite is loaded only by commands that use the graph (store.ts loads it lazily), so `ask` stays warning-free. */
 async function openStore(root: string): Promise<GraphStore> {
   return (await import('../memory/store.js')).GraphStore.open(root);
 }
@@ -184,6 +180,7 @@ function permutations(flags: BackendFlags, calibrators: Record<string, Calibrato
 /** Opens the store, indexing the graph first (without tags) when it is empty. */
 async function openIndexed(root: string, io: CliIo, quiet = false): Promise<GraphStore> {
   const store = await openStore(root);
+  if (store.rebuilt && !quiet) io.stderr(`glassbox: rebuilt .glassbox/graph.db, the existing one was not used: ${store.rebuilt}\n`);
   if (store.getNodes({ kind: 'file' }).length === 0) {
     if (!quiet) io.stderr('glassbox: no index yet, indexing the code graph (run `glassbox index` to add tags)\n');
     await indexRepo(root, store);
@@ -427,9 +424,10 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
   )
     .option('--refresh', 're-run the evidence pass even when the log has one')
     .option('--budget <calls>', 'most backend calls the evidence may spend', int('budget', 0))
+    .option('--diff <file>', 'the diff the decision was made on ("-" reads stdin; default: git diff HEAD)')
     .option('--root <dir>', 'repo root (default: the current directory)')
     .option('--json', 'print JSON')
-    .action(async (id: string, flags: BackendFlags & { refresh?: boolean; budget?: number }) => {
+    .action(async (id: string, flags: BackendFlags & { refresh?: boolean; budget?: number; diff?: string }) => {
       const root = rootOf(flags, io);
       const { GraphStore } = await import('../memory/store.js');
       let store: GraphStore | undefined;
@@ -438,6 +436,8 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
           root,
           backend: () => backendFrom(flags, io),
           store: () => (store ??= GraphStore.open(root)),
+          // Logs keep only a diff's hash; the diff is read only when a re-ask needs it.
+          diff: () => readDiff(flags, io, root),
           ...(flags.refresh ? { refresh: true } : {}),
           ...(flags.budget !== undefined ? { budget: flags.budget } : {}),
         });

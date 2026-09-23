@@ -10,6 +10,15 @@ Three parts, each optional:
 
 ## 1. Add the MCP server
 
+The package is not on npm yet, so run the self-contained bundle that this repository commits in `plugin-dist/` (one file with every dependency, plus the tree-sitter `.wasm` files). It needs only Node 22.13 or newer, no `npm install`:
+
+```sh
+git clone https://github.com/NilsWidal/glassbox
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/glassbox/plugin-dist/glassbox.mjs" mcp
+```
+
+Once `@nilswidal/glassbox` is published on npm, this works without a clone:
+
 ```sh
 codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.1.0 mcp
 ```
@@ -20,9 +29,9 @@ Or edit `~/.codex/config.toml` (or `.codex/config.toml` in a project) by hand:
 
 ```toml
 [mcp_servers.glassbox]
-command = "npx"
-args = ["-y", "@nilswidal/glassbox@0.1.0", "mcp"]
-# The first run downloads the package; later starts take under a second.
+command = "node"
+args = ["/path/to/glassbox/plugin-dist/glassbox.mjs", "mcp"]
+# After publishing: command = "npx", args = ["-y", "@nilswidal/glassbox@0.1.0", "mcp"]
 startup_timeout_sec = 30
 # Each answer takes seconds, and `explain` makes several calls, so allow more than the 60 s default.
 tool_timeout_sec = 300
@@ -35,13 +44,7 @@ GLASSBOX_HOST = "codex"
 
 Check it with `codex mcp list`. In a session, `/mcp` lists the glassbox tools.
 
-**From a clone** (before the package is on npm, or to try local changes):
-
-```sh
-git clone https://github.com/NilsWidal/glassbox && cd glassbox
-npm install && npm run build
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/dist/cli/index.js" mcp
-```
+**Local changes:** after editing the source in a clone, run `npm install && npm run bundle` to rebuild `plugin-dist/glassbox.mjs`, then restart Codex.
 
 ## 2. Install the skill
 
@@ -61,10 +64,10 @@ This installs `skills/glassbox/SKILL.md`. Add `-a codex` to install it for Codex
 In the repository you want glassbox to know about:
 
 ```sh
-npx -y @nilswidal/glassbox init
+node /path/to/glassbox/plugin-dist/glassbox.mjs init
 ```
 
-`init` parses the code into a graph of files and functions, asks a small set of tag questions about each one (handles auth, side effects, touches personal data, needs tests, area, risk) and stores the result in `.glassbox/`. That folder gets its own `.gitignore`, so it is not committed.
+(After publishing: `npx -y @nilswidal/glassbox init`.) `init` parses the code into a graph of files and functions, asks a small set of tag questions about each one (handles auth, side effects, touches personal data, needs tests, area, risk) and stores the result in `.glassbox/`. That folder gets its own `.gitignore`, so it is not committed.
 
 It then writes a managed block into `AGENTS.md`, which Codex reads automatically:
 
@@ -76,8 +79,8 @@ It then writes a managed block into `AGENTS.md`, which Codex reads automatically
 To bring the graph and the block up to date after changes:
 
 ```sh
-npx -y @nilswidal/glassbox refresh --sync-md   # re-parse changed files, rewrite the block, no model calls
-npx -y @nilswidal/glassbox index               # also re-ask tags for changed nodes (model calls)
+node /path/to/glassbox/plugin-dist/glassbox.mjs refresh --sync-md   # re-parse changed files, rewrite the block, no model calls
+node /path/to/glassbox/plugin-dist/glassbox.mjs index               # also re-ask tags for changed nodes (model calls)
 ```
 
 The Claude Code plugin can do the first of these for you with opt-in hooks. This Codex setup has no such hooks, so run `refresh` or `index` yourself, or from a git hook.

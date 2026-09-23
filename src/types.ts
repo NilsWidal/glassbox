@@ -187,8 +187,13 @@ export interface DecisionRecord {
   explain?: ExplainBlock;
   /** Human ground truth (an option key), added later for calibration. */
   truth?: string;
-  /** What was asked about, so the decision can be explained later. */
-  scope?: { paths?: string[]; diff?: string; nodes?: string[] };
+  /**
+   * What was asked about, so the decision can be explained later. A diff is
+   * stored as its file list and sha256 (never its text, which may hold
+   * secrets); `diff` itself appears only in logs written by older versions.
+   * `context` is the hint a `decide` call was given.
+   */
+  scope?: { paths?: string[]; diff?: string; diffFiles?: string[]; diffHash?: string; nodes?: string[]; context?: string };
   /** Which command made the record. Absent means `ask`. */
   source?: 'ask' | 'triage' | 'decide';
 }

@@ -1,4 +1,4 @@
-import { appendDecisionLog, decisionId, DECISION_LOG, STORE_DIR } from '../ask.js';
+import { appendDecisionLog, decisionId, logDiff, DECISION_LOG, STORE_DIR } from '../ask.js';
 import { winningOption } from '../engine/answer.js';
 import { decide } from '../engine/decide.js';
 import { occlude, optionProbability, pYesByPrefix } from '../explain/occlusion.js';
@@ -6,7 +6,7 @@ import { DEFAULT_REASONS, REASON_PREFIX, collectReasons, reasonQuestions, type R
 import { buildSummary } from '../explain/summary.js';
 import type { GraphStore, StoredNode } from '../memory/store.js';
 import { RISK_LEVELS, nodeTagLabels } from '../memory/tags.js';
-import { chunkDiff, chunkHeader, nodeAt, renderState, type Chunk } from '../scope.js';
+import { chunkDiff, chunkHeader, nodeAt, renderState, safeDiffChunks, type Chunk } from '../scope.js';
 import type {
   Backend,
   DecideOptions,
@@ -85,9 +85,19 @@ function riskQuestion(instructions: string): ScoreQuestion {
   return { type: 'score', instructions, criteria: [...RISK_LEVELS] };
 }
 
-/** Innermost node per changed line of the hunk (context lines skipped); the file node outside any function. */
-function touchedNodes(c: Pick<Chunk, 'file' | 'startLine' | 'endLine' | 'changedLines'>, nodes: readonly StoredNode[]): string[] {
+/**
+ * Innermost node per changed line of the hunk (context lines skipped); the file
+ * node outside any function. A renamed or moved file also touches the file node
+ * under its old path, which is what its importers still point at; a pure
+ * rename touches only that file node.
+ */
+function touchedNodes(
+  c: Pick<Chunk, 'file' | 'startLine' | 'endLine' | 'changedLines' | 'renamedFrom' | 'renameOnly'>,
+  nodes: readonly StoredNode[],
+): string[] {
   const out = new Set<string>();
+  if (c.renamedFrom !== undefined) out.add(c.renamedFrom);
+  if (c.renameOnly) return [...out];
   const lines = c.changedLines ?? Array.from({ length: c.endLine - c.startLine + 1 }, (_, i) => c.startLine + i);
   for (const line of lines) {
     const n = nodeAt(nodes, c.file, line);
@@ -115,12 +125,16 @@ function contextLines(store: GraphStore, ids: readonly string[]): string[] {
 export async function triage(diff: string, opts: TriageOptions): Promise<TriageResult> {
   const started = performance.now();
   const { store, backend } = opts;
-  const raw = chunkDiff(diff, opts.chunkLines !== undefined ? { maxLines: opts.chunkLines } : {});
-  if (raw.length === 0) throw new Error('the diff has no changed lines');
+  const all = chunkDiff(diff, opts.chunkLines !== undefined ? { maxLines: opts.chunkLines } : {});
+  // Secret-looking files (.env, keys) are never sent to the model.
+  const raw = safeDiffChunks(all);
+  if (raw.length === 0) {
+    throw new Error(all.length ? 'the diff only touches files that may hold secrets, which are never sent' : 'the diff has no changed lines');
+  }
   const nodes = store.getNodes();
   const chunks: Chunk[] = raw.map((c, i) => {
     const chunk: Chunk = { id: `h${i + 1}`, ...c };
-    const inner = touchedNodes(c, nodes).find((id) => id !== c.file);
+    const inner = touchedNodes(c, nodes).find((id) => id !== c.file && id !== c.renamedFrom);
     if (inner) chunk.nodeId = inner;
     return chunk;
   });
@@ -219,7 +233,7 @@ export async function triage(diff: string, opts: TriageOptions): Promise<TriageR
   let logFile: string | undefined;
   if (opts.log !== false) {
     record.id = decisionId(record);
-    record.scope = { diff };
+    record.scope = logDiff(diff);
     logFile = typeof opts.log === 'string' ? opts.log : join(opts.root, STORE_DIR, DECISION_LOG);
     await appendDecisionLog(logFile, record);
   }

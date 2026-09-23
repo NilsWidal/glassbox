@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildScope, chunkDiff, chunkText, renderState, spanLabel } from '../src/scope.js';
+import { SECRET_FILE, buildScope, chunkDiff, chunkText, renderState, spanLabel } from '../src/scope.js';
 
 const FIXTURE = join(import.meta.dirname, 'fixtures', 'sample-repo');
 
@@ -56,7 +56,67 @@ describe('chunkDiff', () => {
   });
 });
 
+describe('chunkDiff renames', () => {
+  it('turns a pure rename into one chunk that names the old path', () => {
+    const diff = ['diff --git a/src/old.ts b/src/new/place.ts', 'similarity index 100%', 'rename from src/old.ts', 'rename to src/new/place.ts', ''].join('\n');
+    expect(chunkDiff(diff)).toEqual([
+      {
+        file: 'src/new/place.ts',
+        startLine: 1,
+        endLine: 1,
+        text: 'rename from src/old.ts\nrename to src/new/place.ts',
+        diff: true,
+        changedLines: [1],
+        renamedFrom: 'src/old.ts',
+        renameOnly: true,
+      },
+    ]);
+  });
+
+  it('marks the hunks of a rename with edits with the old path', () => {
+    const diff = [
+      'diff --git a/src/old.ts b/src/new.ts',
+      'similarity index 90%',
+      'rename from src/old.ts',
+      'rename to src/new.ts',
+      'index 1..2 100644',
+      '--- a/src/old.ts',
+      '+++ b/src/new.ts',
+      '@@ -1,1 +1,1 @@',
+      '-export const a = 1;',
+      '+export const a = 2;',
+      '',
+    ].join('\n');
+    const chunks = chunkDiff(diff);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ file: 'src/new.ts', renamedFrom: 'src/old.ts' });
+    expect(chunks[0]!.renameOnly).toBeUndefined();
+  });
+});
+
 describe('buildScope', () => {
+  it('drops diff chunks of files that may hold secrets', async () => {
+    const diff = [
+      'diff --git a/.env.local b/.env.local',
+      '--- a/.env.local',
+      '+++ b/.env.local',
+      '@@ -1,1 +1,1 @@',
+      '-TOKEN=a',
+      '+TOKEN=sk-live-999',
+      'diff --git a/src/db.ts b/src/db.ts',
+      '--- a/src/db.ts',
+      '+++ b/src/db.ts',
+      '@@ -1,1 +1,1 @@',
+      '-const a = 1;',
+      '+const a = 2;',
+      '',
+    ].join('\n');
+    const { chunks } = await buildScope({ diff }, { root: FIXTURE });
+    expect(chunks.map((c) => c.file)).toEqual(['src/db.ts']);
+    expect(renderState(chunks)).not.toContain('sk-live-999');
+    expect(SECRET_FILE.test('config/server.pem')).toBe(true);
+  });
+
   it('refuses symlinks that leave the root and files that may hold secrets', async () => {
     const base = await mkdtemp(join(tmpdir(), 'glassbox-scope-link-'));
     const root = join(base, 'repo');

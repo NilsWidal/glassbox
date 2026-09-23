@@ -19,7 +19,7 @@ import { DEFAULT_REASONS, REASON_PREFIX, collectReasons, reasonQuestions, type R
 import { buildSummary } from './explain/summary.js';
 import { explainWhy, shouldExplainWhy } from './explain/why.js';
 import { assembleGraph } from './graph/index.js';
-import { buildScope, renderState, type AskScope, type Chunk } from './scope.js';
+import { buildScope, chunkDiff, renderState, type AskScope, type Chunk } from './scope.js';
 import type {
   Answer,
   Backend,
@@ -136,11 +136,25 @@ export async function appendDecisionLog(file: string, record: DecisionRecord): P
   await appendNoFollow(file, `${JSON.stringify(record)}\n`);
 }
 
+/**
+ * How a diff is logged: the files it touches and its sha256, never the text,
+ * which may hold secrets. explain re-asks only when it is given a diff with
+ * the same hash (for example the unchanged working tree).
+ */
+export function logDiff(diff: string): { diffFiles: string[]; diffHash: string } {
+  const files = new Set<string>();
+  for (const c of chunkDiff(diff)) {
+    files.add(c.file);
+    if (c.renamedFrom !== undefined) files.add(c.renamedFrom);
+  }
+  return { diffFiles: [...files].sort(), diffHash: sha256(diff) };
+}
+
 /** The scope as stored in the log (only the parts that were given). */
 function logScope(scope: AskScope): NonNullable<DecisionRecord['scope']> {
   const out: NonNullable<DecisionRecord['scope']> = {};
   if (scope.paths?.length) out.paths = [...scope.paths];
-  if (scope.diff !== undefined) out.diff = scope.diff;
+  if (scope.diff !== undefined) Object.assign(out, logDiff(scope.diff));
   if (scope.nodes?.length) out.nodes = [...scope.nodes];
   return out;
 }

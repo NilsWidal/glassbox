@@ -49,28 +49,41 @@ export interface DecideQueryResult {
   logFile?: string;
 }
 
-/** The state: the hint, then related nodes with their stored tags and a short source excerpt. */
-async function buildContext(
-  question: string,
-  options: readonly string[],
+/** Nodes related to the question, best first (lexical match on names, files and tags). */
+function relatedNodes(question: string, options: readonly string[], hint: string | undefined, store: GraphStore, limit: number): string[] {
+  const terms = queryTerms([question, ...options, hint ?? ''].join(' '));
+  return whereCandidates(store.getNodes())
+    .map((node) => ({ node, s: lexicalScore(terms, { node, tags: store.getTags(node.id) }) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s || (a.node.id < b.node.id ? -1 : 1))
+    .slice(0, Math.max(0, limit))
+    .map((x) => x.node.id);
+}
+
+/**
+ * The state decide asks over: the hint, then the given nodes with their stored
+ * tags and a short source excerpt. Exported so explain can rebuild the state a
+ * logged decide call used and tell whether the code changed since.
+ */
+export async function decideState(
   hint: string | undefined,
-  opts: DecideQueryOptions,
-): Promise<{ state: string; nodes: string[] }> {
+  nodeIds: readonly string[],
+  opts: { root: string; store?: GraphStore },
+): Promise<string> {
   const parts: string[] = [];
   if (hint?.trim()) parts.push('## Context from the agent', hint.trim());
-  const nodes: string[] = [];
-  if (opts.store) {
-    const terms = queryTerms([question, ...options, hint ?? ''].join(' '));
+  const store = opts.store;
+  if (store && nodeIds.length) {
     const src = new SourceCache(opts.root);
-    const scored = whereCandidates(opts.store.getNodes())
-      .map((node) => ({ node, s: lexicalScore(terms, { node, tags: opts.store!.getTags(node.id) }) }))
-      .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s || (a.node.id < b.node.id ? -1 : 1))
-      .slice(0, Math.max(0, opts.contextNodes ?? DEFAULT_CONTEXT_NODES));
-    if (scored.length) parts.push('## Related code (from the glassbox graph)');
-    for (const [i, { node }] of scored.entries()) {
-      nodes.push(node.id);
-      const tags = nodeTagLabels(opts.store, node.id);
+    parts.push('## Related code (from the glassbox graph)');
+    for (const [i, id] of nodeIds.entries()) {
+      const node = store.getNode(id);
+      if (!node) {
+        // A node that no longer exists: the rebuilt state differs, as it should.
+        parts.push(`### ${id} (missing)`);
+        continue;
+      }
+      const tags = nodeTagLabels(store, node.id);
       parts.push(`### ${spanLabel(node.file, node.startLine, node.endLine)} (${node.kind} ${node.name})`);
       if (tags.length) parts.push(`tags: ${tags.join(', ')}`);
       if (i < SOURCE_NODES) {
@@ -80,7 +93,18 @@ async function buildContext(
     }
   }
   if (parts.length === 0) parts.push('(no extra context)');
-  return { state: parts.join('\n'), nodes };
+  return parts.join('\n');
+}
+
+/** The state: the hint, then related nodes with their stored tags and a short source excerpt. */
+async function buildContext(
+  question: string,
+  options: readonly string[],
+  hint: string | undefined,
+  opts: DecideQueryOptions,
+): Promise<{ state: string; nodes: string[] }> {
+  const nodes = opts.store ? relatedNodes(question, options, hint, opts.store, opts.contextNodes ?? DEFAULT_CONTEXT_NODES) : [];
+  return { state: await decideState(hint, nodes, opts), nodes };
 }
 
 /**
@@ -107,7 +131,10 @@ export async function decide(
   let logFile: string | undefined;
   if (opts.log !== false) {
     record.id = decisionId(record);
-    if (nodes.length) record.scope = { nodes };
+    // The hint is kept so explain can rebuild this exact state later.
+    if (nodes.length || contextHint?.trim()) {
+      record.scope = { ...(nodes.length ? { nodes } : {}), ...(contextHint?.trim() ? { context: contextHint } : {}) };
+    }
     logFile = typeof opts.log === 'string' ? opts.log : join(opts.root, STORE_DIR, DECISION_LOG);
     await appendDecisionLog(logFile, record);
   }

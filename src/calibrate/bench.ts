@@ -12,6 +12,7 @@ import type { Backend, Question, QuestionType } from '../types.js';
 import { fnv1a, seededRandom } from '../util/hash.js';
 import { calibrateSamples, fitTemperature } from './fit.js';
 import { computeMetrics, percentile, reliabilityTable, type Metrics, type Sample } from './metrics.js';
+import { BUNDLE } from '../util/build.js';
 
 /** One benchmark question. `truth` is an option key: true/false, a choice key, or a level index. */
 export interface BenchItem {
@@ -46,9 +47,10 @@ export interface BenchSet {
   items: BenchItem[];
 }
 
-/** bench/ next to the package (works from src/ and dist/). */
+/** bench/ next to the package (works from src/, dist/ and the plugin-dist/ bundle). */
 export function defaultBenchDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'bench');
+  const here = dirname(fileURLToPath(import.meta.url));
+  return BUNDLE ? resolve(here, '..', 'bench') : resolve(here, '..', '..', 'bench');
 }
 
 export function itemQuestion(item: BenchItem): Question {

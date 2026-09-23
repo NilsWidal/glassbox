@@ -1,5 +1,5 @@
 import { constants, lstatSync, mkdirSync, realpathSync, writeFileSync, existsSync } from 'node:fs';
-import { lstat, open, readFile, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 
 /**
@@ -52,16 +52,29 @@ export async function readInsideOrNull(root: string, path: string): Promise<stri
   }
 }
 
-/** Writes via a temp file in the same directory plus rename, so a symlink is never written through. */
+/**
+ * Writes via a temp file in the same directory plus rename, so a symlink is
+ * never written through. An existing file keeps its permission bits (new files get 0644).
+ */
 export async function writeInside(root: string, path: string, content: string): Promise<void> {
   await assertSafeTarget(root, path);
+  const existing = await stat(path).then(
+    (s) => s.mode & 0o7777,
+    () => undefined,
+  );
+  const mode = existing ?? 0o644;
   const tmp = join(dirname(path), `.${process.pid}.${Date.now()}.glassbox.tmp`);
-  const fh = await open(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  const fh = await open(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
   try {
     await fh.writeFile(content, 'utf8');
-  } finally {
+    // open() applies the umask; set the mode explicitly so a replaced file keeps its own.
+    if (existing !== undefined) await fh.chmod(existing);
+  } catch (err) {
     await fh.close();
+    await rm(tmp, { force: true });
+    throw err;
   }
+  await fh.close();
   try {
     await rename(tmp, path);
   } catch (err) {
@@ -84,7 +97,7 @@ export async function appendNoFollow(path: string, content: string): Promise<voi
 
 /**
  * Creates <root>/<name> (the .glassbox store) as a real directory inside root,
- * with a .gitignore of `*` so logs that may hold diffs are not committed.
+ * with a .gitignore of `*` so the graph and the decision log stay local.
  */
 export function ensureStoreDirSync(root: string, name: string): string {
   const dir = join(root, name);

@@ -1,11 +1,12 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildGraph } from '../../src/graph/index.js';
-import { GraphStore, openStore } from '../../src/memory/store.js';
+import { GraphStore, SCHEMA_VERSION, loadSqlite, openStore, storeProblem } from '../../src/memory/store.js';
 import type { GraphEdge, GraphNode } from '../../src/types.js';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'sample-repo');
@@ -162,5 +163,91 @@ describe('GraphStore.sync with the sample repo', () => {
     expect(s.getNode('src/ui/format.ts#formatDate')).toBeUndefined();
     expect(s.edgesTo('src/ui/format.ts#formatDate')).toEqual([]);
     expect(s.edgesFrom('src/ui/InvoiceTable.tsx#InvoiceTable', 'calls').map((e) => e.to)).toEqual(['src/ui/format.ts#formatCurrency']);
+  });
+});
+
+describe('GraphStore.open trust checks', () => {
+  let repo: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), 'glassbox-store-trust-'));
+  });
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+  const dbFile = () => join(repo, '.glassbox', 'graph.db');
+
+  function seed(): void {
+    const s = GraphStore.open(repo);
+    s.upsertNodes([node('a.ts#f', 'h1')]);
+    s.close();
+  }
+
+  it('reopens its own store and keeps the data, stamping the schema version', () => {
+    seed();
+    const s = GraphStore.open(repo);
+    try {
+      expect(s.rebuilt).toBeUndefined();
+      expect(s.getNode('a.ts#f')).toBeDefined();
+      expect((s.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
+    } finally {
+      s.close();
+    }
+  });
+
+  it('rebuilds a file that is not a glassbox store', async () => {
+    await mkdir(join(repo, '.glassbox'), { recursive: true });
+    await writeFile(dbFile(), 'not a database at all, just text that is long enough to have a header');
+    const s = GraphStore.open(repo);
+    try {
+      expect(s.rebuilt).toMatch(/could not be read|integrity/);
+      expect(s.getNodes()).toEqual([]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it('rebuilds a store with another schema version or extra objects such as triggers', () => {
+    seed();
+    let s = GraphStore.open(repo);
+    s.db.exec('PRAGMA user_version = 99');
+    s.close();
+    expect(storeProblem(dbFile())).toMatch(/schema version 99/);
+    s = GraphStore.open(repo);
+    expect(s.rebuilt).toMatch(/schema version 99/);
+    expect(s.getNodes()).toEqual([]);
+    s.db.exec("CREATE TRIGGER evil AFTER INSERT ON nodes BEGIN UPDATE nodes SET name = 'x'; END;");
+    s.close();
+    s = GraphStore.open(repo);
+    try {
+      expect(s.rebuilt).toMatch(/unexpected trigger "evil"/);
+    } finally {
+      s.close();
+    }
+  });
+
+  it('does not trust a graph.db committed to the repo', async () => {
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo });
+    git('init', '-q');
+    seed();
+    // Someone committed the store (past its own .gitignore).
+    git('add', '-f', '.glassbox/graph.db');
+    git('commit', '-qm', 'store');
+    const s = GraphStore.open(repo);
+    try {
+      expect(s.rebuilt).toBe('it is committed to git');
+      expect(s.getNodes()).toEqual([]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it('gives one clear error when node:sqlite is missing (old Node)', () => {
+    expect(() => loadSqlite(() => undefined)).toThrow(/needs node:sqlite.*use Node 22\.13 or newer/);
+    expect(() =>
+      loadSqlite(() => {
+        throw new Error('No such built-in module: node:sqlite');
+      }),
+    ).toThrow(/Node 22\.13 or newer/);
+    expect(typeof loadSqlite().DatabaseSync).toBe('function');
   });
 });

@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { delimiter, isAbsolute, relative, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -20,6 +20,7 @@ import { where } from '../query/where.js';
 import { renderJson, renderPretty } from '../render.js';
 import type { Backend, Calibrator } from '../types.js';
 import { loadCalibrators } from '../calibrate/store.js';
+import { packageVersion } from '../util/build.js';
 import { workingDiff } from '../util/git.js';
 import { defaultRoot, withPluginOptions } from './env.js';
 
@@ -36,12 +37,7 @@ export interface GlassboxMcpOptions {
 }
 
 function version(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version?: string };
-    return pkg.version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
+  return packageVersion();
 }
 
 const INSTRUCTIONS = [
@@ -89,6 +85,15 @@ export function makeRootResolver(baseRoot: string, env: NodeJS.ProcessEnv): (r?:
     return dir;
   };
 }
+/** Upper bounds on numeric arguments, so a steered agent cannot ask for unbounded model calls. */
+export const MAX_BUDGET = 64;
+export const MAX_TOP = 50;
+export const MAX_LIMIT = 500;
+const budgetArg = (what: string) => z.number().int().min(0).max(MAX_BUDGET).optional().describe(what);
+
+/** Tools that only read the repo (they may write glassbox's own cache and decision log under .glassbox/). */
+const READ_ONLY = { readOnlyHint: true } as const;
+
 const format = z.enum(['text', 'json']).optional().describe('text (default, compact) or json (full result).');
 const backendArgs = {
   backend: z
@@ -175,13 +180,14 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         diff: z.string().optional().describe('Unified diff text to ask about.'),
         nodes: z.array(z.string()).optional().describe('Graph node ids, e.g. src/auth/session.ts#verifySession.'),
         explain: z.boolean().optional().describe('Add evidence by hiding spans and re-asking. Costs more calls.'),
-        budget: z.number().int().min(0).optional().describe('Most backend calls the explanation may spend (default 24).'),
+        budget: budgetArg(`Most backend calls the explanation may spend (default 24, at most ${MAX_BUDGET}).`),
         why: z.boolean().optional().describe('true: always add a one-line why; false: never. Default: only below the act band.'),
         reasons: z.array(z.string()).optional().describe('Reason codes to check: "code" or "code=question".'),
         root,
         format,
         ...backendArgs,
       },
+      annotations: READ_ONLY,
     },
     (a) =>
       run(async () => {
@@ -213,12 +219,19 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         'Uses the code graph and stored tags to pick candidates, then one batched model call. Returns p per hit.',
       inputSchema: {
         concept: z.string().min(1).describe('What to look for.'),
-        top: z.number().int().min(1).optional().describe('Hits to return (default 5).'),
-        candidates: z.number().int().min(1).optional().describe('Prefiltered nodes the model checks (default 8).'),
+        top: z.number().int().min(1).max(MAX_TOP).optional().describe(`Hits to return (default 5, at most ${MAX_TOP}).`),
+        candidates: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_TOP)
+          .optional()
+          .describe(`Prefiltered nodes the model checks (default 8, at most ${MAX_TOP}).`),
         root,
         format,
         ...backendArgs,
       },
+      annotations: READ_ONLY,
     },
     (a) =>
       run(async () => {
@@ -245,15 +258,17 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
       title: 'Rate the risk of a diff',
       description:
         'Score the risk (Low, Medium, High) of a diff overall and per hunk, list the callers and importers it affects ' +
-        '(one hop in the graph), and back the overall answer with highlights. Default diff: uncommitted changes (git diff HEAD).',
+        '(one hop in the graph), and back the overall answer with highlights. Default diff: uncommitted changes (git diff HEAD ' +
+          'plus new files), without secret-looking files and without glassbox\'s own AGENTS.md block or CLAUDE.md import.',
       inputSchema: {
         diff: z.string().optional().describe('Unified diff text. Default: git diff HEAD in the root.'),
         explain: z.boolean().optional().describe('Hide-and-re-ask evidence on the overall risk (default true).'),
-        budget: z.number().int().min(0).optional().describe('Most backend calls the evidence may spend (default 12).'),
+        budget: budgetArg(`Most backend calls the evidence may spend (default 12, at most ${MAX_BUDGET}).`),
         root,
         format,
         ...backendArgs,
       },
+      annotations: READ_ONLY,
     },
     (a) =>
       run(async () => {
@@ -292,6 +307,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         format,
         ...backendArgs,
       },
+      annotations: READ_ONLY,
     },
     (a) =>
       run(async () => {
@@ -315,11 +331,16 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
       inputSchema: {
         id: z.string().min(4).describe('The decision id (a unique prefix of at least 4 characters works).'),
         refresh: z.boolean().optional().describe('Re-run the evidence pass even when one is stored.'),
-        budget: z.number().int().min(0).optional().describe('Most backend calls the evidence may spend.'),
+        budget: budgetArg(`Most backend calls the evidence may spend (at most ${MAX_BUDGET}).`),
+        diff: z
+          .string()
+          .optional()
+          .describe('For a decision about a diff: the same diff again (the log keeps only its hash). Default: git diff HEAD.'),
         root,
         format,
         ...backendArgs,
       },
+      annotations: READ_ONLY,
     },
     (a) =>
       run(async () => {
@@ -331,6 +352,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
             root: dir,
             backend: () => backendOf(a),
             store: () => (store ??= GraphStore.open(dir)),
+            diff: async () => a.diff ?? (await workingDiff(dir)),
             ...(a.refresh ? { refresh: true } : {}),
             ...(a.budget !== undefined ? { budget: a.budget } : {}),
           });
@@ -353,7 +375,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         root,
         format,
       },
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     (a) =>
       run(async () =>
@@ -387,12 +409,19 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
       inputSchema: {
         files: z.array(z.string()).optional().describe('Changed files, relative to the root or absolute.'),
         tags: z.boolean().optional().describe('Re-ask tags for stale nodes (model calls).'),
-        limit: z.number().int().min(0).optional().describe('Most nodes re-tagged now; the rest stay stale.'),
+        limit: z
+          .number()
+          .int()
+          .min(0)
+          .max(MAX_LIMIT)
+          .optional()
+          .describe(`Most nodes re-tagged now (at most ${MAX_LIMIT}); the rest stay stale.`),
         syncMd: z.boolean().optional().describe('Rewrite the AGENTS.md block afterwards.'),
         root,
         format,
         ...backendArgs,
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     (a) =>
       run(async () => {
@@ -400,7 +429,8 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
           ...(a.files ? { files: a.files } : {}),
           ...(a.tags ? { tags: true, backend: () => backendOf(a) } : {}),
           ...(a.limit !== undefined ? { limit: a.limit } : {}),
-          ...(a.syncMd ? { syncMd: true } : {}),
+          // An agent-triggered refresh never creates CLAUDE.md; only `glassbox init` does.
+          ...(a.syncMd ? { syncMd: { claudeMd: false } } : {}),
         });
         return a.format === 'json' ? json(r) : text(renderRefresh(r));
       }),

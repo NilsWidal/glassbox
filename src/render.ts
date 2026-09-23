@@ -71,7 +71,9 @@ export function renderPretty(r: AskResult): string {
   const out = [headline(r)];
   const a = r.answer;
   if (a.type !== 'yesno') {
-    out.push(`options  ${Object.entries(a.probabilities).map(([k, p]) => `${k} ${p.toFixed(2)}`).join('   ')}`);
+    // Score levels print their names ("low 0.20"), not their index.
+    const name = (k: string) => (a.type === 'score' ? a.legend[k] || k : k);
+    out.push(`options  ${Object.entries(a.probabilities).map(([k, p]) => `${name(k)} ${p.toFixed(2)}`).join('   ')}`);
   }
   if (r.explain) out.push(...explainLines(r.explain));
   else if (r.explainStats) out.push('highlights', '  none above the threshold');

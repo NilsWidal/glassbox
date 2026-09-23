@@ -22,3 +22,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The plugin runs the committed bundle; fail when it no longer matches the source.
+      - run: npm run bundle:check

@@ -15,6 +15,7 @@ import { renderDecide, renderTriage, renderWhere } from '../../src/query/render.
 import { triage } from '../../src/query/triage.js';
 import { where } from '../../src/query/where.js';
 import type { DecisionRecord } from '../../src/types.js';
+import { sha256 } from '../../src/util/hash.js';
 import { fixtureCopy, tagRule } from './helpers.js';
 
 let root: string;
@@ -158,11 +159,51 @@ describe('triage', () => {
     expect(pretty).toMatch(/src\/auth\/middleware\.ts:11 +requireAuth +calls src\/auth\/session\.ts#verifySession/);
   });
 
-  it('logs the overall decision with its diff so it can be explained later', async () => {
+  it('logs the overall decision with the diff\'s files and hash, never its text', async () => {
     const records = await readDecisionLog(join(root, '.glassbox', 'decisions.jsonl'));
     const rec = records.find((x) => x.id === r.record.id)!;
-    expect(rec).toMatchObject({ source: 'triage', questionId: 'risk', scope: { diff: DIFF } });
+    expect(rec).toMatchObject({ source: 'triage', questionId: 'risk' });
+    expect(rec.scope).toEqual({ diffFiles: ['src/auth/session.ts', 'src/ui/format.ts'], diffHash: sha256(DIFF) });
+    expect(JSON.stringify(rec)).not.toContain('expiresAt <= Date.now()');
     expect(rec.explain?.highlights).toHaveLength(1);
+  });
+
+  it('re-explains a hash-only triage record only when given the same diff', async () => {
+    const logFile = join(root, '.glassbox', 'triage-hash.jsonl');
+    const b = new FakeBackend({ rules: [riskRule] });
+    const t = await triage(DIFF, { store, root, backend: b, explain: false, log: logFile });
+    const same = await explainDecision(t.record.id!, { root, backend: () => b, store: () => store, logFile, diff: async () => DIFF });
+    expect(same.cached).toBe(false);
+    expect(same.changed).toBe(false);
+    await expect(
+      explainDecision(t.record.id!, { root, backend: () => b, store: () => store, logFile, refresh: true, diff: async () => `${DIFF}\n+x\n` }),
+    ).rejects.toThrow(/only a hash of the diff .*src\/auth\/session\.ts/);
+  });
+
+  it('never sends diff chunks of secret-looking files', async () => {
+    const secret = ['diff --git a/.env b/.env', '--- a/.env', '+++ b/.env', '@@ -1,1 +1,1 @@', '-API_KEY=old', '+API_KEY=sk-live-123', ''].join('\n');
+    const b = new FakeBackend({ rules: [riskRule] });
+    const mixed = await triage(secret + DIFF, { store, root, backend: b, explain: false, log: false });
+    expect(mixed.hunks.map((h) => h.file)).toEqual(['src/auth/session.ts', 'src/ui/format.ts']);
+    expect(JSON.stringify(b.calls)).not.toContain('sk-live-123');
+    await expect(triage(secret, { store, root, backend: b, log: false })).rejects.toThrow(/may hold secrets/);
+  });
+
+  it('treats a pure rename as a change to the file node, so its importers are affected', async () => {
+    const rename = [
+      'diff --git a/src/ui/format.ts b/src/ui/formatting.ts',
+      'similarity index 100%',
+      'rename from src/ui/format.ts',
+      'rename to src/ui/formatting.ts',
+      '',
+    ].join('\n');
+    const b = new FakeBackend({ rules: [riskRule] });
+    const moved = await triage(rename, { store, root, backend: b, explain: false, log: false });
+    expect(moved.hunks).toHaveLength(1);
+    expect(moved.hunks[0]).toMatchObject({ file: 'src/ui/formatting.ts', nodes: ['src/ui/format.ts'] });
+    expect(moved.affected).toContainEqual(
+      expect.objectContaining({ file: 'src/ui/InvoiceTable.tsx', via: 'src/ui/format.ts', edge: 'imports' }),
+    );
   });
 
   it('maps a hunk to nodes by its changed lines, not its context lines', async () => {
@@ -210,6 +251,23 @@ describe('decide', () => {
     expect(renderDecide(r)).toMatch(/^session {2}p=0\.75 .*\noptions {2}config 0\.25 {3}session 0\.75\nadvice only/);
     const records = await readDecisionLog(join(root, '.glassbox', 'decisions.jsonl'));
     expect(records.find((x) => x.id === r.record.id)).toMatchObject({ source: 'decide' });
+  });
+
+  it('re-explains a decide record without a false "code changed" note', async () => {
+    const logFile = join(root, '.glassbox', 'decide-explain.jsonl');
+    const backend = new FakeBackend({ rules: [(ctx) => (ctx.questionId === 'q' ? { session: 3, config: 1 } : undefined)] });
+    const r = await decide(
+      'Where should the session TTL default live?',
+      ['config=a shared config module', 'session=next to the session code'],
+      'The TTL is read from env with no fallback today.',
+      { store, root, backend, log: logFile },
+    );
+    expect(r.record.scope).toMatchObject({ context: 'The TTL is read from env with no fallback today.' });
+    const ex = await explainDecision(r.record.id!, { root, backend: () => backend, store: () => store, budget: 8, logFile });
+    expect(ex.changed).toBe(false);
+    // A decide record explained without the store cannot rebuild its state, so that counts as changed.
+    const again = await explainDecision(r.record.id!, { root, backend: () => backend, budget: 8, logFile, refresh: true });
+    expect(again.changed).toBe(true);
   });
 
   it('works without a store and needs two options', async () => {

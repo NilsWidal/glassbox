@@ -29,6 +29,10 @@ export interface Chunk {
   diff?: boolean;
   /** Diff chunks: the lines that were added or removed (context lines left out). */
   changedLines?: number[];
+  /** Diff chunks of a renamed or moved file: its old path (what the graph still knows it as). */
+  renamedFrom?: string;
+  /** A rename or move with no content change (git's rename headers without hunks). */
+  renameOnly?: boolean;
 }
 
 export interface ChunkOptions {
@@ -100,6 +104,8 @@ export function chunkText(file: string, text: string, opts: ChunkOptions & { fir
  * Chunks a unified diff by hunk, in windows of at most maxLines diff lines.
  * Line numbers are new-file lines; removed lines count at the position they
  * were removed from. A deleted file keeps its old path and line numbers.
+ * A renamed file's chunks carry `renamedFrom`; a pure rename (git's
+ * "rename from/rename to" headers, no hunks) becomes one chunk at line 1.
  */
 export function chunkDiff(diff: string, opts: ChunkOptions = {}): Omit<Chunk, 'id'>[] {
   const maxLines = Math.max(1, opts.maxLines ?? DEFAULT_CHUNK_LINES);
@@ -109,6 +115,9 @@ export function chunkDiff(diff: string, opts: ChunkOptions = {}): Omit<Chunk, 'i
   let lineNo = 0;
   let useOld = false;
   let buf: { text: string; line: number }[] = [];
+  let renameFrom: string | undefined;
+  let renameTo: string | undefined;
+  let sectionChunks = 0;
 
   const flush = () => {
     if (file && buf.length > 0 && buf.some((l) => l.text.startsWith('+') || l.text.startsWith('-'))) {
@@ -119,18 +128,50 @@ export function chunkDiff(diff: string, opts: ChunkOptions = {}): Omit<Chunk, 'i
         text: buf.map((l) => l.text).join('\n'),
         diff: true,
         changedLines: [...new Set(buf.filter((l) => l.text.startsWith('+') || l.text.startsWith('-')).map((l) => l.line))],
+        ...(renameFrom !== undefined && renameFrom !== file ? { renamedFrom: renameFrom } : {}),
       });
+      sectionChunks++;
     }
     buf = [];
+  };
+
+  /** End of one file's section: a rename without hunks still counts as a change to the file. */
+  const endSection = () => {
+    flush();
+    if (renameFrom !== undefined && renameTo !== undefined && renameFrom !== renameTo && sectionChunks === 0) {
+      out.push({
+        file: renameTo,
+        startLine: 1,
+        endLine: 1,
+        text: `rename from ${renameFrom}\nrename to ${renameTo}`,
+        diff: true,
+        changedLines: [1],
+        renamedFrom: renameFrom,
+        renameOnly: true,
+      });
+    }
+    renameFrom = undefined;
+    renameTo = undefined;
+    sectionChunks = 0;
   };
 
   const lines = diff.replace(/\r\n?/g, '\n').split('\n');
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]!;
     if (raw.startsWith('diff --git ')) {
-      flush();
+      endSection();
       file = undefined;
       oldPath = undefined;
+      lineNo = 0;
+      continue;
+    }
+    // Extended headers come before the first hunk; git quotes odd names, which are left as they are.
+    if (lineNo === 0 && raw.startsWith('rename from ')) {
+      renameFrom = raw.slice('rename from '.length).trim();
+      continue;
+    }
+    if (lineNo === 0 && raw.startsWith('rename to ')) {
+      renameTo = raw.slice('rename to '.length).trim();
       continue;
     }
     // A file header only when followed by +++, so a removed "-- x" line is not mistaken for one.
@@ -160,7 +201,7 @@ export function chunkDiff(diff: string, opts: ChunkOptions = {}): Omit<Chunk, 'i
     if (tag !== '-' || useOld) lineNo++;
     if (buf.length >= maxLines) flush();
   }
-  flush();
+  endSection();
   return out;
 }
 
@@ -192,8 +233,18 @@ function insideRoot(root: string, p: string): boolean {
   }
 }
 
-/** Files that likely hold secrets; never sent to the model, even when named. */
-const SECRET_FILE = /(^|\/)(\.env(\..*)?|\.npmrc|\.netrc|\.pypirc|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|key|p12|pfx))$/i;
+/** Files that likely hold secrets; never sent to the model, even when named or in a diff. */
+export const SECRET_FILE = /(^|\/)(\.env(\..*)?|\.npmrc|\.netrc|\.pypirc|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|key|p12|pfx))$/i;
+
+/** True when a diff chunk's file (or the file it was renamed from) looks like it holds secrets. */
+export function isSecretChunk(c: Pick<Chunk, 'file' | 'renamedFrom'>): boolean {
+  return SECRET_FILE.test(c.file) || (c.renamedFrom !== undefined && SECRET_FILE.test(c.renamedFrom));
+}
+
+/** Diff chunks without the ones for secret-looking files, which are never sent to the model. */
+export function safeDiffChunks<T extends Pick<Chunk, 'file' | 'renamedFrom'>>(chunks: readonly T[]): T[] {
+  return chunks.filter((c) => !isSecretChunk(c));
+}
 
 /** Throws when a path under root resolves (through symlinks) outside it. Missing files pass. */
 async function assertResolvesInside(root: string, rel: string): Promise<void> {
@@ -266,8 +317,10 @@ export async function buildScope(scope: AskScope, opts: BuildScopeOptions = {}):
   }
 
   if (scope.diff) {
-    // Diff headers are untrusted: drop chunks whose path leaves the root.
-    const chunks = chunkDiff(scope.diff, opts).filter((c) => insideRoot(root, c.file));
+    // Diff headers are untrusted: drop chunks whose path leaves the root, and chunks of secret-looking files.
+    const chunks = safeDiffChunks(chunkDiff(scope.diff, opts)).filter(
+      (c) => insideRoot(root, c.file) && (c.renamedFrom === undefined || insideRoot(root, c.renamedFrom)),
+    );
     raw.push(...chunks);
     for (const f of new Set(chunks.map((c) => c.file))) await extractFor(f);
   }

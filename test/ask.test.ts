@@ -174,5 +174,23 @@ describe('ask', () => {
       why: false,
     });
     expect(renderPretty(s)).toMatch(/^SCORE 0\.75\/1 \(level 1: high\) {2}p=0\.75 /);
+    // The options line names the levels instead of printing their indexes.
+    expect(renderPretty(s)).toContain('options  low 0.25   high 0.75');
+  });
+
+  it('logs a diff scope as its files and hash, not the diff text', async () => {
+    const diff = [
+      'diff --git a/src/auth/session.ts b/src/auth/session.ts',
+      '--- a/src/auth/session.ts',
+      '+++ b/src/auth/session.ts',
+      '@@ -11,1 +11,1 @@',
+      '-const TOKEN = "old-secret-value";',
+      '+const TOKEN = "new-secret-value";',
+      '',
+    ].join('\n');
+    const r = await ask({ diff }, 'Does this change auth?', { backend: new FakeBackend(), root: FIXTURE, log: await tmpLog(), why: false });
+    const logged = await readFile(r.logFile!, 'utf8');
+    expect(logged).not.toContain('secret-value');
+    expect(r.record.scope).toEqual({ diffFiles: ['src/auth/session.ts'], diffHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
   });
 });

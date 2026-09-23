@@ -15,12 +15,19 @@ The plugin brings:
 
 | Part | File | What it does |
 |---|---|---|
-| MCP server | `.mcp.json` | Starts `npx -y @nilswidal/glassbox@0.1.0 mcp`, which provides the tools `ask`, `where`, `triage`, `decide`, `explain`, `graph` and `refresh`. |
+| MCP server | `.mcp.json` | Starts `node ${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs mcp`, which provides the tools `ask`, `where`, `triage`, `decide`, `explain`, `graph` and `refresh`. |
 | Skill | `skills/glassbox/SKILL.md` | Teaches Claude when to use each tool and how to read `p`, confidence, bands and highlights. |
 | Hooks | `hooks/hooks.json` | Opt-in. Keep the graph and the AGENTS.md block fresh while you work. |
 | Settings | `.claude-plugin/plugin.json` | The options below. |
 
-**Why npx.** A marketplace install is a copy of this git repository, which does not include the built `dist/` folder or `node_modules`. So the server runs from the published npm package, and the first start downloads it. To run from a clone instead, see the end of this page.
+**Why a committed bundle.** A marketplace install is a plain copy of this git repository: nobody runs `npm install` in it, so there is no `node_modules` and no built `dist/` folder. The repository therefore commits `plugin-dist/`, made by `npm run bundle`:
+
+- `glassbox.mjs`, one file that holds glassbox and all of its dependencies and needs only Node;
+- the tree-sitter `.wasm` files it parses code with (TypeScript, TSX, JavaScript, Python, and the runtime).
+
+The plugin runs that file with `node`. Nothing is downloaded from npm when it starts, so what runs is exactly the code in the commit you installed. CI rebuilds the bundle on every push and fails if the committed copy is out of date (`npm run bundle:check`).
+
+The plugin needs Node 22.13 or newer on your PATH (for the built-in `node:sqlite` module that holds the code graph).
 
 ## Settings
 
@@ -35,15 +42,21 @@ Claude Code asks for these when you enable the plugin. You can change them later
 | `openai_api_key` | empty | Only for the `openai-compat` backend. Stored in your system keychain. |
 | `openai_base_url` | empty | Only for the `openai-compat` backend. |
 
-Environment variables you set yourself (`GLASSBOX_BACKEND`, `GLASSBOX_MODEL`, `ANTHROPIC_API_KEY`, ...) take precedence over these settings.
+How these settings combine with environment variables you set yourself:
+
+- **`backend`, `model`, `openai_base_url`, `openai_api_key`**: a `GLASSBOX_BACKEND`, `GLASSBOX_MODEL`, `GLASSBOX_OPENAI_BASE_URL` or `GLASSBOX_OPENAI_API_KEY` in your environment wins over the setting. The setting fills the variable only when it is unset or empty.
+- **`anthropic_api_key`**: the setting becomes `GLASSBOX_ANTHROPIC_API_KEY` (unless you set that variable yourself). The `anthropic` backend reads `GLASSBOX_ANTHROPIC_API_KEY` first, so the setting wins over an `ANTHROPIC_API_KEY` in your environment. The same goes for the OpenAI-compatible settings and the plain `OPENAI_API_KEY` and `OPENAI_BASE_URL` variables: the `GLASSBOX_*` names come first.
+- **`backend` left at `auto`**: the plugin's `.mcp.json` sets `GLASSBOX_HOST=claude-code`, so `auto` means `claude-cli`. An explicit backend (from the setting or from `GLASSBOX_BACKEND`) is never overridden.
 
 ## Index the repo
 
-The graph tools work without it: on first use they build the code graph, without tags. For tags and the AGENTS.md summary, run this once in the repository:
+The graph tools work without it: on first use they build the code graph, without tags. For tags and the AGENTS.md summary, run `init` once in the repository with the same bundle the plugin uses (from a clone of this repository, or the plugin's own copy):
 
 ```sh
-npx -y @nilswidal/glassbox init
+node /path/to/glassbox/plugin-dist/glassbox.mjs init
 ```
+
+Once the package is published on npm, `npx -y @nilswidal/glassbox init` does the same.
 
 This writes `.glassbox/` (with its own `.gitignore`, so it is not committed), a managed block in `AGENTS.md`, and an `@AGENTS.md` import line in `CLAUDE.md`. Claude Code and Codex then read the same summary.
 
@@ -63,18 +76,17 @@ The hook script exits at once, without starting Node, in any of these cases:
 - the repo has no `.glassbox/graph.db`;
 - `GLASSBOX_NESTED=1` is set. glassbox sets this on its own nested `claude -p` calls, so they never trigger hooks.
 
-The script uses the plugin's own build (`dist/` in a built clone), then a global `glassbox` that resolves into the `@nilswidal/glassbox` package, then `npx`. It skips a `glassbox` binary from any other package, since the unscoped npm name belongs to someone else. With `npm install -g @nilswidal/glassbox` the hooks start fast. The hook script is POSIX `sh`, so on Windows it needs Git Bash or WSL.
+The script runs only the plugin's own bundle, `node ${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs`. It never falls back to `npx` or to a `glassbox` binary on your PATH, and does nothing if the bundle is missing. The hook script is POSIX `sh`, so on Windows it needs Git Bash or WSL.
 
 ## Run from a clone
 
-Useful for development, or before the package is on npm:
+The committed bundle runs straight from a clone, with no `npm install`:
 
 ```sh
 git clone https://github.com/NilsWidal/glassbox && cd glassbox
-npm install && npm run build
-claude mcp add glassbox -e GLASSBOX_HOST=claude-code -- node "$PWD/dist/cli/index.js" mcp
+claude mcp add glassbox -e GLASSBOX_HOST=claude-code -- node "$PWD/plugin-dist/glassbox.mjs" mcp
 ```
 
-To load the whole plugin (skill and hooks too) from the clone for one session, start Claude Code with `claude --plugin-dir /path/to/glassbox`. Its `.mcp.json` still starts the server with `npx`, so for local server changes use the `claude mcp add` line above as well.
+To load the whole plugin (skill and hooks too) from the clone for one session, start Claude Code with `claude --plugin-dir /path/to/glassbox`. It runs the clone's `plugin-dist/glassbox.mjs`. After changing the source, run `npm install && npm run bundle` so the bundle picks the change up.
 
 Check the manifests with `claude plugin validate .` (it passes with `--strict`).

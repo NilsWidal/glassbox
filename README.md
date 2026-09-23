@@ -54,26 +54,29 @@ The nested `codex exec` call runs with a read-only sandbox, in an empty temp dir
 /plugin install glassbox@glassbox
 ```
 
-> Until the npm package is published, the plugin's MCP server cannot start (it runs `npx -y @nilswidal/glassbox`). For now, follow [Run from a clone](docs/claude-code.md#run-from-a-clone).
+The plugin runs a self-contained bundle committed in `plugin-dist/` with `node`, so it works straight from the git repository: no npm package and no `npm install`. It needs Node 22.13 or newer.
 
 The plugin adds the MCP tools, a skill that teaches Claude when to use them, and opt-in hooks that keep the graph fresh as you edit. The backend defaults to `auto` (your Claude Code login), and API keys are optional fields stored in your keychain. Details: [docs/claude-code.md](docs/claude-code.md).
 
 ### Codex
 
 ```sh
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.1.0 mcp
+git clone https://github.com/NilsWidal/glassbox
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/glassbox/plugin-dist/glassbox.mjs" mcp
 npx skills add NilsWidal/glassbox
 ```
+
+Once the npm package is published, `npx -y @nilswidal/glassbox@0.1.0 mcp` replaces the `node .../glassbox.mjs mcp` part and no clone is needed.
 
 Inside Codex, glassbox asks the model through `codex exec`, with your Codex login. Details, including a `config.toml` snippet: [docs/codex.md](docs/codex.md).
 
 ### Then, in your repository
 
 ```sh
-npx -y @nilswidal/glassbox init
+node /path/to/glassbox/plugin-dist/glassbox.mjs init    # after publishing: npx -y @nilswidal/glassbox init
 ```
 
-This builds the code graph and its tags in `.glassbox/` (which gets its own `.gitignore`, since the decision log can hold diff text), and writes a short managed block into `AGENTS.md`. It also adds an `@AGENTS.md` import to `CLAUDE.md`, so both agents read the same summary.
+This builds the code graph and its tags in `.glassbox/` (which gets its own `.gitignore`, so the graph and the decision log stay local; the log keeps only a hash and the file list of each diff, never its text), and writes a short managed block into `AGENTS.md`. It also adds an `@AGENTS.md` import to `CLAUDE.md`, so both agents read the same summary.
 
 ### MCP tools
 
@@ -134,7 +137,7 @@ console.log(result.answers.auth); // { type: 'yesno', p: ..., confidence: ..., b
 
 ## Development
 
-Requires Node 22 or newer.
+Requires Node 22.13 or newer (the first release with `node:sqlite` available without a flag).
 
 ```sh
 npm install
@@ -142,6 +145,7 @@ npm test          # unit tests, no network (fake backend)
 npm run typecheck
 npm run lint
 npm run build
+npm run bundle    # rebuild plugin-dist/ (commit it; CI runs `npm run bundle:check`)
 ```
 
 Live tests against the real `claude` and `codex` CLIs are opt-in: set `GLASSBOX_IT=1`.

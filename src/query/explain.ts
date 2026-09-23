@@ -2,6 +2,8 @@ import { join } from 'node:path';
 import { appendDecisionLog, ask, readDecisionLog, DECISION_LOG, STORE_DIR } from '../ask.js';
 import type { GraphStore } from '../memory/store.js';
 import type { Backend, DecisionRecord, ExplainBlock } from '../types.js';
+import { hashState, sha256 } from '../util/hash.js';
+import { decideState } from './decide.js';
 import { triage } from './triage.js';
 
 /** Option key with the highest calibrated (else raw) probability. */
@@ -24,6 +26,25 @@ export interface ExplainDecisionOptions {
   refresh?: boolean;
   /** Most backend calls the explanation may spend. */
   budget?: number;
+  /**
+   * The diff to re-ask over. The log keeps only a diff's file list and hash,
+   * so a decision about a diff is re-asked only when this returns the same
+   * diff (by default the caller passes the current working-tree diff).
+   */
+  diff?: () => Promise<string>;
+}
+
+/** The diff a decision was made on: the logged text (older logs), or `opts.diff` when its hash matches. */
+async function recoverDiff(scope: NonNullable<DecisionRecord['scope']>, opts: ExplainDecisionOptions): Promise<string | undefined> {
+  if (scope.diff !== undefined) return scope.diff;
+  if (!scope.diffHash) return undefined;
+  const now = opts.diff ? await opts.diff().catch(() => undefined) : undefined;
+  if (now !== undefined && sha256(now) === scope.diffHash) return now;
+  const files = scope.diffFiles?.length ? ` (it touched ${scope.diffFiles.slice(0, 5).join(', ')}${scope.diffFiles.length > 5 ? ', ...' : ''})` : '';
+  throw new Error(
+    `the log keeps only a hash of the diff behind this decision${files}, and the current diff is different; ` +
+      'pass the same diff again (--diff) or ask again for a new decision',
+  );
 }
 
 export interface ExplainDecisionResult {
@@ -67,26 +88,37 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
   const backend = opts.backend();
   const budget = opts.budget !== undefined ? { budget: opts.budget } : {};
   const scope = record.scope ?? {};
+  const diff = await recoverDiff(scope, opts);
 
   let explain: ExplainBlock;
   let stateHash: string;
   let calls: number;
   let fresh: DecisionRecord;
   if (record.source === 'triage') {
-    if (!scope.diff) throw new Error('this triage decision has no stored diff');
+    if (!diff) throw new Error('this triage decision has no stored diff');
     if (!opts.store) throw new Error('re-explaining a triage decision needs the graph store');
-    const r = await triage(scope.diff, { store: opts.store(), root: opts.root, backend, explain: budget, log: false });
+    const r = await triage(diff, { store: opts.store(), root: opts.root, backend, explain: budget, log: false });
     explain = r.explain;
     stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain;
     fresh = r.record;
   } else {
-    if (!scope.paths?.length && scope.diff === undefined && !scope.nodes?.length) {
+    if (!scope.paths?.length && diff === undefined && !scope.nodes?.length) {
       throw new Error('this decision has no stored scope, so it cannot be re-asked');
     }
-    const r = await ask(scope, record.question, { backend, root: opts.root, explain: budget, why: false, log: false });
+    const askScope = {
+      ...(scope.paths?.length ? { paths: scope.paths } : {}),
+      ...(diff !== undefined ? { diff } : {}),
+      ...(scope.nodes?.length ? { nodes: scope.nodes } : {}),
+    };
+    const r = await ask(askScope, record.question, { backend, root: opts.root, explain: budget, why: false, log: false });
     explain = r.explain ?? { highlights: [], reasons: [], summary: [] };
-    stateHash = r.record.stateHash;
+    // decide asked over its own state (hint, tags and excerpts), not over the nodes'
+    // source, so rebuild that state to tell whether the code changed.
+    stateHash =
+      record.source === 'decide'
+        ? hashState(await decideState(scope.context, scope.nodes ?? [], { root: opts.root, ...(opts.store ? { store: opts.store() } : {}) }))
+        : r.record.stateHash;
     calls = r.calls.decide + r.calls.explain + r.calls.why;
     fresh = r.record;
   }

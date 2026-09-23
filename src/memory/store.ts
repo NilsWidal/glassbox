@@ -1,10 +1,43 @@
-import { assertNotSymlinkSync, ensureStoreDirSync } from '../util/safefs.js';
+import { execFileSync } from 'node:child_process';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
+import { assertNotSymlinkSync, ensureStoreDirSync } from '../util/safefs.js';
 import type { EdgeKind, GraphEdge, GraphNode, NodeKind, Tag } from '../types.js';
 
 export const STORE_DIR = '.glassbox';
 export const STORE_FILE = 'graph.db';
+/** Stored in PRAGMA user_version. Bump it when SCHEMA changes; older stores are then rebuilt. */
+export const SCHEMA_VERSION = 1;
+/** Oldest Node release with node:sqlite available without a flag. */
+export const MIN_NODE_VERSION = '22.13';
+
+type SqliteModule = typeof import('node:sqlite');
+
+/**
+ * Loads node:sqlite on first use (not at import time), so commands without the
+ * graph run on any Node, and an old Node gets one clear error instead of a crash.
+ */
+export function loadSqlite(get: (id: string) => unknown = builtin): SqliteModule {
+  let mod: unknown;
+  try {
+    mod = get('node:sqlite');
+  } catch {
+    mod = undefined;
+  }
+  if (!mod || typeof (mod as Partial<SqliteModule>).DatabaseSync !== 'function') {
+    throw new Error(
+      `the glassbox code graph needs node:sqlite, which Node ${process.versions.node} does not provide; ` +
+        `use Node ${MIN_NODE_VERSION} or newer`,
+    );
+  }
+  return mod as SqliteModule;
+}
+
+function builtin(id: string): unknown {
+  const get = (process as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule;
+  return get ? get.call(process, id) : undefined;
+}
 
 export interface StoredNode extends GraphNode {
   /** True when the node or a neighbour changed since its tags were last refreshed. */
@@ -54,6 +87,59 @@ CREATE INDEX IF NOT EXISTS tags_question ON tags(question_id);
 
 type Row = Record<string, unknown>;
 
+/** Columns per table, in order, as SCHEMA creates them. */
+const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  nodes: ['id', 'kind', 'file', 'name', 'start_line', 'end_line', 'hash', 'lang', 'stale'],
+  edges: ['from_id', 'to_id', 'kind'],
+  tags: ['node_id', 'question_id', 'answer', 'p', 'confidence', 'hash', 'updated_at'],
+};
+const EXPECTED_INDEXES = new Set(['nodes_file', 'edges_to', 'tags_question']);
+
+/**
+ * Why an existing store file cannot be trusted, or undefined when it looks
+ * like one glassbox wrote: it opens, passes quick_check, has this schema
+ * version (or 0, from before versions were stamped), exactly the expected
+ * tables and columns, and no triggers or views.
+ */
+export function storeProblem(file: string): string | undefined {
+  const { DatabaseSync } = loadSqlite();
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(file, { readOnly: true });
+    const check = db.prepare('PRAGMA quick_check').all() as Row[];
+    if (check.length !== 1 || Object.values(check[0]!)[0] !== 'ok') return 'it failed the integrity check';
+    const version = Number((db.prepare('PRAGMA user_version').get() as Row).user_version);
+    if (version !== SCHEMA_VERSION && version !== 0) return `it has schema version ${version}, expected ${SCHEMA_VERSION}`;
+    const objects = db.prepare("SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as Row[];
+    for (const o of objects) {
+      const type = String(o.type);
+      const name = String(o.name);
+      if (type === 'table' && name in EXPECTED_COLUMNS) continue;
+      if (type === 'index' && EXPECTED_INDEXES.has(name)) continue;
+      return `it holds an unexpected ${type} "${name}"`;
+    }
+    for (const [table, columns] of Object.entries(EXPECTED_COLUMNS)) {
+      const got = (db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((r) => String(r.name));
+      if (got.join(',') !== columns.join(',')) return `its ${table} table does not match this version`;
+    }
+    return undefined;
+  } catch (err) {
+    return `it could not be read (${err instanceof Error ? err.message : String(err)})`;
+  } finally {
+    db?.close();
+  }
+}
+
+/** True when git tracks the store file, i.e. it came with the repo instead of being built here. */
+function trackedByGit(repoRoot: string, file: string): boolean {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', file], { cwd: repoRoot, stdio: 'ignore', timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function toNode(r: Row): StoredNode {
   return {
     id: String(r.id),
@@ -87,19 +173,38 @@ function toTag(r: Row): Tag {
 export class GraphStore {
   readonly db: DatabaseSync;
   private txDepth = 0;
+  /** Set by open() when an existing store was not trusted and was rebuilt empty: the reason. */
+  rebuilt?: string;
 
   /** `path` may be ':memory:'. Use GraphStore.open(repoRoot) for the standard location. */
   constructor(readonly path: string) {
+    const { DatabaseSync } = loadSqlite();
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
     this.db.exec(SCHEMA);
+    const version = Number((this.db.prepare('PRAGMA user_version').get() as Row).user_version);
+    if (version === 0) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
+  /**
+   * Opens <repoRoot>/.glassbox/graph.db. An existing file is checked first: one
+   * that git tracks (it came with a clone, so someone else wrote it) or that
+   * fails storeProblem() is deleted and rebuilt empty; the graph is a cache
+   * and is re-indexed on next use.
+   */
   static open(repoRoot: string): GraphStore {
     const dir = ensureStoreDirSync(repoRoot, STORE_DIR);
     const file = join(dir, STORE_FILE);
-    for (const f of [file, `${file}-wal`, `${file}-shm`]) assertNotSymlinkSync(f);
-    return new GraphStore(file);
+    const files = [file, `${file}-wal`, `${file}-shm`];
+    for (const f of files) assertNotSymlinkSync(f);
+    let reason: string | undefined;
+    if (existsSync(file)) {
+      reason = files.some((f) => existsSync(f) && trackedByGit(repoRoot, f)) ? 'it is committed to git' : storeProblem(file);
+      if (reason) for (const f of files) rmSync(f, { force: true });
+    }
+    const store = new GraphStore(file);
+    if (reason) store.rebuilt = reason;
+    return store;
   }
 
   close(): void {

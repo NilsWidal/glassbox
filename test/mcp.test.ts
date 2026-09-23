@@ -164,9 +164,39 @@ describe('mcp server over an in-memory transport', () => {
     // One hop: the caller of verifySession is stale too.
     expect(json.stale).toContain('src/auth/middleware.ts#requireAuth');
     expect(json.unknownFiles).toEqual(['src/new-file.ts']);
+    // An agent-triggered refresh never creates CLAUDE.md (init made one; remove it first).
+    await rm(join(root, 'CLAUDE.md'), { force: true });
     const full = await call('refresh', { syncMd: true });
     expect(full.text).toMatch(/^graph {2}\+0 ~0 -0/);
     expect(full.text).toContain('sync   AGENTS.md');
+    expect(existsSync(join(root, 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('bounds budgets, hit counts and re-tag limits', async () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['ask', { question: 'q?', explain: true, budget: 65 }],
+      ['triage', { diff: DIFF, budget: 1000 }],
+      ['explain', { id: 'ffffffff', budget: 65 }],
+      ['where', { concept: 'x', top: 51 }],
+      ['where', { concept: 'x', candidates: 51 }],
+      ['refresh', { tags: true, limit: 501 }],
+    ];
+    for (const [name, args] of cases) {
+      const r = await call(name, args);
+      expect(r.isError, `${name} ${JSON.stringify(args)}`).toBe(true);
+      expect(r.text).toMatch(/Too big: expected number to be <=(64|50|500)/);
+    }
+    const ok = await call('where', { concept: 'billing charge retries', top: 50, candidates: 50 });
+    expect(ok.isError).toBe(false);
+  });
+
+  it('annotates read tools as read-only and refresh as non-destructive and idempotent', async () => {
+    const { tools } = await client.listTools();
+    const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
+    for (const name of ['ask', 'where', 'triage', 'decide', 'explain', 'graph']) {
+      expect(hints[name], name).toMatchObject({ readOnlyHint: true });
+    }
+    expect(hints.refresh).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
   });
 
   it('reports bad input and tool failures as errors, not crashes', async () => {

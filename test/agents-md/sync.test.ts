@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -124,6 +124,38 @@ describe('syncAgentsMd', () => {
     expect(agents.startsWith(`intro\n\n${START_MARKER}\n## glassbox code map`)).toBe(true);
     expect(agents.endsWith(`${END_MARKER}\n\noutro line\n`)).toBe(true);
     expect(agents).not.toContain('old stuff');
+  });
+
+  it('ignores markers quoted inside other text and matches only marker lines', async () => {
+    const prose = `The block starts at \`${START_MARKER}\` and ends at \`${END_MARKER}\`.\n`;
+    await writeFile(join(dir, 'AGENTS.md'), prose);
+    await syncAgentsMd(dir, summary);
+    const agents = await read('AGENTS.md');
+    expect(agents.startsWith(prose)).toBe(true);
+    expect(agents).toContain(`\n\n${START_MARKER}\n## glassbox code map`);
+    // A second run finds the real block and leaves the prose alone.
+    await syncAgentsMd(dir, { ...summary, availableTags: ['changed'] });
+    const again = await read('AGENTS.md');
+    expect(again.startsWith(prose)).toBe(true);
+    expect(again.split(START_MARKER)).toHaveLength(3);
+  });
+
+  it('refuses to write when AGENTS.md has more than one start marker', async () => {
+    const two = `${START_MARKER}\na\n${END_MARKER}\n\n${START_MARKER}\nb\n${END_MARKER}\n`;
+    await writeFile(join(dir, 'AGENTS.md'), two);
+    await expect(syncAgentsMd(dir, summary)).rejects.toThrow(/2 '<!-- glassbox:start -->' lines \(lines 1, 5\)/);
+    expect(await read('AGENTS.md')).toBe(two);
+  });
+
+  it('keeps the file mode of AGENTS.md and CLAUDE.md when rewriting them', async () => {
+    await writeFile(join(dir, 'AGENTS.md'), 'intro\n');
+    await writeFile(join(dir, 'CLAUDE.md'), 'rules\n');
+    await chmod(join(dir, 'AGENTS.md'), 0o600);
+    await chmod(join(dir, 'CLAUDE.md'), 0o640);
+    const r = await syncAgentsMd(dir, summary);
+    expect(r).toMatchObject({ agentsMd: 'updated', claudeMd: 'updated' });
+    expect((await stat(join(dir, 'AGENTS.md'))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(dir, 'CLAUDE.md'))).mode & 0o777).toBe(0o640);
   });
 
   it('refuses a start marker without an end marker', async () => {

@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { Language, Parser } from 'web-tree-sitter';
+import { bundleDir } from '../util/build.js';
 
 /** Grammar used to parse a file. `lang` on nodes is coarser (tsx is typescript). */
 export type Grammar = 'typescript' | 'tsx' | 'javascript' | 'python';
@@ -31,12 +32,23 @@ export function langOf(grammar: Grammar): Lang {
   return grammar === 'tsx' ? 'typescript' : grammar;
 }
 
-const require = createRequire(import.meta.url);
+const req = createRequire(import.meta.url);
 
-/** Resolves via package.json so it works from src (vitest) and from dist. */
+/**
+ * Resolves via package.json so it works from src (vitest) and from dist. In
+ * the plugin bundle the grammars are copied next to plugin-dist/glassbox.mjs.
+ */
 export function grammarWasmPath(grammar: Grammar): string {
-  const pkg = require.resolve('tree-sitter-wasms/package.json');
+  const bundled = bundleDir();
+  if (bundled) return join(bundled, `tree-sitter-${grammar}.wasm`);
+  const pkg = req.resolve('tree-sitter-wasms/package.json');
   return join(dirname(pkg), 'out', `tree-sitter-${grammar}.wasm`);
+}
+
+/** The tree-sitter runtime's own wasm. */
+export function runtimeWasmPath(): string {
+  const bundled = bundleDir();
+  return bundled ? join(bundled, 'tree-sitter.wasm') : req.resolve('web-tree-sitter/tree-sitter.wasm');
 }
 
 let initPromise: Promise<void> | undefined;
@@ -44,7 +56,7 @@ const parsers = new Map<Grammar, Promise<Parser>>();
 
 function init(): Promise<void> {
   initPromise ??= Parser.init({
-    locateFile: (name: string) => (name.endsWith('.wasm') ? require.resolve('web-tree-sitter/tree-sitter.wasm') : name),
+    locateFile: (name: string) => (name.endsWith('.wasm') ? runtimeWasmPath() : name),
   });
   return initPromise;
 }

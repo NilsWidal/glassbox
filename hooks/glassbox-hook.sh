@@ -15,22 +15,12 @@ esac
 dir="${CLAUDE_PROJECT_DIR:-$PWD}"
 [ -f "$dir/.glassbox/graph.db" ] || exit 0
 
-# Runner: the plugin's own build first, then a global install that really is
-# this package, then npx. The unscoped npm name `glassbox` belongs to someone
-# else, so a PATH binary is used only when it resolves into @nilswidal/glassbox
-# (checked without running it). npx is pinned to this release's version.
-own_bin() {
-  p=$(command -v glassbox 2>/dev/null) || return 1
-  real=$(node -e 'process.stdout.write(require("fs").realpathSync(process.argv[1]))' "$p" 2>/dev/null) || return 1
-  case "$real" in */@nilswidal/glassbox/*) return 0 ;; *) return 1 ;; esac
-}
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/dist/cli/index.js" ]; then
-  set -- node "$CLAUDE_PLUGIN_ROOT/dist/cli/index.js"
-elif own_bin; then
-  set -- glassbox
-else
-  set -- npx -y @nilswidal/glassbox@0.1.0
-fi
+# Runner: the plugin's own committed bundle, and nothing else. Nothing is
+# fetched from npm or taken from PATH, so what runs is always the code in this
+# plugin checkout.
+bundle="${CLAUDE_PLUGIN_ROOT:-}/plugin-dist/glassbox.mjs"
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$bundle" ] || exit 0
+set -- node "$bundle"
 
 case "$event" in
   post-edit)

@@ -1,0 +1,3 @@
+# Build output of `npm run bundle`, committed so the plugin runs from a plain git checkout.
+plugin-dist/** linguist-generated=true
+plugin-dist/*.wasm binary
