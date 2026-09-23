@@ -138,7 +138,7 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 
 ### Status and settings
 
-`glassbox status` (or `/glassbox:status` in Claude Code) shows the graph (nodes, stale nodes, tagged share, last parse), how it got there (auto-init indexing in the background, structure-only with no tags yet, or tagged N of M), the mode and where it came from, which hooks and the concise rules are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
+`glassbox status` (or `/glassbox:status` in Claude Code) shows the graph (nodes, stale nodes, tagged share, last parse), how it got there (auto-init indexing in the background, structure-only with no tags yet, or tagged N of M; in a repo with no graph, whether auto-init will start at the next session or the reason it will not), the mode and where it came from, which hooks and the concise rules are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
 
 `.glassbox/config.json` is meant to be local to your checkout (`glassbox init` git-ignores the folder). Every field is optional:
 
@@ -156,7 +156,7 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 
 `"claudeMd": false` means a sync never creates CLAUDE.md (an existing one still gets the `@AGENTS.md` import). `glassbox init --no-claude-md` writes it, so later `sync-md`, `refresh --sync-md`, hook and launcher syncs keep that choice.
 
-For each setting the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else the default. The worker limits and the gate timeout are clamped to the bounds in the environment table under [No extra keys or models](#configuration), whatever sets them.
+For each setting the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else the default. The worker limits and the gate timeout are clamped to the bounds in the environment table under [Configuration](#configuration), whatever sets them.
 
 A `.glassbox/config.json` in a `.glassbox/` that git tracks (any file in it, in any letter case, or `.glassbox` as a submodule) came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, `"conciseRules": false`, `"claudeMd": false` and `"autoInit": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
 
