@@ -209,3 +209,36 @@ describe('storeTrackedByGit', () => {
     expect(only(() => {})).toBe(false);
   });
 });
+
+describe('init --no-claude-md', () => {
+  it('is remembered in .glassbox/config.json and honored by later syncs', async () => {
+    const { indexedFixture, cli } = await import('./helpers.js');
+    const { readFileSync } = await import('node:fs');
+    const root = await indexedFixture();
+    try {
+      expect(JSON.parse(readFileSync(join(root, '.glassbox', 'config.json'), 'utf8'))).toMatchObject({ claudeMd: false });
+      expect(loadProjectConfig(root).claudeMd).toBe(false);
+      expect(existsSync(join(root, 'CLAUDE.md'))).toBe(false);
+      // sync-md and refresh --sync-md without the flag still do not create CLAUDE.md.
+      expect((await cli(root, ['sync-md'])).out).toMatch(/CLAUDE\.md skipped/);
+      expect((await cli(root, ['refresh', '--sync-md'])).code).toBe(0);
+      expect(existsSync(join(root, 'CLAUDE.md'))).toBe(false);
+      // Other fields in the config are kept when the choice is written.
+      writeFileSync(join(root, '.glassbox', 'config.json'), JSON.stringify({ mode: 'fast' }));
+      const { updateProjectConfig } = await import('../../src/project-config.js');
+      updateProjectConfig(root, { claudeMd: false });
+      expect(loadProjectConfig(root)).toEqual({ mode: 'fast', claudeMd: false });
+      // Setting it back to true lets a sync create CLAUDE.md again.
+      updateProjectConfig(root, { claudeMd: true });
+      await cli(root, ['sync-md']);
+      expect(existsSync(join(root, 'CLAUDE.md'))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('survives in a tracked config, since it only turns something off', () => {
+    expect(onlyDisables({ claudeMd: false, mode: 'strict' })).toEqual({ claudeMd: false });
+    expect(onlyDisables({ claudeMd: true })).toEqual({});
+  });
+});

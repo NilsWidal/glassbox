@@ -106,7 +106,10 @@ export async function syncAgentsMd(
 ): Promise<SyncAgentsMdResult> {
   const agentsMdPath = join(repoRoot, 'AGENTS.md');
   const claudeMdPath = join(repoRoot, 'CLAUDE.md');
-  const conciseRules = opts.conciseRules ?? conciseRulesEnabled(process.env, loadProjectConfigSafe(repoRoot));
+  const project = loadProjectConfigSafe(repoRoot);
+  const conciseRules = opts.conciseRules ?? conciseRulesEnabled(process.env, project);
+  // A repo set up with `init --no-claude-md` keeps that choice for every later sync.
+  const createClaudeMd = opts.claudeMd !== false && project.claudeMd !== false;
   const rendered = renderBlock(summary, { ...(opts.maxLines !== undefined ? { maxLines: opts.maxLines } : {}), conciseRules });
 
   const agentsOld = await readInsideOrNull(repoRoot, agentsMdPath);
@@ -120,7 +123,7 @@ export async function syncAgentsMd(
   const claudeOld = await readInsideOrNull(repoRoot, claudeMdPath);
   let claudeMd: FileAction;
   if (claudeOld === null) {
-    if (opts.claudeMd === false) {
+    if (!createClaudeMd) {
       claudeMd = 'skipped';
     } else {
       await writeInside(repoRoot, claudeMdPath, `${IMPORT_LINE}\n`);

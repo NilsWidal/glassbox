@@ -123,7 +123,7 @@ In Claude Code the plugin wires them up (see [docs/claude-code.md](docs/claude-c
 
 - It uses only the stored graph. A rule-based check first skips prompts that are not about code.
 - It prints nothing when there is no graph, when git tracks anything in `.glassbox/` in any letter case or `.glassbox` is a submodule (it came with the clone), when no node clears the match floor, or when most matching files changed after the last parse.
-- The matches come inside a fenced block that the header marks as data, not instructions. Only paths without whitespace (each segment at most 40 characters) and plain identifiers are shown, which keeps what a file name can say short. It cannot stop a short name made of words, which is why the block is labelled as data. The AGENTS.md block does the same: paths are in code format, long path segments are cut, and a note says they are data.
+- The matches come inside a fenced block that the header marks as data, not instructions. Only paths without whitespace (each segment at most 40 characters) and plain identifiers are shown, which keeps what a file name can say short. It cannot stop a short name made of words, which is why the block is labelled as data. The AGENTS.md block does the same: paths and area names are in code format, long segments are cut, and a note says they are data.
 - On the sample repo it takes about 10 ms in process, and about 100 ms as a hook (starting `node` is most of it).
 
 The `UserPromptSubmit` hook adds this text to the prompt as extra context. On with the plugin's `ambient` option, `GLASSBOX_AMBIENT=1` or `"ambient": {"enabled": true}` in `.glassbox/config.json`.
@@ -160,7 +160,7 @@ After an edit marks nodes stale, a detached worker (`glassbox worker run`) re-pa
 
 - It holds a lock file so only one runs.
 - It waits at least 60 s between runs and re-tags at most 24 nodes per run.
-- It stops at a daily budget of 100 model runs. Each run charges its worst case to the budget before its first model call and settles to the real count at the end, so a run that is killed half way still counts.
+- It stops at a daily budget of 100 model runs. Each run charges its worst case to the budget before its first model call and settles to the real count at the end, so a run that is killed half way still counts. With the API backends every HTTP request counts, retries included.
 - A run stops its model calls after 20 minutes.
 - When an edit comes while the worker may not start yet (too soon after the last run, a run in progress, or no budget left), `worker.json` records a pending re-tag, and the next hook call (prompt, stop, edit or session start) starts the worker once it is allowed. `glassbox status` shows it.
 
@@ -178,13 +178,16 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
   "ambient": { "enabled": true, "maxChars": 1500, "minScore": 3, "maxHits": 6 },
   "gate": { "enabled": true, "mode": "fast", "timeoutMs": 45000 },
   "conciseRules": true,
+  "claudeMd": false,
   "worker": { "enabled": true, "dailyCalls": 100, "minIntervalSec": 60, "maxNodesPerRun": 24 }
 }
 ```
 
+`"claudeMd": false` means a sync never creates CLAUDE.md (an existing one still gets the `@AGENTS.md` import). `glassbox init --no-claude-md` writes it, so later `sync-md`, `refresh --sync-md`, hook and launcher syncs keep that choice.
+
 For each setting the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else the default. The worker limits and the gate timeout are clamped to the bounds in the environment table under [No extra keys or models](#no-extra-keys-or-models), whatever sets them.
 
-A `.glassbox/config.json` in a `.glassbox/` that git tracks (any file in it, in any letter case, or `.glassbox` as a submodule) came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, and `"conciseRules": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
+A `.glassbox/config.json` in a `.glassbox/` that git tracks (any file in it, in any letter case, or `.glassbox` as a submodule) came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, `"conciseRules": false` and `"claudeMd": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
 
 ### Hook entry points
 

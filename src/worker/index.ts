@@ -487,7 +487,9 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
       const todo = all.filter((n) => isTagTarget(n) && !tagsFresh(store, n, qids)).length;
       if (todo === 0) return skip('nothing stale');
       const backend = opts.backend();
-      const runsPerCall = Math.max(1, backend.samples ?? 1);
+      // Model runs one backend call can cost: its samples, times every request it may send
+      // (an HTTP backend retries on 429 and 5xx, and each retry is a paid request).
+      const runsPerCall = Math.max(1, backend.samples ?? 1) * Math.max(1, Math.floor(backend.maxRequestsPerCall ?? 1));
       // Backend calls one node can cost (one option order): a batching backend asks all of a
       // node's questions in one call, any other backend makes one call per question.
       const callsPerNode = backend.capabilities.batch ? 1 : Math.max(1, qids.length);
@@ -504,6 +506,7 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
       state.callsToday += charged;
       writeWorkerState(root, state);
 
+      const requestsBefore = backend.requestCount;
       const r = await tagPass(root, backend, { store, limit, concurrency: 2, decide: { permutations: 1, signal: abort.signal } });
       // A failed group spent up to one call per node (batching) or per node and question.
       const failedCalls = r.failed.reduce((n, f) => n + (backend.capabilities.batch ? 1 : f.nodeIds.length * callsPerNode), 0);
@@ -513,7 +516,11 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
         tags: r.tags,
         deferred: r.deferred,
         failed: r.failed.length,
-        modelRuns: calls * runsPerCall,
+        // A backend that counts its requests is charged exactly that, retries included.
+        modelRuns:
+          backend.requestCount !== undefined && requestsBefore !== undefined
+            ? backend.requestCount - requestsBefore
+            : calls * Math.max(1, backend.samples ?? 1),
         latencyMs: r.latencyMs,
       };
       state = { ...readWorkerState(root, now()), lastFinishedAt: now(), lastResult: summary };

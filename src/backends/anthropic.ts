@@ -29,7 +29,10 @@ export interface AnthropicOptions {
 
 const SDK = '@anthropic-ai/sdk';
 
-async function loadClient(apiKey: string | undefined, timeoutMs: number): Promise<AnthropicClientLike> {
+/** Retries the SDK makes on 429, 5xx and connection errors; each is a paid request. */
+const SDK_MAX_RETRIES = 3;
+
+async function loadClient(apiKey: string | undefined, timeoutMs: number, onRequest: () => void): Promise<AnthropicClientLike> {
   let mod: { default: new (opts: Record<string, unknown>) => AnthropicClientLike };
   try {
     // A variable specifier keeps the optional SDK out of type resolution.
@@ -38,7 +41,12 @@ async function loadClient(apiKey: string | undefined, timeoutMs: number): Promis
   } catch {
     throw new Error(`the anthropic backend needs the optional package ${SDK}: npm install ${SDK}`);
   }
-  return new mod.default({ ...(apiKey ? { apiKey } : {}), timeout: timeoutMs, maxRetries: 3 });
+  // Every request the SDK sends, retries included, goes through this fetch, so it can be counted.
+  const counting: typeof fetch = (input, init) => {
+    onRequest();
+    return fetch(input, init);
+  };
+  return new mod.default({ ...(apiKey ? { apiKey } : {}), timeout: timeoutMs, maxRetries: SDK_MAX_RETRIES, fetch: counting });
 }
 
 /**
@@ -62,6 +70,15 @@ export class AnthropicBackend implements Backend {
   private readonly maxTokens: number;
   private readonly apiKey: string | undefined;
   private client: AnthropicClientLike | undefined;
+  /** Requests counted through the SDK's fetch; undefined with an injected client, which glassbox cannot see into. */
+  private sent: number | undefined;
+  /** One request plus the SDK's retries. */
+  readonly maxRequestsPerCall = SDK_MAX_RETRIES + 1;
+
+  /** Requests sent so far, retries included, when glassbox made the SDK client. */
+  get requestCount(): number | undefined {
+    return this.sent;
+  }
 
   constructor(opts: AnthropicOptions = {}) {
     const env = opts.env ?? process.env;
@@ -71,10 +88,13 @@ export class AnthropicBackend implements Backend {
     this.maxTokens = opts.maxTokens ?? 2048;
     this.apiKey = opts.apiKey ?? env.GLASSBOX_ANTHROPIC_API_KEY ?? env.ANTHROPIC_API_KEY;
     this.client = opts.client;
+    if (!opts.client) this.sent = 0;
   }
 
   private async getClient(): Promise<AnthropicClientLike> {
-    this.client ??= await loadClient(this.apiKey, this.timeoutMs);
+    this.client ??= await loadClient(this.apiKey, this.timeoutMs, () => {
+      this.sent = (this.sent ?? 0) + 1;
+    });
     return this.client;
   }
 

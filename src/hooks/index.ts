@@ -54,7 +54,9 @@ export function parseHookInput(text: string): HookInput {
     for (const k of ['hook_event_name', 'session_id', 'cwd', 'prompt', 'tool_name'] as const) {
       if (typeof o[k] === 'string') out[k] = o[k];
     }
-    if (typeof o.stop_hook_active === 'boolean') out.stop_hook_active = o.stop_hook_active;
+    // Only a real true (or the string "true") means the turn already continued because of a Stop hook.
+    if (o.stop_hook_active === true || o.stop_hook_active === 'true') out.stop_hook_active = true;
+    else if (o.stop_hook_active === false) out.stop_hook_active = false;
     if (o.tool_input !== undefined) out.tool_input = o.tool_input;
     return out;
   } catch {

@@ -57,6 +57,17 @@ export class OpenAICompatBackend implements Backend {
   private readonly concurrency: number;
   private readonly fetchFn: typeof fetch;
   private readonly sleep: (ms: number) => Promise<void>;
+  private sent = 0;
+
+  /** One request plus up to maxRetries retries. */
+  get maxRequestsPerCall(): number {
+    return this.maxRetries + 1;
+  }
+
+  /** Requests sent so far, retries included (so a budget can count every attempt). */
+  get requestCount(): number {
+    return this.sent;
+  }
 
   constructor(opts: OpenAICompatOptions = {}) {
     const env = opts.env ?? process.env;
@@ -166,6 +177,7 @@ export class OpenAICompatBackend implements Backend {
   private async post(body: Record<string, unknown>, signal?: AbortSignal): Promise<ChatResponse> {
     for (let attempt = 0; ; attempt++) {
       const timeout = AbortSignal.timeout(this.timeoutMs);
+      this.sent++;
       const res = await this.fetchFn(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {

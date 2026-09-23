@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { assertNotSymlinkSync, within } from './util/safefs.js';
 import { storeTrackedByGit } from './util/tracked.js';
@@ -39,6 +39,11 @@ export interface ProjectConfig {
   };
   /** Adds the concise answer rules to the AGENTS.md block. Default false. */
   conciseRules?: boolean;
+  /**
+   * false: never create CLAUDE.md when the AGENTS.md block is written (an
+   * existing one still gets the import). `init --no-claude-md` sets it.
+   */
+  claudeMd?: boolean;
   worker?: {
     /** false stops hooks and the launcher from starting the background re-tagging worker. Default true. */
     enabled?: boolean;
@@ -73,6 +78,7 @@ export function parseProjectConfig(value: unknown): ProjectConfig {
   const out: ProjectConfig = {};
   if (typeof value.mode === 'string') out.mode = value.mode;
   if (typeof value.conciseRules === 'boolean') out.conciseRules = value.conciseRules;
+  if (typeof value.claudeMd === 'boolean') out.claudeMd = value.claudeMd;
   const ambient = pick<NonNullable<ProjectConfig['ambient']>>(value.ambient, {
     enabled: 'boolean',
     maxChars: 'number',
@@ -103,7 +109,31 @@ export function onlyDisables(config: ProjectConfig): ProjectConfig {
   if (config.gate?.enabled === false) out.gate = { enabled: false };
   if (config.worker?.enabled === false) out.worker = { enabled: false };
   if (config.conciseRules === false) out.conciseRules = false;
+  if (config.claudeMd === false) out.claudeMd = false;
   return out;
+}
+
+/**
+ * Sets top-level fields in <root>/.glassbox/config.json, keeping every other
+ * field as written. An unreadable or non-object file is replaced. Refuses a
+ * symlinked store directory or file.
+ */
+export function updateProjectConfig(root: string, fields: Record<string, unknown>): void {
+  const dir = join(root, STORE_DIR);
+  const file = join(dir, PROJECT_CONFIG_FILE);
+  assertNotSymlinkSync(dir);
+  assertNotSymlinkSync(file);
+  if (!within(realpathSync(root), realpathSync(dir))) throw new Error(`refusing to write ${file}: it resolves outside ${root}`);
+  let current: Record<string, unknown> = {};
+  try {
+    const v = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+    if (isObj(v)) current = v;
+  } catch {
+    current = {};
+  }
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify({ ...current, ...fields }, null, 2)}\n`, { flag: 'w' });
+  renameSync(tmp, file);
 }
 
 /**

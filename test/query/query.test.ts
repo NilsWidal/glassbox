@@ -392,7 +392,7 @@ describe('AGENTS.md summary', () => {
     expect(first.lines).toBeLessThanOrEqual(60);
     const md = await readFile(join(root, 'AGENTS.md'), 'utf8');
     expect(md).toContain('<!-- glassbox:start -->');
-    expect(md).toMatch(/- \*\*auth\*\* \(10 nodes\)/);
+    expect(md).toMatch(/- `auth` \(10 nodes\)/);
     expect(md).toMatch(/\n- `requireAuth` `src\/auth\/middleware\.ts:11` p=0\.80: high risk, auth/);
     expect(await readFile(join(root, 'CLAUDE.md'), 'utf8')).toBe('@AGENTS.md\n');
     const second = await syncMd(root, store);

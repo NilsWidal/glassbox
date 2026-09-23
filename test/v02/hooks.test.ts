@@ -39,6 +39,15 @@ function ctx(extra: Partial<HookContext> = {}): HookContext {
 }
 
 describe('hook input', () => {
+  it('reads stop_hook_active as true only for true or "true"', () => {
+    expect(parseHookInput('{"stop_hook_active":true}').stop_hook_active).toBe(true);
+    expect(parseHookInput('{"stop_hook_active":"true"}').stop_hook_active).toBe(true);
+    expect(parseHookInput('{"stop_hook_active":false}').stop_hook_active).toBe(false);
+    for (const v of ['"false"', '"yes"', '1', '"1"', 'null']) {
+      expect(parseHookInput(`{"stop_hook_active":${v}}`).stop_hook_active, v).not.toBe(true);
+    }
+  });
+
   it('parses the fields glassbox uses and ignores the rest', () => {
     expect(parseHookInput('{"prompt":"hi","cwd":"/x","stop_hook_active":true,"session_id":7,"extra":1}')).toEqual({
       prompt: 'hi',
@@ -448,10 +457,17 @@ describe('glassbox hook (CLI entry)', () => {
   }, 10_000);
 
   it('exits 0 with no output for a missing event, extra arguments, a bad --host or a missing option value', async () => {
-    for (const args of [['hook'], ['hook', 'prompt', 'extra', 'args'], ['hook', 'prompt', '--host', 'vim'], ['hook', 'prompt', '--root'], ['hook', 'prompt', '--nope']]) {
+    for (const args of [
+      ['hook'],
+      ['hook', 'prompt', 'extra', 'args'],
+      ['hook', 'prompt', '--host', 'vim'],
+      ['hook', 'prompt', '--root'],
+      ['hook', 'prompt', '--host'],
+      ['hook', 'prompt', '--nope'],
+    ]) {
       const r = await cli(root, args, { readStdin: async () => '{}' });
-      expect(r.code, args.join(' ')).toBe(0);
-      expect(r.out, args.join(' ')).toBe('');
+      // Fully silent: nothing on stdout or stderr.
+      expect(r, args.join(' ')).toEqual({ code: 0, out: '', err: '' });
     }
     // An invalid --host is ignored, not passed on: the prompt hook still works.
     const r = await cli(root, ['hook', 'prompt', '--host', 'vim'], {

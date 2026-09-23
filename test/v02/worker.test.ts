@@ -3,7 +3,9 @@ import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { AnthropicBackend } from '../../src/backends/anthropic.js';
 import { FakeBackend } from '../../src/backends/fake.js';
+import { OpenAICompatBackend } from '../../src/backends/openai-compat.js';
 import type { Backend } from '../../src/types.js';
 import { refresh } from '../../src/memory/refresh.js';
 import { renderStatus, status } from '../../src/status.js';
@@ -379,6 +381,43 @@ describe('runWorker', () => {
     const r = await runWorker(root, { env: {}, backend: () => single, now: () => T0 });
     expect(r).toMatchObject({ ran: false, reason: 'daily call budget used' });
     expect(calls).toBe(0);
+  });
+
+  it('knows the Anthropic SDK retries: worst case per call, counted only for its own client', () => {
+    const own = new AnthropicBackend({ env: {}, apiKey: 'k' });
+    expect(own.maxRequestsPerCall).toBe(4);
+    expect(own.requestCount).toBe(0);
+    const injected = new AnthropicBackend({ env: {}, client: { messages: { create: async () => ({ content: [] }) } } as never });
+    expect(injected.requestCount).toBeUndefined();
+  });
+
+  it('charges every HTTP request, retries included, against the daily budget', async () => {
+    await touch('src/billing/retry.ts');
+    await touch('src/auth/session.ts');
+    let requests = 0;
+    const failing = new OpenAICompatBackend({
+      model: 'm',
+      apiKey: 'k',
+      env: {},
+      sleep: async () => {},
+      fetch: (async () => {
+        requests++;
+        return new Response('down', { status: 500 });
+      }) as typeof fetch,
+    });
+    expect(failing.maxRequestsPerCall).toBe(4);
+    for (const daily of [10, 60]) {
+      writeWorkerState(root, { day: localDay(T0), callsToday: 0 });
+      requests = 0;
+      const r = await runWorker(root, { env: { GLASSBOX_WORKER_DAILY_CALLS: String(daily) }, backend: () => failing, now: () => T0 });
+      // Every 500 is retried 3 times, and every attempt counts: never more requests than the budget.
+      expect(requests).toBeLessThanOrEqual(daily);
+      expect(readWorkerState(root, T0).callsToday).toBe(requests);
+      if (daily === 60) {
+        expect(requests).toBeGreaterThan(0);
+        expect(r.summary!.modelRuns).toBe(requests);
+      }
+    }
   });
 
   it('stops its model calls at the time cap and leaves the rest pending', async () => {

@@ -3942,7 +3942,7 @@ var init_sampling = __esm({
 });
 
 // src/backends/anthropic.ts
-async function loadClient(apiKey, timeoutMs) {
+async function loadClient(apiKey, timeoutMs, onRequest) {
   let mod;
   try {
     const spec = SDK;
@@ -3950,7 +3950,11 @@ async function loadClient(apiKey, timeoutMs) {
   } catch {
     throw new Error(`the anthropic backend needs the optional package ${SDK}: npm install ${SDK}`);
   }
-  return new mod.default({ ...apiKey ? { apiKey } : {}, timeout: timeoutMs, maxRetries: 3 });
+  const counting = (input2, init3) => {
+    onRequest();
+    return fetch(input2, init3);
+  };
+  return new mod.default({ ...apiKey ? { apiKey } : {}, timeout: timeoutMs, maxRetries: SDK_MAX_RETRIES, fetch: counting });
 }
 function splitForCache(prompt) {
   const marker = "</state>\n";
@@ -3961,7 +3965,7 @@ function splitForCache(prompt) {
 function textOf(content) {
   return content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
 }
-var SDK, AnthropicBackend;
+var SDK, SDK_MAX_RETRIES, AnthropicBackend;
 var init_anthropic = __esm({
   "src/backends/anthropic.ts"() {
     "use strict";
@@ -3969,6 +3973,7 @@ var init_anthropic = __esm({
     init_prompt();
     init_sampling();
     SDK = "@anthropic-ai/sdk";
+    SDK_MAX_RETRIES = 3;
     AnthropicBackend = class {
       name = "anthropic";
       model;
@@ -3978,6 +3983,14 @@ var init_anthropic = __esm({
       maxTokens;
       apiKey;
       client;
+      /** Requests counted through the SDK's fetch; undefined with an injected client, which glassbox cannot see into. */
+      sent;
+      /** One request plus the SDK's retries. */
+      maxRequestsPerCall = SDK_MAX_RETRIES + 1;
+      /** Requests sent so far, retries included, when glassbox made the SDK client. */
+      get requestCount() {
+        return this.sent;
+      }
       constructor(opts = {}) {
         const env = opts.env ?? process.env;
         this.model = opts.model ?? "claude-haiku-4-5-20251001";
@@ -3986,9 +3999,12 @@ var init_anthropic = __esm({
         this.maxTokens = opts.maxTokens ?? 2048;
         this.apiKey = opts.apiKey ?? env.GLASSBOX_ANTHROPIC_API_KEY ?? env.ANTHROPIC_API_KEY;
         this.client = opts.client;
+        if (!opts.client) this.sent = 0;
       }
       async getClient() {
-        this.client ??= await loadClient(this.apiKey, this.timeoutMs);
+        this.client ??= await loadClient(this.apiKey, this.timeoutMs, () => {
+          this.sent = (this.sent ?? 0) + 1;
+        });
         return this.client;
       }
       /** Request body for one batch (no assistant prefill; the schema shapes the answer). */
@@ -4588,6 +4604,15 @@ var init_openai_compat = __esm({
       concurrency;
       fetchFn;
       sleep;
+      sent = 0;
+      /** One request plus up to maxRetries retries. */
+      get maxRequestsPerCall() {
+        return this.maxRetries + 1;
+      }
+      /** Requests sent so far, retries included (so a budget can count every attempt). */
+      get requestCount() {
+        return this.sent;
+      }
       constructor(opts = {}) {
         const env = opts.env ?? process.env;
         const model = opts.model ?? env.GLASSBOX_MODEL;
@@ -4683,6 +4708,7 @@ var init_openai_compat = __esm({
       async post(body2, signal) {
         for (let attempt = 0; ; attempt++) {
           const timeout = AbortSignal.timeout(this.timeoutMs);
+          this.sent++;
           const res = await this.fetchFn(`${this.baseUrl}/chat/completions`, {
             method: "POST",
             headers: {
@@ -11754,7 +11780,18 @@ var init_tracked = __esm({
 });
 
 // src/project-config.ts
-import { readFileSync as readFileSync3, realpathSync as realpathSync2 } from "node:fs";
+var project_config_exports = {};
+__export(project_config_exports, {
+  PROJECT_CONFIG_FILE: () => PROJECT_CONFIG_FILE,
+  envFlag: () => envFlag,
+  featureEnabled: () => featureEnabled,
+  loadProjectConfig: () => loadProjectConfig,
+  loadProjectConfigSafe: () => loadProjectConfigSafe,
+  onlyDisables: () => onlyDisables,
+  parseProjectConfig: () => parseProjectConfig,
+  updateProjectConfig: () => updateProjectConfig
+});
+import { readFileSync as readFileSync3, realpathSync as realpathSync2, renameSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname8, join as join13 } from "node:path";
 function isObj(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -11773,6 +11810,7 @@ function parseProjectConfig(value) {
   const out2 = {};
   if (typeof value.mode === "string") out2.mode = value.mode;
   if (typeof value.conciseRules === "boolean") out2.conciseRules = value.conciseRules;
+  if (typeof value.claudeMd === "boolean") out2.claudeMd = value.claudeMd;
   const ambient = pick(value.ambient, {
     enabled: "boolean",
     maxChars: "number",
@@ -11797,7 +11835,26 @@ function onlyDisables(config2) {
   if (config2.gate?.enabled === false) out2.gate = { enabled: false };
   if (config2.worker?.enabled === false) out2.worker = { enabled: false };
   if (config2.conciseRules === false) out2.conciseRules = false;
+  if (config2.claudeMd === false) out2.claudeMd = false;
   return out2;
+}
+function updateProjectConfig(root2, fields) {
+  const dir = join13(root2, STORE_DIR3);
+  const file2 = join13(dir, PROJECT_CONFIG_FILE);
+  assertNotSymlinkSync(dir);
+  assertNotSymlinkSync(file2);
+  if (!within(realpathSync2(root2), realpathSync2(dir))) throw new Error(`refusing to write ${file2}: it resolves outside ${root2}`);
+  let current = {};
+  try {
+    const v = JSON.parse(readFileSync3(file2, "utf8"));
+    if (isObj(v)) current = v;
+  } catch {
+    current = {};
+  }
+  const tmp = `${file2}.${process.pid}.tmp`;
+  writeFileSync2(tmp, `${JSON.stringify({ ...current, ...fields }, null, 2)}
+`, { flag: "w" });
+  renameSync(tmp, file2);
 }
 function loadProjectConfig(root2) {
   const file2 = join13(root2, STORE_DIR3, PROJECT_CONFIG_FILE);
@@ -11895,7 +11952,7 @@ function areaLine(a) {
   const extra = a.entryPoints.length - shown.length;
   if (extra > 0) shown.push(`+${extra} more`);
   const entries = shown.length > 0 ? `: ${shown.join(", ")}` : "";
-  return `- **${token(a.name, 60)}** (${a.nodeCount} nodes)${entries}`;
+  return `- \`${pathToken(a.name)}\` (${a.nodeCount} nodes)${entries}`;
 }
 function riskyLine(n) {
   const p = Math.min(1, Math.max(0, n.p)).toFixed(2);
@@ -12053,7 +12110,9 @@ function addAgentsImport(existing) {
 async function syncAgentsMd(repoRoot, summary, opts = {}) {
   const agentsMdPath = join14(repoRoot, "AGENTS.md");
   const claudeMdPath = join14(repoRoot, "CLAUDE.md");
-  const conciseRules = opts.conciseRules ?? conciseRulesEnabled(process.env, loadProjectConfigSafe(repoRoot));
+  const project = loadProjectConfigSafe(repoRoot);
+  const conciseRules = opts.conciseRules ?? conciseRulesEnabled(process.env, project);
+  const createClaudeMd = opts.claudeMd !== false && project.claudeMd !== false;
   const rendered = renderBlock(summary, { ...opts.maxLines !== void 0 ? { maxLines: opts.maxLines } : {}, conciseRules });
   const agentsOld = await readInsideOrNull(repoRoot, agentsMdPath);
   const agentsNew = upsertBlock(agentsOld, rendered.text);
@@ -12065,7 +12124,7 @@ async function syncAgentsMd(repoRoot, summary, opts = {}) {
   const claudeOld = await readInsideOrNull(repoRoot, claudeMdPath);
   let claudeMd;
   if (claudeOld === null) {
-    if (opts.claudeMd === false) {
+    if (!createClaudeMd) {
       claudeMd = "skipped";
     } else {
       await writeInside(repoRoot, claudeMdPath, `${IMPORT_LINE}
@@ -13304,7 +13363,7 @@ __export(store_exports, {
   readIndexedAt: () => readIndexedAt,
   storeProblem: () => storeProblem
 });
-import { existsSync as existsSync3, readFileSync as readFileSync4, renameSync, rmSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync4, renameSync as renameSync2, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname9, join as join20 } from "node:path";
 function loadSqlite(get = builtin) {
   let mod;
@@ -13500,9 +13559,9 @@ CREATE INDEX IF NOT EXISTS tags_question ON tags(question_id);
         const tmp = `${file2}.${process.pid}.tmp`;
         try {
           assertNotSymlinkSync(file2);
-          writeFileSync2(tmp, `${JSON.stringify({ indexedAt: at })}
+          writeFileSync3(tmp, `${JSON.stringify({ indexedAt: at })}
 `, { flag: "w" });
-          renameSync(tmp, file2);
+          renameSync2(tmp, file2);
         } catch {
           rmSync(tmp, { force: true });
         }
@@ -58184,7 +58243,7 @@ __export(worker_exports, {
 });
 import { spawn as spawn2 } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync as existsSync5, openSync, readFileSync as readFileSync5, renameSync as renameSync2, rmSync as rmSync2, statSync as statSync2, writeSync } from "node:fs";
+import { closeSync, existsSync as existsSync5, openSync, readFileSync as readFileSync5, renameSync as renameSync3, rmSync as rmSync2, statSync as statSync2, writeSync } from "node:fs";
 import { join as join23 } from "node:path";
 function int2(v) {
   const n = v === void 0 ? NaN : Number(v);
@@ -58250,7 +58309,7 @@ function writeWorkerState(root2, state) {
     } finally {
       closeSync(fd);
     }
-    renameSync2(tmp, file2);
+    renameSync3(tmp, file2);
   } catch (err2) {
     rmSync2(tmp, { force: true });
     throw err2;
@@ -58462,7 +58521,7 @@ async function runWorker(root2, opts) {
       const todo = all.filter((n) => isTagTarget2(n) && !tagsFresh2(store, n, qids)).length;
       if (todo === 0) return skip("nothing stale");
       const backend = opts.backend();
-      const runsPerCall = Math.max(1, backend.samples ?? 1);
+      const runsPerCall = Math.max(1, backend.samples ?? 1) * Math.max(1, Math.floor(backend.maxRequestsPerCall ?? 1));
       const callsPerNode = backend.capabilities.batch ? 1 : Math.max(1, qids.length);
       const runsPerNode = callsPerNode * runsPerCall;
       const affordable = Math.floor((limits.dailyCalls - state.callsToday) / runsPerNode);
@@ -58473,6 +58532,7 @@ async function runWorker(root2, opts) {
       state = readWorkerState(root2, now());
       state.callsToday += charged;
       writeWorkerState(root2, state);
+      const requestsBefore = backend.requestCount;
       const r = await tagPass2(root2, backend, { store, limit, concurrency: 2, decide: { permutations: 1, signal: abort2.signal } });
       const failedCalls = r.failed.reduce((n, f) => n + (backend.capabilities.batch ? 1 : f.nodeIds.length * callsPerNode), 0);
       const calls = r.calls + failedCalls;
@@ -58481,7 +58541,8 @@ async function runWorker(root2, opts) {
         tags: r.tags,
         deferred: r.deferred,
         failed: r.failed.length,
-        modelRuns: calls * runsPerCall,
+        // A backend that counts its requests is charged exactly that, retries included.
+        modelRuns: backend.requestCount !== void 0 && requestsBefore !== void 0 ? backend.requestCount - requestsBefore : calls * Math.max(1, backend.samples ?? 1),
         latencyMs: r.latencyMs
       };
       state = { ...readWorkerState(root2, now()), lastFinishedAt: now(), lastResult: summary };
@@ -58707,7 +58768,7 @@ __export(hooks_exports, {
   stopHook: () => stopHook,
   writeGateState: () => writeGateState
 });
-import { existsSync as existsSync7, readFileSync as readFileSync7, renameSync as renameSync3, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync7, readFileSync as readFileSync7, renameSync as renameSync4, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname10, join as join25, resolve as resolve4 } from "node:path";
 function parseHookInput(text2) {
   if (!text2.trim() || text2.length > MAX_HOOK_INPUT) return {};
@@ -58719,7 +58780,8 @@ function parseHookInput(text2) {
     for (const k of ["hook_event_name", "session_id", "cwd", "prompt", "tool_name"]) {
       if (typeof o[k] === "string") out2[k] = o[k];
     }
-    if (typeof o.stop_hook_active === "boolean") out2.stop_hook_active = o.stop_hook_active;
+    if (o.stop_hook_active === true || o.stop_hook_active === "true") out2.stop_hook_active = true;
+    else if (o.stop_hook_active === false) out2.stop_hook_active = false;
     if (o.tool_input !== void 0) out2.tool_input = o.tool_input;
     return out2;
   } catch {
@@ -58846,9 +58908,9 @@ function writeGateState(root2, state) {
   const file2 = gateFile(root2);
   const tmp = `${file2}.${process.pid}.tmp`;
   try {
-    writeFileSync3(tmp, `${JSON.stringify(state)}
+    writeFileSync4(tmp, `${JSON.stringify(state)}
 `, { flag: "wx" });
-    renameSync3(tmp, file2);
+    renameSync4(tmp, file2);
   } catch {
     rmSync3(tmp, { force: true });
   }
@@ -59759,6 +59821,10 @@ function buildProgram(io, setCode) {
         const r = await runIndex(flags2, io, store, root2);
         let md;
         if (sync) {
+          if (flags2.claudeMd === false) {
+            const { updateProjectConfig: updateProjectConfig2 } = await Promise.resolve().then(() => (init_project_config(), project_config_exports));
+            updateProjectConfig2(root2, { claudeMd: false });
+          }
           md = await syncAgentsMd(root2, buildAgentsSummary(store), { claudeMd: flags2.claudeMd !== false });
           r.lines.push(`sync   AGENTS.md ${md.agentsMd}, CLAUDE.md ${md.claudeMd} (${md.lines} lines${md.truncated ? ", truncated" : ""})`);
         }
@@ -60023,7 +60089,9 @@ function buildProgram(io, setCode) {
   });
   program2.command("hook").description(
     "entry point for agent hooks: reads the hook JSON on stdin; exits 0 and prints nothing on any error or an unknown event"
-  ).addArgument(new Argument("[event]", `hook event: ${HOOK_EVENTS.join(", ")}`)).option("--host <host>", "the agent running the hook: claude-code or codex (anything else is ignored)").option("--root <dir>", "repo root (default: CLAUDE_PROJECT_DIR, the hook input cwd, or the current directory)").allowExcessArguments(true).allowUnknownOption(true).action(async (event, rawFlags) => {
+  ).addArgument(new Argument("[event]", `hook event: ${HOOK_EVENTS.join(", ")}`)).option("--host <host>", "the agent running the hook: claude-code or codex (anything else is ignored)").option("--root <dir>", "repo root (default: CLAUDE_PROJECT_DIR, the hook input cwd, or the current directory)").allowExcessArguments(true).allowUnknownOption(true).configureOutput({ writeOut: io.stdout, writeErr: () => {
+  }, outputError: () => {
+  } }).action(async (event, rawFlags) => {
     setCode(0);
     const flags2 = { ...rawFlags, host: rawFlags.host === "claude-code" || rawFlags.host === "codex" ? rawFlags.host : void 0 };
     if (io.env.GLASSBOX_NESTED === "1") return;

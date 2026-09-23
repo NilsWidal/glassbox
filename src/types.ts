@@ -122,6 +122,10 @@ export interface Backend {
   readonly model?: string;
   /** Model runs averaged per call (host CLIs start one process each), when more than one. */
   readonly samples?: number;
+  /** Most requests one call can send, retries included (HTTP backends that retry). Default 1. */
+  readonly maxRequestsPerCall?: number;
+  /** Requests sent so far, retries included, for backends that count them. */
+  readonly requestCount?: number;
   readonly capabilities: BackendCapabilities;
   /**
    * Answers every question about one state in ONE call (host CLI calls are

@@ -77,7 +77,7 @@ function areaLine(a: AreaSummary): string {
   const extra = a.entryPoints.length - shown.length;
   if (extra > 0) shown.push(`+${extra} more`);
   const entries = shown.length > 0 ? `: ${shown.join(', ')}` : '';
-  return `- **${token(a.name, 60)}** (${a.nodeCount} nodes)${entries}`;
+  return `- \`${pathToken(a.name)}\` (${a.nodeCount} nodes)${entries}`;
 }
 
 function riskyLine(n: RiskyNode): string {

@@ -411,6 +411,11 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
         const r = await runIndex(flags, io, store, root);
         let md: Awaited<ReturnType<typeof syncAgentsMd>> | undefined;
         if (sync) {
+          // Kept in .glassbox/config.json, so later syncs (sync-md, refresh, hooks, launcher) honor it too.
+          if (flags.claudeMd === false) {
+            const { updateProjectConfig } = await import('../project-config.js');
+            updateProjectConfig(root, { claudeMd: false });
+          }
           md = await syncAgentsMd(root, buildAgentsSummary(store), { claudeMd: flags.claudeMd !== false });
           r.lines.push(`sync   AGENTS.md ${md.agentsMd}, CLAUDE.md ${md.claudeMd} (${md.lines} lines${md.truncated ? ', truncated' : ''})`);
         }
@@ -795,6 +800,8 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     // A hook must never fail the turn: extra arguments and unknown options are ignored, not errors.
     .allowExcessArguments(true)
     .allowUnknownOption(true)
+    // Silent on argument errors too (a missing option value): the host shows hook stderr to the user.
+    .configureOutput({ writeOut: io.stdout, writeErr: () => {}, outputError: () => {} })
     .action(async (event: string | undefined, rawFlags: { host?: string; root?: string }) => {
       setCode(0);
       const flags = { ...rawFlags, host: rawFlags.host === 'claude-code' || rawFlags.host === 'codex' ? rawFlags.host : undefined };
