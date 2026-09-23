@@ -66,7 +66,7 @@ export function buildBatchRequest(state: State, questions: Record<string, BatchQ
     HEADER,
     '',
     '<state>',
-    stateText(state),
+    fenceState(stateText(state)),
     '</state>',
     '',
     'QUESTIONS',
@@ -84,6 +84,15 @@ export function buildBatchRequest(state: State, questions: Record<string, BatchQ
     additionalProperties: false,
   };
   return { prompt, schema, keys, labels };
+}
+
+/**
+ * Neutralizes state tags inside the data, so code that contains "</state>"
+ * cannot close the block and pose as instructions. Deterministic, so the
+ * prompt prefix still caches.
+ */
+export function fenceState(text: string): string {
+  return text.replace(/<(\/?state)(?=[\s>]|$)/gi, '&lt;$1');
 }
 
 function labelObjectSchema(labels: string[]): Record<string, unknown> {

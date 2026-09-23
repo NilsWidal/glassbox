@@ -4,6 +4,8 @@ import type { Backend, BackendCapabilities, BatchQuestion, GenerateOptions, Labe
 import {
   CliCallError,
   CliNotFoundError,
+  checkModelId,
+  cliChildEnv,
   isNotFound,
   runProcess,
   tail,
@@ -68,12 +70,11 @@ export class ClaudeCliBackend implements Backend {
 
   constructor(opts: ClaudeCliOptions = {}) {
     const env = opts.env ?? process.env;
-    this.model = opts.model ?? 'haiku';
+    this.model = checkModelId(opts.model ?? 'haiku');
     this.samples = opts.samples ?? resolveSamples(env);
     this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
     this.bin = opts.bin ?? env.GLASSBOX_CLAUDE_BIN ?? 'claude';
-    // GLASSBOX_NESTED lets our own plugin hooks skip work inside the nested call.
-    this.env = { ...env, GLASSBOX_NESTED: '1' };
+    this.env = cliChildEnv(env);
     // Run outside the project so nothing project-local is picked up.
     this.cwd = opts.cwd ?? tmpdir();
     this.run = opts.run ?? runProcess;

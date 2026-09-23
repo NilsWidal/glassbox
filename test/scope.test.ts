@@ -79,6 +79,21 @@ describe('buildScope', () => {
     await expect(buildScope({ paths: ['../x'] }, { root: FIXTURE })).rejects.toThrow(/outside/);
   });
 
+  it('refuses node ids and diff paths that leave the root', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'glassbox-scope-'));
+    const root = join(base, 'repo');
+    await mkdir(join(root, 'src'), { recursive: true });
+    await mkdir(join(base, 'outside'));
+    await writeFile(join(base, 'outside/leak.ts'), 'export function secretFn() {\n  return "secret";\n}\n');
+    await writeFile(join(root, 'src/f.ts'), 'export function f() {\n  return 1;\n}\n');
+    await expect(buildScope({ nodes: ['../outside/leak.ts#secretFn'] }, { root })).rejects.toThrow(/outside/);
+    await expect(buildScope({ nodes: [`${join(base, 'outside/leak.ts')}#secretFn`] }, { root })).rejects.toThrow(/outside/);
+    const diff = ['--- a/../outside/leak.ts', '+++ b/../outside/leak.ts', '@@ -1,1 +1,1 @@', '-x', '+y'].join('\n');
+    await expect(buildScope({ diff }, { root })).rejects.toThrow(/empty/);
+    const { chunks } = await buildScope({ diff, paths: ['src/f.ts'] }, { root });
+    expect(chunks.every((c) => c.file === 'src/f.ts')).toBe(true);
+  });
+
   it('dedupes a node that is also inside a listed file', async () => {
     const root = await mkdtemp(join(tmpdir(), 'glassbox-scope-'));
     await mkdir(join(root, 'src'));

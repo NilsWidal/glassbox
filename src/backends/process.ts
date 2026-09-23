@@ -119,3 +119,26 @@ export function unknownFlag(stderr: string): string | undefined {
   const m = /unknown (?:option|argument)\s+'?(--[a-z0-9-]+)/i.exec(stderr) ?? /unexpected argument '(--[a-z0-9-]+)'/i.exec(stderr);
   return m?.[1];
 }
+
+/** API keys glassbox holds for its own API backends; host CLI children never need them. */
+const GLASSBOX_ONLY_KEYS = /^(GLASSBOX_ANTHROPIC_API_KEY|GLASSBOX_OPENAI_API_KEY|CLAUDE_PLUGIN_OPTION_\w*API_KEY)$/;
+
+/**
+ * Env for a nested host CLI call: the parent env minus glassbox-held API keys,
+ * plus GLASSBOX_NESTED so our own plugin hooks skip work inside the call.
+ * Keys the user exported themselves (ANTHROPIC_API_KEY, OPENAI_API_KEY) are kept.
+ */
+export function cliChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) if (!GLASSBOX_ONLY_KEYS.test(k)) out[k] = v;
+  out.GLASSBOX_NESTED = '1';
+  return out;
+}
+
+/** Model ids are names, never flags: letters, digits and . _ : / @ - only, not starting with -. */
+export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/;
+
+export function checkModelId(model: string): string {
+  if (!MODEL_ID.test(model)) throw new Error(`invalid model id "${model}"`);
+  return model;
+}

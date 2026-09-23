@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   END_MARKER,
   START_MARKER,
+  USAGE,
   renderBlock,
   syncAgentsMd,
   type AgentsMdSummary,
 } from '../../src/agents-md/index.js';
+import { buildProgram } from '../../src/cli/index.js';
 
 const summary: AgentsMdSummary = {
   areas: [
@@ -176,5 +178,41 @@ describe('renderBlock', () => {
     expect(r.text).toContain('p=1.00');
     expect(r.text).toContain('none yet');
     expect(r.truncated).toBe(false);
+  });
+});
+
+describe('How to query hints', () => {
+  /** Splits a hint like `glassbox ask "<question>" -p <path>` into argv with sample values. */
+  function argvOf(hint: string): string[] {
+    const filled = hint
+      .replace('<question>', 'does it retry')
+      .replace('<concept>', 'billing retries')
+      .replace('<path>', 'src/billing')
+      .replace('<id>', 'abcd1234')
+      .replace('<node>', 'src/a.ts#f')
+      .replace(/=\.\.\./g, '=x');
+    const parts = filled.match(/"[^"]*"|\S+/g) ?? [];
+    return parts.map((p) => p.replace(/^"|"$/g, '')).slice(1);
+  }
+
+  it('every CLI hint parses, and ask keeps the path out of the question', () => {
+    const io = { stdout: () => {}, stderr: () => {}, readStdin: async () => '', env: {}, cwd: dir };
+    const hints = USAGE.flatMap((l) => [...l.matchAll(/CLI: `(glassbox [^`]+)`/g)].map((m) => m[1]!));
+    expect(hints.length).toBeGreaterThanOrEqual(7);
+    for (const hint of hints) {
+      const program = buildProgram(io, () => {});
+      const seen: unknown[][] = [];
+      for (const c of program.commands) {
+        c.exitOverride();
+        c.action((...args: unknown[]) => void seen.push(args));
+      }
+      const argv = argvOf(hint);
+      expect(() => program.parse(argv, { from: 'user' }), hint).not.toThrow();
+      expect(seen, hint).toHaveLength(1);
+      if (argv[0] === 'ask') {
+        expect(seen[0]![0]).toEqual(['does it retry']);
+        expect((seen[0]![1] as { path?: string[] }).path).toEqual(['src/billing']);
+      }
+    }
   });
 });

@@ -69,7 +69,7 @@ export class AnthropicBackend implements Backend {
     this.samples = opts.samples ?? resolveSamples(env);
     this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
     this.maxTokens = opts.maxTokens ?? 2048;
-    this.apiKey = opts.apiKey ?? env.ANTHROPIC_API_KEY;
+    this.apiKey = opts.apiKey ?? env.GLASSBOX_ANTHROPIC_API_KEY ?? env.ANTHROPIC_API_KEY;
     this.client = opts.client;
   }
 

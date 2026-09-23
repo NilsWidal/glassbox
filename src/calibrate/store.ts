@@ -144,10 +144,19 @@ export interface FitGroup {
   samples: Sample[];
 }
 
-/** Groups labeled records by (questionId, backend, model). */
+/** Keeps the last record per id (explain appends a copy of a decision); records without an id stay. */
+export function latestPerId(records: readonly DecisionRecord[]): DecisionRecord[] {
+  const last = new Map<string, number>();
+  records.forEach((r, i) => {
+    if (r.id !== undefined) last.set(r.id, i);
+  });
+  return records.filter((r, i) => r.id === undefined || last.get(r.id) === i);
+}
+
+/** Groups labeled records by (questionId, backend, model), one sample per decision id. */
 export function groupLabeled(records: readonly DecisionRecord[]): FitGroup[] {
   const groups = new Map<string, FitGroup>();
-  for (const r of records) {
+  for (const r of latestPerId(records)) {
     const s = recordSample(r);
     if (!s) continue;
     const model = r.model ?? '';

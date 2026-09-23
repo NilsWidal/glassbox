@@ -178,6 +178,17 @@ function relPath(root: string, p: string): string {
   return rel;
 }
 
+/** True for a relative path that stays inside root (node ids and diff headers use these). */
+function insideRoot(root: string, p: string): boolean {
+  if (isAbsolute(p)) return false;
+  try {
+    relPath(root, p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function listFiles(root: string, paths: readonly string[]): Promise<string[]> {
   const files: string[] = [];
   for (const p of paths) {
@@ -234,13 +245,15 @@ export async function buildScope(scope: AskScope, opts: BuildScopeOptions = {}):
   }
 
   if (scope.diff) {
-    const chunks = chunkDiff(scope.diff, opts);
+    // Diff headers are untrusted: drop chunks whose path leaves the root.
+    const chunks = chunkDiff(scope.diff, opts).filter((c) => insideRoot(root, c.file));
     raw.push(...chunks);
     for (const f of new Set(chunks.map((c) => c.file))) await extractFor(f);
   }
 
   for (const id of scope.nodes ?? []) {
     const file = id.split('#')[0]!;
+    if (!insideRoot(root, file)) throw new Error(`node id is outside the repo root: ${id}`);
     const x = await extractFor(file);
     const node = x?.nodes.find((n) => n.id === id);
     if (!node) throw new Error(`unknown node id: ${id}`);

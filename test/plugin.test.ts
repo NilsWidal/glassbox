@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,21 +88,25 @@ describe('hook script', () => {
     await mkdir(join(project, '.glassbox'), { recursive: true });
     await writeFile(join(project, '.glassbox', 'graph.db'), '');
     await mkdir(bin);
-    // A stand-in `glassbox` on PATH that records its arguments.
-    await writeFile(join(bin, 'glassbox'), `#!/bin/sh\necho "$*" >> "${log}"\n`);
-    await chmod(join(bin, 'glassbox'), 0o755);
+    // A stand-in `glassbox` on PATH that records its arguments. It links into an
+    // @nilswidal/glassbox folder, as a global npm install does.
+    const pkgBin = join(tmp, 'lib', 'node_modules', '@nilswidal', 'glassbox', 'bin');
+    await mkdir(pkgBin, { recursive: true });
+    await writeFile(join(pkgBin, 'glassbox'), `#!/bin/sh\necho "$*" >> "${log}"\n`);
+    await chmod(join(pkgBin, 'glassbox'), 0o755);
+    await symlink(join(pkgBin, 'glassbox'), join(bin, 'glassbox'));
   });
 
   afterAll(async () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  async function runHook(event: string, env: Record<string, string>, input = '', dir = project) {
+  async function runHook(event: string, env: Record<string, string>, input = '', dir = project, path = bin) {
     await rm(log, { force: true });
     const started = performance.now();
     const r = spawnSync('sh', [HOOK, event], {
       input,
-      env: { PATH: `${bin}:${process.env.PATH ?? ''}`, CLAUDE_PROJECT_DIR: dir, ...env },
+      env: { PATH: `${path}:${process.env.PATH ?? ''}`, CLAUDE_PROJECT_DIR: dir, ...env },
       encoding: 'utf8',
     });
     const ms = performance.now() - started;
@@ -123,7 +127,30 @@ describe('hook script', () => {
     const r = await runHook('post-edit', { CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS: 'true' }, edit);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
-    expect(r.calls).toBe(`refresh --root ${project} --files /p/src/a.ts --quiet`);
+    expect(r.calls).toBe(`refresh --root ${project} --files=/p/src/a.ts --quiet`);
+  });
+
+  it('passes a file name that starts with "-" as a value, not a flag', async () => {
+    const odd = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: '--sync-md' } });
+    const r = await runHook('post-edit', { GLASSBOX_HOOKS: '1' }, odd);
+    expect(r.calls).toBe(`refresh --root ${project} --files=--sync-md --quiet`);
+  });
+
+  it("prefers the plugin's own build and skips a foreign `glassbox` on PATH", async () => {
+    const other = join(tmp, 'other-bin');
+    await mkdir(other, { recursive: true });
+    await writeFile(join(other, 'glassbox'), `#!/bin/sh\necho "foreign $*" >> "${log}"\n`);
+    await writeFile(join(other, 'npx'), `#!/bin/sh\necho "npx $*" >> "${log}"\n`);
+    await chmod(join(other, 'glassbox'), 0o755);
+    await chmod(join(other, 'npx'), 0o755);
+    const foreign = await runHook('session-start', { GLASSBOX_HOOKS: '1' }, '', project, other);
+    expect(foreign.calls).toBe(`npx -y @nilswidal/glassbox refresh --root ${project} --sync-md --no-claude-md --quiet`);
+
+    const plugin = join(tmp, 'plugin');
+    await mkdir(join(plugin, 'dist', 'cli'), { recursive: true });
+    await writeFile(join(plugin, 'dist', 'cli', 'index.js'), `require('fs').appendFileSync(${JSON.stringify(log)}, 'dist ' + process.argv.slice(2).join(' ') + '\\n');\n`);
+    const own = await runHook('session-start', { GLASSBOX_HOOKS: '1', CLAUDE_PLUGIN_ROOT: plugin });
+    expect(own.calls).toBe(`dist refresh --root ${project} --sync-md --no-claude-md --quiet`);
   });
 
   it('GLASSBOX_HOOKS=0 overrides the plugin option', async () => {

@@ -6,6 +6,8 @@ import type { Backend, BackendCapabilities, BatchQuestion, GenerateOptions, Labe
 import {
   CliCallError,
   CliNotFoundError,
+  checkModelId,
+  cliChildEnv,
   isNotFound,
   runProcess,
   tail,
@@ -30,6 +32,22 @@ export interface CodexCliOptions {
 const INSTALL_HINT =
   'Install the Codex CLI (https://developers.openai.com/codex) and run `codex login`, or pick another backend with GLASSBOX_BACKEND.';
 
+/** Codex features turned off in the nested run so it has no shell or other tools. */
+export const NO_TOOL_FEATURES: readonly string[] = [
+  'shell_tool',
+  'unified_exec',
+  'apps',
+  'plugins',
+  'hooks',
+  'multi_agent',
+  'browser_use',
+  'computer_use',
+  'image_generation',
+];
+
+/** Longest free-text reply kept from generate (why lines and summaries are short). */
+export const MAX_GENERATE_CHARS = 2000;
+
 /** Optional flags; dropped and retried if an older CLI rejects them. */
 const OPTIONAL_FLAGS: readonly (readonly string[])[] = [['--ephemeral']];
 
@@ -48,12 +66,12 @@ export class CodexCliBackend implements Backend {
 
   constructor(opts: CodexCliOptions = {}) {
     const env = opts.env ?? process.env;
-    this.model = opts.model;
+    this.model = opts.model === undefined ? undefined : checkModelId(opts.model);
     this.effort = opts.reasoningEffort ?? env.GLASSBOX_CODEX_EFFORT ?? 'low';
     this.samples = opts.samples ?? resolveSamples(env);
     this.timeoutMs = opts.timeoutMs ?? resolveTimeoutMs(env);
     this.bin = opts.bin ?? env.GLASSBOX_CODEX_BIN ?? 'codex';
-    this.env = { ...env, GLASSBOX_NESTED: '1' };
+    this.env = cliChildEnv(env);
     this.run = opts.run ?? runProcess;
   }
 
@@ -69,6 +87,8 @@ export class CodexCliBackend implements Backend {
       '-c', 'notify=[]',
       '-c', 'project_doc_max_bytes=0',
     );
+    // No tools: the prompt holds untrusted repo code, so the nested agent gets no shell to act on it.
+    for (const feature of NO_TOOL_FEATURES) args.push('-c', `features.${feature}=false`);
     for (const group of OPTIONAL_FLAGS) if (!this.dropped.has(group[0]!)) args.push(...group);
     args.push('-');
     return args;
@@ -90,7 +110,7 @@ export class CodexCliBackend implements Backend {
   }
 
   async generate(prompt: string, opts?: GenerateOptions): Promise<string> {
-    return (await this.call(prompt, undefined, opts?.signal)).trim();
+    return (await this.call(prompt, undefined, opts?.signal)).trim().slice(0, MAX_GENERATE_CHARS);
   }
 
   /** One `codex exec` run in a fresh temp dir; returns the last agent message. */

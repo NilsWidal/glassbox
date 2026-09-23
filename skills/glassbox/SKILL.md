@@ -35,7 +35,7 @@ highlights
   src/auth/middleware.ts:18   Δp -0.22
 ```
 
-- **p** is the probability of the answer shown (for yes/no, of YES). For `choice` and `score` every option gets a probability.
+- **p** is the probability of the answer shown: for `NO  p=0.97` it is P(no) = 0.97, so P(yes) = 0.03. JSON output (`format: "json"`) has `answer.p` = P(yes). For `choice` and `score` every option gets a probability.
 - **confidence** runs from 0 (all options equally likely) to 1 (one option has all the probability).
 - **band** tells you what to do:
   - `act`: rely on it and carry on.

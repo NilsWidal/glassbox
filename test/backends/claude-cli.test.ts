@@ -30,6 +30,20 @@ describe('ClaudeCliBackend', () => {
     expect(opts.timeoutMs).toBeGreaterThan(0);
   });
 
+  it('keeps glassbox-held API keys out of the nested call and rejects flag-like model ids', async () => {
+    const { run, calls } = fakeRunner(() => ({ stdout: envelope(answer(0.5, [1, 0, 0])) }));
+    const env = { PATH: '/bin', GLASSBOX_ANTHROPIC_API_KEY: 'a', GLASSBOX_OPENAI_API_KEY: 'b', CLAUDE_PLUGIN_OPTION_ANTHROPIC_API_KEY: 'c', ANTHROPIC_API_KEY: 'mine' };
+    await new ClaudeCliBackend({ run, samples: 1, env }).answerBatch('s', batch);
+    const child = calls[0]!.opts.env!;
+    expect(child.GLASSBOX_ANTHROPIC_API_KEY).toBeUndefined();
+    expect(child.GLASSBOX_OPENAI_API_KEY).toBeUndefined();
+    expect(child.CLAUDE_PLUGIN_OPTION_ANTHROPIC_API_KEY).toBeUndefined();
+    // A key the user exported themselves stays: that is their own claude setup.
+    expect(child.ANTHROPIC_API_KEY).toBe('mine');
+    expect(() => new ClaudeCliBackend({ run, model: '--dangerously-skip-permissions' })).toThrow(/invalid model id/);
+    expect(() => new ClaudeCliBackend({ run, model: 'claude-haiku-4-5@20251001' })).not.toThrow();
+  });
+
   it('uses the configured model and binary', async () => {
     const { run, calls } = fakeRunner(() => ({ stdout: envelope(answer(0.5, [1, 0, 0])) }));
     const b = new ClaudeCliBackend({ run, samples: 1, model: 'sonnet', env: { GLASSBOX_CLAUDE_BIN: '/opt/claude' } });

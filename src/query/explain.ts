@@ -4,6 +4,14 @@ import type { GraphStore } from '../memory/store.js';
 import type { Backend, DecisionRecord, ExplainBlock } from '../types.js';
 import { triage } from './triage.js';
 
+/** Option key with the highest calibrated (else raw) probability. */
+function winner(r: DecisionRecord): string | undefined {
+  const dist = r.calibrated ?? r.raw ?? {};
+  let best: string | undefined;
+  for (const [k, p] of Object.entries(dist)) if (best === undefined || p > dist[best]!) best = k;
+  return best;
+}
+
 export interface ExplainDecisionOptions {
   root: string;
   /** Needed only when the decision has no explanation yet (or with refresh). */
@@ -62,6 +70,7 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
   let explain: ExplainBlock;
   let stateHash: string;
   let calls: number;
+  let fresh: DecisionRecord;
   if (record.source === 'triage') {
     if (!scope.diff) throw new Error('this triage decision has no stored diff');
     if (!opts.store) throw new Error('re-explaining a triage decision needs the graph store');
@@ -69,6 +78,7 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
     explain = r.explain;
     stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain;
+    fresh = r.record;
   } else {
     if (!scope.paths?.length && scope.diff === undefined && !scope.nodes?.length) {
       throw new Error('this decision has no stored scope, so it cannot be re-asked');
@@ -77,6 +87,16 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
     explain = r.explain ?? { highlights: [], reasons: [], summary: [] };
     stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain + r.calls.why;
+    fresh = r.record;
+  }
+  // Evidence for a different answer must not be stored next to the old one.
+  const was = winner(record);
+  const now = winner(fresh);
+  if (was !== undefined && now !== undefined && was !== now) {
+    throw new Error(
+      `re-asking now gives a different answer (${now}, logged ${was})${stateHash !== record.stateHash ? ' and the code changed' : ''}, ` +
+        'so its evidence would not explain the logged decision; run the question again with --explain for a new decision',
+    );
   }
   const updated: DecisionRecord = { ...record, explain };
   await appendDecisionLog(logFile, updated);

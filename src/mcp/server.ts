@@ -1,12 +1,13 @@
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, realpathSync } from 'node:fs';
+import { delimiter, isAbsolute, relative, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { ask, makeQuestion } from '../ask.js';
 import { createBackend, type BackendConfig } from '../backends/index.js';
+import { MODEL_ID } from '../backends/process.js';
 import { parseReasons } from '../explain/reasons.js';
 import { refresh, renderRefresh } from '../memory/refresh.js';
 import { indexRepo } from '../memory/source.js';
@@ -22,7 +23,10 @@ import type { Backend } from '../types.js';
 import { defaultRoot, withPluginOptions } from './env.js';
 
 export interface GlassboxMcpOptions {
-  /** Default: GLASSBOX_ROOT, CLAUDE_PROJECT_DIR, else cwd. A tool call's `root` overrides it. */
+  /**
+   * Default: GLASSBOX_ROOT, CLAUDE_PROJECT_DIR, else cwd. A tool call's `root`
+   * must stay inside it, or inside a directory listed in GLASSBOX_ALLOWED_ROOTS.
+   */
   root?: string;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
@@ -47,14 +51,54 @@ const INSTRUCTIONS = [
   'Calls take seconds (they run the host agent\'s own model), so batch what you need and prefer the graph tools.',
 ].join(' ');
 
-const root = z.string().optional().describe('Repo root. Default: the project directory.');
+const root = z
+  .string()
+  .optional()
+  .describe('Repo root inside the project directory (or GLASSBOX_ALLOWED_ROOTS). Default: the project directory.');
+
+/** Real path when it exists (symlinks resolved), else the resolved path. */
+function real(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function within(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/**
+ * Resolves a tool call's `root`. Tool arguments come from the agent, which may
+ * be steered by text in the code it reads, so a root outside the project is
+ * refused unless the user allowed it in GLASSBOX_ALLOWED_ROOTS.
+ */
+export function makeRootResolver(baseRoot: string, env: NodeJS.ProcessEnv): (r?: string) => string {
+  const allowed = [baseRoot, ...(env.GLASSBOX_ALLOWED_ROOTS ?? '').split(delimiter).map((s) => s.trim()).filter(Boolean)].map((d) =>
+    real(resolve(baseRoot, d)),
+  );
+  return (r) => {
+    if (!r) return baseRoot;
+    const dir = real(resolve(baseRoot, r));
+    if (!allowed.some((a) => within(a, dir))) {
+      throw new Error(`root ${r} is outside the project directory; add it to GLASSBOX_ALLOWED_ROOTS to allow it`);
+    }
+    return dir;
+  };
+}
 const format = z.enum(['text', 'json']).optional().describe('text (default, compact) or json (full result).');
 const backendArgs = {
   backend: z
     .enum(['auto', 'claude-cli', 'codex-cli', 'anthropic', 'openai-compat'])
     .optional()
     .describe('Override the backend. Default: GLASSBOX_BACKEND or auto (the host agent\'s own CLI).'),
-  model: z.string().optional().describe('Override the model id. Default: GLASSBOX_MODEL or the backend default.'),
+  model: z
+    .string()
+    .regex(MODEL_ID, 'a model id: letters, digits and . _ : / @ -')
+    .optional()
+    .describe('Override the model id. Default: GLASSBOX_MODEL or the backend default.'),
 };
 
 function text(body: string): CallToolResult {
@@ -82,7 +126,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
   const env = withPluginOptions(opts.env ?? process.env);
   const cwd = opts.cwd ?? process.cwd();
   const baseRoot = resolve(cwd, opts.root ?? defaultRoot(env, cwd));
-  const rootOf = (r?: string) => (r ? resolve(baseRoot, r) : baseRoot);
+  const rootOf = makeRootResolver(baseRoot, env);
   const backendOf = (a: { backend?: string | undefined; model?: string | undefined }): Backend =>
     createBackend({
       env,

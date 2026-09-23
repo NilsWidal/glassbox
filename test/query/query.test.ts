@@ -8,6 +8,7 @@ import { GraphStore } from '../../src/memory/store.js';
 import { buildAgentsSummary, syncMd } from '../../src/memory/summary.js';
 import { tagPass } from '../../src/memory/tags.js';
 import { decide } from '../../src/query/decide.js';
+import { calibrateFromLog, labelDecision } from '../../src/calibrate/store.js';
 import { explainDecision, findDecision } from '../../src/query/explain.js';
 import { lexicalScore, queryTerms, termsMatch, tokenize } from '../../src/query/lexical.js';
 import { renderDecide, renderTriage, renderWhere } from '../../src/query/render.js';
@@ -225,6 +226,27 @@ describe('explainDecision', () => {
     expect(again.cached).toBe(true);
     expect(again.explain).toEqual(r.explain);
     expect(backend.calls.length).toBe(calls);
+  });
+
+  it('counts an explained and labeled decision once when calibrating', async () => {
+    const backend = new FakeBackend({ rules: [expiryRule] });
+    const logFile = join(root, '.glassbox', 'calib-once.jsonl');
+    const asked = await ask({ paths: ['src/auth/session.ts'] }, 'Do sessions expire?', { backend, root, why: false, log: logFile });
+    const id = asked.record.id!;
+    await explainDecision(id, { root, backend: () => backend, budget: 100, logFile });
+    await labelDecision(root, id, 'yes', logFile);
+    const report = await calibrateFromLog(root, { dryRun: true, logFile });
+    expect(report.labeled).toBe(1);
+    expect(report.entries[0]!.n).toBe(1);
+  });
+
+  it('refuses to attach evidence when the re-ask flips the logged answer', async () => {
+    const logFile = join(root, '.glassbox', 'flip.jsonl');
+    const yes = new FakeBackend({ rules: [(ctx) => (ctx.questionId === 'q' ? 0.9 : undefined)] });
+    const no = new FakeBackend({ rules: [(ctx) => (ctx.questionId === 'q' ? 0.1 : undefined)] });
+    const asked = await ask({ paths: ['src/auth/session.ts'] }, 'Do sessions expire?', { backend: yes, root, why: false, log: logFile });
+    await expect(explainDecision(asked.record.id!, { root, backend: () => no, budget: 4, logFile })).rejects.toThrow(/different answer/);
+    expect((await readFile(logFile, 'utf8')).trim().split('\n')).toHaveLength(1);
   });
 
   it('finds ids by unique prefix and reports unknown or ambiguous ones', async () => {

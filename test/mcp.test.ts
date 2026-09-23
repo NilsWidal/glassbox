@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FakeRule } from '../src/backends/fake.js';
 import { main } from '../src/cli/index.js';
 import { withPluginOptions, defaultRoot } from '../src/mcp/env.js';
-import { createGlassboxServer } from '../src/mcp/server.js';
+import { createGlassboxServer, makeRootResolver } from '../src/mcp/server.js';
 import { fixtureCopy, tagRule } from './query/helpers.js';
 
 const rules: FakeRule[] = [
@@ -72,6 +72,34 @@ describe('mcp server over an in-memory transport', () => {
   afterAll(async () => {
     await client?.close();
     await rm(root, { recursive: true, force: true });
+  });
+
+  it('refuses a root outside the project and flag-like model ids', async () => {
+    const outside = await fixtureCopy();
+    try {
+      for (const tool of ['ask', 'where', 'decide', 'graph', 'refresh']) {
+        const args: Record<string, unknown> = { root: outside, question: 'q?', concept: 'x', node: 'x', options: ['a', 'b'] };
+        const r = await call(tool, args);
+        expect(r.isError, tool).toBe(true);
+        expect(r.text, tool).toMatch(/outside the project/);
+      }
+      expect((await call('ask', { question: 'q?', root: '../..' })).isError).toBe(true);
+      expect(existsSync(join(outside, '.glassbox'))).toBe(false);
+      const bad = await call('ask', { question: 'q?', paths: ['src/auth/session.ts'], model: '--help' });
+      expect(bad.isError).toBe(true);
+      // A subdirectory of the project is fine.
+      expect((await call('graph', { node: 'verifySession', root: '.' })).isError).toBe(false);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('allows extra roots only through GLASSBOX_ALLOWED_ROOTS', () => {
+    const resolveRoot = makeRootResolver('/work/repo', { GLASSBOX_ALLOWED_ROOTS: '/work/other' });
+    expect(resolveRoot('pkg')).toBe('/work/repo/pkg');
+    expect(resolveRoot('/work/other/sub')).toBe('/work/other/sub');
+    expect(() => resolveRoot('/etc')).toThrow(/outside/);
+    expect(() => resolveRoot('../repo-evil')).toThrow(/outside/);
   });
 
   it('lists the seven tools with input schemas and sends instructions', async () => {
@@ -179,7 +207,9 @@ describe('plugin userConfig env mapping', () => {
     });
     expect(env.GLASSBOX_BACKEND).toBe('anthropic');
     expect(env.GLASSBOX_MODEL).toBeUndefined();
-    expect(env.ANTHROPIC_API_KEY).toBe('sk-test');
+    // Held under a glassbox-only name so the nested claude -p keeps the Claude Code login.
+    expect(env.GLASSBOX_ANTHROPIC_API_KEY).toBe('sk-test');
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(env.GLASSBOX_OPENAI_BASE_URL).toBe('http://mine.test/v1');
   });
 

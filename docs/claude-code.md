@@ -63,7 +63,7 @@ The hook script exits at once, without starting Node, in any of these cases:
 - the repo has no `.glassbox/graph.db`;
 - `GLASSBOX_NESTED=1` is set. glassbox sets this on its own nested `claude -p` calls, so they never trigger hooks.
 
-The script uses a `glassbox` found on your PATH, then a built clone, then `npx`. With `npm install -g @nilswidal/glassbox` the hooks start fastest. The hook script is POSIX `sh`, so on Windows it needs Git Bash or WSL.
+The script uses the plugin's own build (`dist/` in a built clone), then a global `glassbox` that resolves into the `@nilswidal/glassbox` package, then `npx`. It skips a `glassbox` binary from any other package, since the unscoped npm name belongs to someone else. With `npm install -g @nilswidal/glassbox` the hooks start fast. The hook script is POSIX `sh`, so on Windows it needs Git Bash or WSL.
 
 ## Run from a clone
 

@@ -6,6 +6,7 @@ import { ClaudeCliBackend, type ClaudeCliOptions } from './claude-cli.js';
 import { CodexCliBackend, type CodexCliOptions } from './codex-cli.js';
 import { FakeBackend, type FakeBackendOptions } from './fake.js';
 import { OpenAICompatBackend, type OpenAICompatOptions } from './openai-compat.js';
+import { checkModelId } from './process.js';
 
 export interface BackendConfig {
   /** Default GLASSBOX_BACKEND, else 'auto'. */
@@ -37,6 +38,7 @@ export function createBackend(config: BackendConfig = {}): Backend {
   const env = config.env ?? process.env;
   const name = resolveBackend(config);
   const model = config.model ?? resolveModel(name, env);
+  if (model !== undefined && name !== 'fake') checkModelId(model);
   const common = {
     env,
     ...(config.samples !== undefined ? { samples: config.samples } : {}),

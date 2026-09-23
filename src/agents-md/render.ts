@@ -12,16 +12,17 @@ const MAX_ENTRY_POINTS = 3;
 const MAX_TAGS = 30;
 const MAX_TEXT = 100;
 
-const USAGE: readonly string[] = [
+/** Exported so a test can check that every CLI hint parses. */
+export const USAGE: readonly string[] = [
   '### How to query',
   'MCP tools (same in Claude Code and Codex), with CLI equivalents:',
-  '- `ask`: typed question over a path, diff or nodes. CLI: `glassbox ask "<question>" <path>`',
+  '- `ask`: typed question over a path, diff or nodes. CLI: `glassbox ask "<question>" -p <path>`',
   '- `where`: rank nodes likely to hold a concept. CLI: `glassbox where "<concept>"`',
   '- `triage`: risk of a diff per chunk, plus graph impact. CLI: `glassbox triage`',
-  '- `decide`: answer an "A or B?" question with probabilities. CLI: `glassbox decide "<question>"`',
+  '- `decide`: answer an "A or B?" question with probabilities. CLI: `glassbox decide "<question>" -o a=... -o b=...`',
   '- `explain`: evidence and why for an earlier decision. CLI: `glassbox explain <id>`',
   '- `graph`: a node\'s neighbours and stored tags. CLI: `glassbox graph <node>`',
-  '- `refresh`: re-index changed files. CLI: `glassbox index`',
+  '- `refresh`: re-index changed files. CLI: `glassbox refresh` (`--tags` to re-tag)',
 ];
 
 export interface RenderedBlock {

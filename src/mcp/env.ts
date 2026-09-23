@@ -8,7 +8,8 @@ export const PLUGIN_OPTION_ENV: Readonly<Record<string, string>> = Object.freeze
   CLAUDE_PLUGIN_OPTION_MODEL: 'GLASSBOX_MODEL',
   CLAUDE_PLUGIN_OPTION_OPENAI_BASE_URL: 'GLASSBOX_OPENAI_BASE_URL',
   CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY: 'GLASSBOX_OPENAI_API_KEY',
-  CLAUDE_PLUGIN_OPTION_ANTHROPIC_API_KEY: 'ANTHROPIC_API_KEY',
+  // A glassbox-only name, so the nested `claude -p` never sees it and keeps using the Claude Code login.
+  CLAUDE_PLUGIN_OPTION_ANTHROPIC_API_KEY: 'GLASSBOX_ANTHROPIC_API_KEY',
 });
 
 /**

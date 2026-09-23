@@ -38,6 +38,17 @@ describe('CodexCliBackend', () => {
     expect(existsSync(flag(c, '-C'))).toBe(false);
   });
 
+  it('turns off the shell and other tools in the nested run and caps free text', async () => {
+    const { run, calls } = fakeRunner(writesLast('x'.repeat(5000)));
+    const b = new CodexCliBackend({ run, samples: 1, env: { GLASSBOX_OPENAI_API_KEY: 'k', PATH: '/bin' } });
+    expect((await b.generate('why?')).length).toBe(2000);
+    const c = calls[0]!;
+    expect(c.args).toContain('features.shell_tool=false');
+    expect(c.args).toContain('features.unified_exec=false');
+    expect(c.opts.env?.GLASSBOX_OPENAI_API_KEY).toBeUndefined();
+    expect(() => new CodexCliBackend({ run, model: '-c' })).toThrow(/invalid model id/);
+  });
+
   it('passes -m only when a model is set', async () => {
     const { run, calls } = fakeRunner(writesLast(JSON.stringify(answer(0.5, [1, 1, 1]))));
     await new CodexCliBackend({ run, samples: 1, model: 'some-small-model' }).answerBatch('s', batch);

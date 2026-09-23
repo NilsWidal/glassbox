@@ -8,7 +8,7 @@ Fast typed decisions about code, with probabilities, confidence and checked reas
 
 You ask a typed question about some code. glassbox answers with a probability and a confidence value instead of free text:
 
-- `yesno`: `{ p }`, the probability the answer is yes.
+- `yesno`: `{ p }`, the probability the answer is yes. The readable output prints the probability of the answer it shows, so `NO  p=0.97` means P(yes) = 0.03.
 - `choice`: `{ choice, probabilities, confidence }`.
 - `score`: `{ score, legend, probabilities, confidence }`, where `score` is the probability-weighted expected level.
 
@@ -33,7 +33,17 @@ Configuration:
 | `GLASSBOX_MODEL` | Model id for the chosen backend |
 | `GLASSBOX_HOST` | `claude-code` or `codex`: which agent started the MCP server, so `auto` picks its CLI (set by the plugin and the Codex setup) |
 | `GLASSBOX_ROOT` | Repo the MCP server works on (default: the project directory, else the current directory) |
+| `GLASSBOX_ALLOWED_ROOTS` | Extra directories (separated by `:`, or `;` on Windows) that an MCP tool call's `root` may point at. By default a tool call can only use the project directory and folders inside it |
 | `GLASSBOX_HOOKS` | `1` turns the Claude Code plugin hooks on, `0` off |
+| `GLASSBOX_SAMPLES` | Samples averaged per call on the CLI and Anthropic backends (1 to 16, default 3) |
+| `GLASSBOX_TIMEOUT_MS` | Timeout per model call in milliseconds (default 120000) |
+| `GLASSBOX_CODEX_EFFORT` | Reasoning effort for `codex-cli` (default `low`, since these are quick judgments) |
+| `GLASSBOX_CLAUDE_BIN`, `GLASSBOX_CODEX_BIN` | Path to the `claude` or `codex` binary (default: found on PATH) |
+| `ANTHROPIC_API_KEY` or `GLASSBOX_ANTHROPIC_API_KEY` | Only for the optional `anthropic` backend. The plugin stores its key as `GLASSBOX_ANTHROPIC_API_KEY`, which is never passed to the nested `claude -p`, so that call keeps using your Claude Code login |
+| `GLASSBOX_OPENAI_API_KEY` or `OPENAI_API_KEY` | Only for the optional `openai-compat` backend |
+| `GLASSBOX_OPENAI_BASE_URL` or `OPENAI_BASE_URL` | Base URL for `openai-compat` (default `https://api.openai.com/v1`) |
+
+The nested `codex exec` call runs with a read-only sandbox, in an empty temp directory, with its shell and other tools turned off. The nested `claude -p` call runs with no tools.
 
 ## Install
 
@@ -43,6 +53,8 @@ Configuration:
 /plugin marketplace add NilsWidal/glassbox
 /plugin install glassbox@glassbox
 ```
+
+> Until the npm package is published, the plugin's MCP server cannot start (it runs `npx -y @nilswidal/glassbox`). For now, follow [Run from a clone](docs/claude-code.md#run-from-a-clone).
 
 The plugin adds the MCP tools, a skill that teaches Claude when to use them, and opt-in hooks that keep the graph fresh as you edit. The backend defaults to `auto` (your Claude Code login), and API keys are optional fields stored in your keychain. Details: [docs/claude-code.md](docs/claude-code.md).
 
@@ -83,9 +95,25 @@ The same commands exist on the CLI (`glassbox ask`, `glassbox where`, ...), and 
 - **Option shuffling.** Options get single-letter labels (A, B, C, ...). The engine asks again with the options in a different order (in parallel) and averages, which cancels the model's preference for particular positions.
 - **Confidence** is `(K * pmax - 1) / (K - 1)`, where K is the number of options: 0 for a uniform answer, 1 when one option has all the probability. This is our own definition.
 - **Bands.** By default `act` when confidence is at least 0.85, `confirm` at 0.6 or above, else `escalate`. Each question can set its own thresholds.
-- **Calibration.** Temperature and Platt scaling can be applied per question. Fitting them from logged decisions (the `calibrate` command) comes later.
+- **Calibration.** Every decision is logged to `.glassbox/decisions.jsonl` with an id. Record the true answer with `glassbox label <id> yes` (or a choice key, or a score level), then run `glassbox calibrate` to fit temperature or Platt scaling per question, backend and model from those labels. The result goes to `.glassbox/calibration.json`, and later CLI answers from the same backend and model use it (the MCP tools do not apply it yet). `calibrate --dry-run` shows ECE and Brier before and after without saving. Below a minimum number of labels nothing is fitted, Platt scaling is pulled toward no change, and the "after" numbers are in-sample, so they are optimistic.
 
 Probabilities from the host CLIs are stated by the model, not read from token probabilities, so they are coarser than a dedicated classifier until calibrated.
+
+## Benchmark results so far
+
+Measured with `glassbox bench` on 2026-09-23. Full tables, per-item results and how to run it: [bench/](bench/README.md).
+
+| backend | model | accuracy | ECE | Brier | p50 / p95 per batched decision | faithfulness: deletion / sufficiency / control drop |
+|---|---|---|---|---|---|---|
+| claude-cli | haiku, 3 samples | 0.987 (74/75) | 0.017 | 0.008 | 12.4 s / 16.6 s | 4/4, 4/4, 0/4 |
+| codex-cli | Codex's configured model, effort low, 3 samples | 1.000 (75/75) | 0.002 | 0.000 | 27.2 s / 30.4 s | 4/4, 4/4, 0/4 |
+
+Read these numbers with care:
+
+- **The labels are author-constructed.** The glassbox author wrote all 75 questions (53 yes/no, 12 choice, 10 score) against the small test fixture repo. Nobody else labeled them.
+- **The set is nearly saturated.** Both backends get almost everything right with p close to 1, partly because the fixture has short files and hint comments. So these numbers cannot yet tell good calibration from bad.
+- **n is small.** One wrong answer moves accuracy by more than a point, and faithfulness ran on only 4 items per backend.
+- **Still open:** the planned benchmark of about 200 human-labeled questions over 2 or 3 real open-source repos, and harder items that no comment gives away.
 
 ## Library use
 
