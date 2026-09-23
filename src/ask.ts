@@ -19,7 +19,7 @@ import { DEFAULT_REASONS, REASON_PREFIX, collectReasons, reasonQuestions, type R
 import { buildSummary } from './explain/summary.js';
 import { explainWhy, shouldExplainWhy } from './explain/why.js';
 import { assembleGraph } from './graph/index.js';
-import { buildScope, chunkDiff, renderState, type AskScope, type Chunk } from './scope.js';
+import { SECRET_FILE, buildScope, chunkDiff, renderState, type AskScope, type Chunk } from './scope.js';
 import type {
   Answer,
   Backend,
@@ -136,6 +136,9 @@ export async function appendDecisionLog(file: string, record: DecisionRecord): P
   await appendNoFollow(file, `${JSON.stringify(record)}\n`);
 }
 
+/** Stands in for a secret-looking file name in a logged diff file list. */
+export const SECRET_FILE_PLACEHOLDER = '<secret file omitted>';
+
 /**
  * How a diff is logged: the files it touches and its sha256, never the text,
  * which may hold secrets. explain re-asks only when it is given a diff with
@@ -143,9 +146,11 @@ export async function appendDecisionLog(file: string, record: DecisionRecord): P
  */
 export function logDiff(diff: string): { diffFiles: string[]; diffHash: string } {
   const files = new Set<string>();
+  // Even the names of secret-looking files (.env.production, deploy.pem) stay out of the log.
+  const safe = (f: string) => (SECRET_FILE.test(f) ? SECRET_FILE_PLACEHOLDER : f);
   for (const c of chunkDiff(diff)) {
-    files.add(c.file);
-    if (c.renamedFrom !== undefined) files.add(c.renamedFrom);
+    files.add(safe(c.file));
+    if (c.renamedFrom !== undefined) files.add(safe(c.renamedFrom));
   }
   return { diffFiles: [...files].sort(), diffHash: sha256(diff) };
 }

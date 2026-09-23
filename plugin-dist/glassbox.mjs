@@ -10510,19 +10510,20 @@ async function occlude(chunks, question, option, backend, opts = {}) {
   const decideOpts = { ...opts.decide, permutations: perAsk };
   const qid = "q";
   let calls = 0;
+  const render = opts.render ?? ((hidden) => renderState(chunks, hidden));
   const ask2 = async (state) => {
     const res = await decide(state, { [qid]: question }, backend, decideOpts);
     calls += res.calls;
     return optionProbability(res.answers[qid], option);
   };
   let baselineP = opts.baseline;
-  if (baselineP === void 0 && calls + perAsk <= budget) baselineP = await ask2(renderState(chunks));
+  if (baselineP === void 0 && calls + perAsk <= budget) baselineP = await ask2(render(/* @__PURE__ */ new Set()));
   let relevance = opts.relevance;
   if (!relevance) {
     const asked = {};
     const qs = relevanceQuestions(chunks, question.instructions);
     const ids = Object.keys(qs);
-    const state = renderState(chunks);
+    const state = render(/* @__PURE__ */ new Set());
     for (let i2 = 0; i2 < ids.length; i2 += RELEVANCE_BATCH) {
       const cost = backend.capabilities.batch ? perAsk : perAsk * Math.min(RELEVANCE_BATCH, ids.length - i2);
       if (calls + cost > budget) break;
@@ -10544,7 +10545,7 @@ async function occlude(chunks, question, option, backend, opts = {}) {
   const tried = candidates.slice(0, affordable);
   const results = await mapLimit(tried, Math.max(1, opts.concurrency ?? 4), async (c) => {
     try {
-      const p = await ask2(renderState(chunks, /* @__PURE__ */ new Set([c.id])));
+      const p = await ask2(render(/* @__PURE__ */ new Set([c.id])));
       return { chunkId: c.id, p, deltaP: round(p - full) };
     } catch {
       return void 0;
@@ -11205,9 +11206,10 @@ async function appendDecisionLog(file2, record2) {
 }
 function logDiff(diff) {
   const files = /* @__PURE__ */ new Set();
+  const safe = (f) => SECRET_FILE.test(f) ? SECRET_FILE_PLACEHOLDER : f;
   for (const c of chunkDiff(diff)) {
-    files.add(c.file);
-    if (c.renamedFrom !== void 0) files.add(c.renamedFrom);
+    files.add(safe(c.file));
+    if (c.renamedFrom !== void 0) files.add(safe(c.renamedFrom));
   }
   return { diffFiles: [...files].sort(), diffHash: sha256(diff) };
 }
@@ -11319,7 +11321,7 @@ async function ask(scope, question, opts = {}) {
   if (logFile) result.logFile = logFile;
   return result;
 }
-var STORE_DIR, DECISION_LOG, QID;
+var STORE_DIR, DECISION_LOG, QID, SECRET_FILE_PLACEHOLDER;
 var init_ask = __esm({
   "src/ask.ts"() {
     "use strict";
@@ -11339,6 +11341,7 @@ var init_ask = __esm({
     STORE_DIR = ".glassbox";
     DECISION_LOG = "decisions.jsonl";
     QID = "q";
+    SECRET_FILE_PLACEHOLDER = "<secret file omitted>";
   }
 });
 
@@ -11942,44 +11945,55 @@ function outsideBlock(text2) {
 function withoutImport(text2) {
   return normalize2(text2).split("\n").filter((l) => !IMPORT_FORMS2.has(l.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
-function dropBlockHunks(text2, oldRange, newRange) {
+function dropBlockLines(text2, oldRange, newRange) {
   const inOld = (n) => Boolean(oldRange && n >= oldRange.start && n <= oldRange.end);
   const inNew = (n) => Boolean(newRange && n >= newRange.start && n <= newRange.end);
-  const lines = text2.split("\n");
   const header2 = [];
   const hunks = [];
+  let run2 = [];
+  const flush = () => {
+    const changed = run2.filter((k) => k.line.startsWith("+") || k.line.startsWith("-"));
+    if (changed.length) {
+      const first = run2[0];
+      const oldCount = run2.filter((k) => k.line.startsWith(" ") || k.line.startsWith("-")).length;
+      const newCount = run2.filter((k) => k.line.startsWith(" ") || k.line.startsWith("+")).length;
+      const oldStart = oldCount === 0 ? first.oldNo - 1 : first.oldNo;
+      const newStart = newCount === 0 ? first.newNo - 1 : first.newNo;
+      hunks.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`, ...run2.map((k) => k.line));
+    }
+    run2 = [];
+  };
+  let inHunk = false;
   let oldNo = 0;
   let newNo = 0;
+  const lines = text2.replace(/\n$/, "").split("\n");
   for (const line of lines) {
     const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (h) {
+      flush();
+      inHunk = true;
       oldNo = Number(h[1]);
       newNo = Number(h[2]);
-      hunks.push({ lines: [line], ours: true });
       continue;
     }
-    const hunk = hunks[hunks.length - 1];
-    if (!hunk) {
+    if (!inHunk) {
       header2.push(line);
       continue;
     }
-    hunk.lines.push(line);
-    if (line.startsWith("-")) {
-      if (!inOld(oldNo)) hunk.ours = false;
-      oldNo++;
-    } else if (line.startsWith("+")) {
-      if (!inNew(newNo)) hunk.ours = false;
-      newNo++;
-    } else if (line.startsWith(" ")) {
-      oldNo++;
-      newNo++;
-    }
+    const tag = line.charAt(0);
+    let drop = false;
+    if (tag === "-") drop = inOld(oldNo);
+    else if (tag === "+") drop = inNew(newNo);
+    else if (tag === " ") drop = inOld(oldNo) && inNew(newNo);
+    else if (tag === "\\") drop = run2.length === 0;
+    if (drop) flush();
+    else run2.push({ line, oldNo, newNo });
+    if (tag === "-" || tag === " ") oldNo++;
+    if (tag === "+" || tag === " ") newNo++;
   }
-  const kept = hunks.filter((h) => !h.ours);
-  if (kept.length === 0) return void 0;
-  if (kept.length === hunks.length) return text2;
-  const res = [...header2, ...kept.flatMap((h) => h.lines)].join("\n");
-  return res.endsWith("\n") ? res : `${res}
+  flush();
+  if (hunks.length === 0) return void 0;
+  return `${[...header2, ...hunks].join("\n")}
 `;
 }
 async function withoutGlassboxChanges(diff, files) {
@@ -11994,7 +12008,7 @@ async function withoutGlassboxChanges(diff, files) {
         const base = before === null ? outsideBlock(AGENTS_HEADER) : outsideBlock(before);
         const now = outsideBlock(after);
         if (now === base || before === null && now === "") continue;
-        const kept = dropBlockHunks(section.text, before === null ? void 0 : blockLineRange(before), blockLineRange(after));
+        const kept = dropBlockLines(section.text, before === null ? void 0 : blockLineRange(before), blockLineRange(after));
         if (kept === void 0) continue;
         out2.push(kept);
         continue;
@@ -12433,30 +12447,56 @@ function relatedNodes(question, options, hint, store, limit) {
   const terms = queryTerms([question, ...options, hint ?? ""].join(" "));
   return whereCandidates(store.getNodes()).map((node2) => ({ node: node2, s: lexicalScore(terms, { node: node2, tags: store.getTags(node2.id) }) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s || (a.node.id < b.node.id ? -1 : 1)).slice(0, Math.max(0, limit)).map((x) => x.node.id);
 }
-async function decideState(hint, nodeIds, opts) {
-  const parts2 = [];
-  if (hint?.trim()) parts2.push("## Context from the agent", hint.trim());
-  const store = opts.store;
-  if (store && nodeIds.length) {
-    const src = new SourceCache(opts.root);
-    parts2.push("## Related code (from the glassbox graph)");
-    for (const [i2, id] of nodeIds.entries()) {
-      const node2 = store.getNode(id);
-      if (!node2) {
-        parts2.push(`### ${id} (missing)`);
-        continue;
-      }
-      const tags = nodeTagLabels(store, node2.id);
-      parts2.push(`### ${spanLabel(node2.file, node2.startLine, node2.endLine)} (${node2.kind} ${node2.name})`);
-      if (tags.length) parts2.push(`tags: ${tags.join(", ")}`);
-      if (i2 < SOURCE_NODES) {
-        const text2 = await src.text(node2, SOURCE_LINES);
-        if (text2) parts2.push(text2);
-      }
-    }
+async function decideSegments(hint, nodeIds, opts) {
+  const out2 = [];
+  const h = hint?.trim();
+  if (h) {
+    out2.push({
+      chunk: { id: "hint", file: HINT_FILE, startLine: 1, endLine: h.split("\n").length, text: h },
+      text: `${HINT_HEADER}
+${h}`
+    });
   }
-  if (parts2.length === 0) parts2.push("(no extra context)");
-  return parts2.join("\n");
+  const store = opts.store;
+  if (!store) return out2;
+  const src = new SourceCache(opts.root);
+  for (const [i2, id] of nodeIds.entries()) {
+    const node2 = store.getNode(id);
+    if (!node2) {
+      const text3 = `### ${id} (missing)`;
+      out2.push({ chunk: { id: `n${i2 + 1}`, file: id.split("#")[0], startLine: 1, endLine: 1, text: text3 }, text: text3 });
+      continue;
+    }
+    const lines = [`### ${spanLabel(node2.file, node2.startLine, node2.endLine)} (${node2.kind} ${node2.name})`];
+    const tags = nodeTagLabels(store, node2.id);
+    if (tags.length) lines.push(`tags: ${tags.join(", ")}`);
+    if (i2 < SOURCE_NODES) {
+      const text3 = await src.text(node2, SOURCE_LINES);
+      if (text3) lines.push(text3);
+    }
+    const text2 = lines.join("\n");
+    out2.push({
+      chunk: { id: `n${i2 + 1}`, file: node2.file, startLine: node2.startLine, endLine: node2.endLine, text: text2, nodeId: node2.id },
+      text: text2
+    });
+  }
+  return out2;
+}
+function renderDecideState(segments, hidden) {
+  const parts2 = [];
+  let related = false;
+  for (const seg of segments) {
+    if (hidden?.has(seg.chunk.id)) continue;
+    if (seg.chunk.id !== "hint" && !related) {
+      parts2.push(RELATED_HEADER);
+      related = true;
+    }
+    parts2.push(seg.text);
+  }
+  return parts2.length ? parts2.join("\n") : "(no extra context)";
+}
+async function decideState(hint, nodeIds, opts) {
+  return renderDecideState(await decideSegments(hint, nodeIds, opts));
 }
 async function buildContext(question, options, hint, opts) {
   const nodes = opts.store ? relatedNodes(question, options, hint, opts.store, opts.contextNodes ?? DEFAULT_CONTEXT_NODES) : [];
@@ -12500,7 +12540,7 @@ async function decide2(question, options, contextHint, opts) {
   if (logFile) result.logFile = logFile;
   return result;
 }
-var DEFAULT_CONTEXT_NODES, SOURCE_NODES, SOURCE_LINES, QID2;
+var DEFAULT_CONTEXT_NODES, SOURCE_NODES, SOURCE_LINES, QID2, HINT_HEADER, RELATED_HEADER, HINT_FILE;
 var init_decide2 = __esm({
   "src/query/decide.ts"() {
     "use strict";
@@ -12517,6 +12557,9 @@ var init_decide2 = __esm({
     SOURCE_NODES = 3;
     SOURCE_LINES = 20;
     QID2 = "q";
+    HINT_HEADER = "## Context from the agent";
+    RELATED_HEADER = "## Related code (from the glassbox graph)";
+    HINT_FILE = "(agent context)";
   }
 });
 
@@ -12685,6 +12728,35 @@ var init_triage = __esm({
 
 // src/query/explain.ts
 import { join as join17 } from "node:path";
+async function explainDecideState(question, scope, store, root2, backend, budget) {
+  const segments = await decideSegments(scope.context, scope.nodes ?? [], { root: root2, store });
+  const chunks = segments.map((s) => s.chunk);
+  const state = renderDecideState(segments);
+  const reasons = [...DEFAULT_REASONS];
+  const [main2, side] = await Promise.all([
+    decide(state, { q: question }, backend),
+    decide(state, reasonQuestions(reasons, question.instructions), backend).catch(() => void 0)
+  ]);
+  const answer = main2.answers.q;
+  const option = winningOption(answer);
+  let calls = main2.calls + (side?.calls ?? 0);
+  const occ = await occlude(chunks, question, option, backend, {
+    budget: Math.max(0, (budget ?? DEFAULT_BUDGET) - (side?.calls ?? 0)),
+    baseline: optionProbability(answer, option),
+    // A decide state has at most a hint and a few nodes: rate them all equally and skip the prefilter calls.
+    relevance: Object.fromEntries(chunks.map((c) => [c.id, 1])),
+    render: (hidden) => renderDecideState(segments, hidden)
+  });
+  calls += occ.calls;
+  const reasonCodes = side ? collectReasons(reasons, pYesByPrefix(side.answers, REASON_PREFIX)) : [];
+  const explain = {
+    highlights: occ.highlights,
+    reasons: reasonCodes,
+    summary: buildSummary({ highlights: occ.highlights, reasons: reasonCodes, chunks, nodes: store.getNodes(), edges: store.getEdges("calls") }),
+    stats: { calls: calls - main2.calls, candidates: occ.candidates.length, tested: occ.trials.length, baselineP: occ.baselineP }
+  };
+  return { explain, stateHash: main2.stateHash, calls, fresh: main2.records[0] };
+}
 function winner(r) {
   const dist = r.calibrated ?? r.raw ?? {};
   let best;
@@ -12736,6 +12808,9 @@ async function explainDecision(id, opts) {
     stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain;
     fresh = r.record;
+  } else if (record2.source === "decide") {
+    if (!opts.store) throw new Error("re-explaining a decide decision needs the graph store");
+    ({ explain, stateHash, calls, fresh } = await explainDecideState(record2.question, scope, opts.store(), opts.root, backend, opts.budget));
   } else {
     if (!scope.paths?.length && diff === void 0 && !scope.nodes?.length) {
       throw new Error("this decision has no stored scope, so it cannot be re-asked");
@@ -12747,7 +12822,7 @@ async function explainDecision(id, opts) {
     };
     const r = await ask(askScope, record2.question, { backend, root: opts.root, explain: budget, why: false, log: false });
     explain = r.explain ?? { highlights: [], reasons: [], summary: [] };
-    stateHash = record2.source === "decide" ? hashState(await decideState(scope.context, scope.nodes ?? [], { root: opts.root, ...opts.store ? { store: opts.store() } : {} })) : r.record.stateHash;
+    stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain + r.calls.why;
     fresh = r.record;
   }
@@ -12769,6 +12844,11 @@ var init_explain = __esm({
     "use strict";
     init_define_GLASSBOX_BUNDLE();
     init_ask();
+    init_answer();
+    init_decide();
+    init_occlusion();
+    init_reasons();
+    init_summary();
     init_hash();
     init_decide2();
     init_triage();

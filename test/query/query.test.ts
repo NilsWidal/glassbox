@@ -183,7 +183,11 @@ describe('triage', () => {
   it('never sends diff chunks of secret-looking files', async () => {
     const secret = ['diff --git a/.env b/.env', '--- a/.env', '+++ b/.env', '@@ -1,1 +1,1 @@', '-API_KEY=old', '+API_KEY=sk-live-123', ''].join('\n');
     const b = new FakeBackend({ rules: [riskRule] });
-    const mixed = await triage(secret + DIFF, { store, root, backend: b, explain: false, log: false });
+    const logFile = join(root, '.glassbox', 'secret-names.jsonl');
+    const mixed = await triage(secret + DIFF, { store, root, backend: b, explain: false, log: logFile });
+    // The secret file's name is not logged either, only a placeholder.
+    expect(mixed.record.scope?.diffFiles).toEqual(['<secret file omitted>', 'src/auth/session.ts', 'src/ui/format.ts']);
+    expect(await readFile(logFile, 'utf8')).not.toContain('.env');
     expect(mixed.hunks.map((h) => h.file)).toEqual(['src/auth/session.ts', 'src/ui/format.ts']);
     expect(JSON.stringify(b.calls)).not.toContain('sk-live-123');
     await expect(triage(secret, { store, root, backend: b, log: false })).rejects.toThrow(/may hold secrets/);
@@ -253,21 +257,38 @@ describe('decide', () => {
     expect(records.find((x) => x.id === r.record.id)).toMatchObject({ source: 'decide' });
   });
 
-  it('re-explains a decide record without a false "code changed" note', async () => {
+  it('re-explains a decide record over its own state (hint, tags, excerpts), not the nodes\' source', async () => {
     const logFile = join(root, '.glassbox', 'decide-explain.jsonl');
-    const backend = new FakeBackend({ rules: [(ctx) => (ctx.questionId === 'q' ? { session: 3, config: 1 } : undefined)] });
+    const HINT = 'The TTL is read from env with no fallback today.';
+    // The answer depends on the hint and on stored tags, which only decide's own state holds.
+    const rule: FakeRule = (ctx) => {
+      if (ctx.questionId !== 'q') return undefined;
+      const hinted = ctx.text.includes('no fallback today');
+      const tagged = /tags: .*handles_auth=yes/.test(ctx.text);
+      return hinted && tagged ? { session: 9, config: 1 } : hinted ? { session: 6, config: 4 } : { session: 1, config: 4 };
+    };
+    const backend = new FakeBackend({ rules: [rule] });
     const r = await decide(
       'Where should the session TTL default live?',
       ['config=a shared config module', 'session=next to the session code'],
-      'The TTL is read from env with no fallback today.',
+      HINT,
       { store, root, backend, log: logFile },
     );
-    expect(r.record.scope).toMatchObject({ context: 'The TTL is read from env with no fallback today.' });
-    const ex = await explainDecision(r.record.id!, { root, backend: () => backend, store: () => store, budget: 8, logFile });
+    expect(r.choice).toBe('session');
+    expect(r.record.scope).toMatchObject({ context: HINT });
+
+    const ex = await explainDecision(r.record.id!, { root, backend: () => backend, store: () => store, budget: 20, logFile });
     expect(ex.changed).toBe(false);
-    // A decide record explained without the store cannot rebuild its state, so that counts as changed.
-    const again = await explainDecision(r.record.id!, { root, backend: () => backend, budget: 8, logFile, refresh: true });
-    expect(again.changed).toBe(true);
+    // Every re-ask ran over decide's layout, never over plain ### file:line chunks of source.
+    for (const call of backend.calls) expect(String(call.state)).not.toMatch(/^### [^\n]+\n(?!tags:)/);
+    // Hiding the hint flips the answer, so it is the strongest highlight.
+    expect(ex.explain.highlights[0]).toMatchObject({ file: '(agent context)', startLine: 1, endLine: 1 });
+    expect(ex.explain.highlights[0]!.deltaP).toBeLessThan(-0.5);
+    expect(ex.explain.stats?.tested).toBeGreaterThan(1);
+
+    await expect(explainDecision(r.record.id!, { root, backend: () => backend, logFile, refresh: true })).rejects.toThrow(
+      /needs the graph store/,
+    );
   });
 
   it('works without a store and needs two options', async () => {

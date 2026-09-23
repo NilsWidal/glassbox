@@ -1,10 +1,58 @@
 import { join } from 'node:path';
 import { appendDecisionLog, ask, readDecisionLog, DECISION_LOG, STORE_DIR } from '../ask.js';
+import { winningOption } from '../engine/answer.js';
+import { decide as decideEngine } from '../engine/decide.js';
+import { DEFAULT_BUDGET, occlude, optionProbability, pYesByPrefix } from '../explain/occlusion.js';
+import { DEFAULT_REASONS, REASON_PREFIX, collectReasons, reasonQuestions } from '../explain/reasons.js';
+import { buildSummary } from '../explain/summary.js';
 import type { GraphStore } from '../memory/store.js';
-import type { Backend, DecisionRecord, ExplainBlock } from '../types.js';
-import { hashState, sha256 } from '../util/hash.js';
-import { decideState } from './decide.js';
+import type { Backend, DecisionRecord, ExplainBlock, Question } from '../types.js';
+import { sha256 } from '../util/hash.js';
+import { decideSegments, renderDecideState } from './decide.js';
 import { triage } from './triage.js';
+
+/**
+ * Re-asks a logged `decide` over exactly the state decide used (the agent's
+ * hint, then the related nodes' tags and excerpts), and hides one segment at a
+ * time within that state, so the evidence is measured on the input the answer
+ * came from.
+ */
+async function explainDecideState(
+  question: Question,
+  scope: NonNullable<DecisionRecord['scope']>,
+  store: GraphStore,
+  root: string,
+  backend: Backend,
+  budget: number | undefined,
+): Promise<{ explain: ExplainBlock; stateHash: string; calls: number; fresh: DecisionRecord }> {
+  const segments = await decideSegments(scope.context, scope.nodes ?? [], { root, store });
+  const chunks = segments.map((s) => s.chunk);
+  const state = renderDecideState(segments);
+  const reasons = [...DEFAULT_REASONS];
+  const [main, side] = await Promise.all([
+    decideEngine(state, { q: question }, backend),
+    decideEngine(state, reasonQuestions(reasons, question.instructions), backend).catch(() => undefined),
+  ]);
+  const answer = main.answers.q!;
+  const option = winningOption(answer);
+  let calls = main.calls + (side?.calls ?? 0);
+  const occ = await occlude(chunks, question, option, backend, {
+    budget: Math.max(0, (budget ?? DEFAULT_BUDGET) - (side?.calls ?? 0)),
+    baseline: optionProbability(answer, option),
+    // A decide state has at most a hint and a few nodes: rate them all equally and skip the prefilter calls.
+    relevance: Object.fromEntries(chunks.map((c) => [c.id, 1])),
+    render: (hidden) => renderDecideState(segments, hidden),
+  });
+  calls += occ.calls;
+  const reasonCodes = side ? collectReasons(reasons, pYesByPrefix(side.answers, REASON_PREFIX)) : [];
+  const explain: ExplainBlock = {
+    highlights: occ.highlights,
+    reasons: reasonCodes,
+    summary: buildSummary({ highlights: occ.highlights, reasons: reasonCodes, chunks, nodes: store.getNodes(), edges: store.getEdges('calls') }),
+    stats: { calls: calls - main.calls, candidates: occ.candidates.length, tested: occ.trials.length, baselineP: occ.baselineP },
+  };
+  return { explain, stateHash: main.stateHash, calls, fresh: main.records[0]! };
+}
 
 /** Option key with the highest calibrated (else raw) probability. */
 function winner(r: DecisionRecord): string | undefined {
@@ -102,6 +150,9 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
     stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain;
     fresh = r.record;
+  } else if (record.source === 'decide') {
+    if (!opts.store) throw new Error('re-explaining a decide decision needs the graph store');
+    ({ explain, stateHash, calls, fresh } = await explainDecideState(record.question, scope, opts.store(), opts.root, backend, opts.budget));
   } else {
     if (!scope.paths?.length && diff === undefined && !scope.nodes?.length) {
       throw new Error('this decision has no stored scope, so it cannot be re-asked');
@@ -113,12 +164,7 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
     };
     const r = await ask(askScope, record.question, { backend, root: opts.root, explain: budget, why: false, log: false });
     explain = r.explain ?? { highlights: [], reasons: [], summary: [] };
-    // decide asked over its own state (hint, tags and excerpts), not over the nodes'
-    // source, so rebuild that state to tell whether the code changed.
-    stateHash =
-      record.source === 'decide'
-        ? hashState(await decideState(scope.context, scope.nodes ?? [], { root: opts.root, ...(opts.store ? { store: opts.store() } : {}) }))
-        : r.record.stateHash;
+    stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain + r.calls.why;
     fresh = r.record;
   }

@@ -108,48 +108,66 @@ function withoutImport(text: string): string {
 }
 
 /**
- * Drops the hunks of an AGENTS.md section whose changed lines all fall inside
- * the glassbox block (old lines in the old block, new lines in the new one).
- * Returns undefined when no hunk is left.
+ * Drops, line by line, what an AGENTS.md section changed inside the glassbox
+ * block: removed lines inside the old block, added lines inside the new one,
+ * and context lines inside both. The remaining lines are regrouped into hunks
+ * with fresh headers (so later line numbers stay right), and a hunk left with
+ * no added or removed line is dropped. Returns undefined when nothing is left.
  */
-function dropBlockHunks(text: string, oldRange?: { start: number; end: number }, newRange?: { start: number; end: number }): string | undefined {
+export function dropBlockLines(
+  text: string,
+  oldRange?: { start: number; end: number },
+  newRange?: { start: number; end: number },
+): string | undefined {
   const inOld = (n: number) => Boolean(oldRange && n >= oldRange.start && n <= oldRange.end);
   const inNew = (n: number) => Boolean(newRange && n >= newRange.start && n <= newRange.end);
-  const lines = text.split('\n');
   const header: string[] = [];
-  const hunks: { lines: string[]; ours: boolean }[] = [];
+  const hunks: string[] = [];
+  type Kept = { line: string; oldNo: number; newNo: number };
+  let run: Kept[] = [];
+  const flush = () => {
+    const changed = run.filter((k) => k.line.startsWith('+') || k.line.startsWith('-'));
+    if (changed.length) {
+      const first = run[0]!;
+      const oldCount = run.filter((k) => k.line.startsWith(' ') || k.line.startsWith('-')).length;
+      const newCount = run.filter((k) => k.line.startsWith(' ') || k.line.startsWith('+')).length;
+      const oldStart = oldCount === 0 ? first.oldNo - 1 : first.oldNo;
+      const newStart = newCount === 0 ? first.newNo - 1 : first.newNo;
+      hunks.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`, ...run.map((k) => k.line));
+    }
+    run = [];
+  };
+  let inHunk = false;
   let oldNo = 0;
   let newNo = 0;
+  const lines = text.replace(/\n$/, '').split('\n');
   for (const line of lines) {
     const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (h) {
+      flush();
+      inHunk = true;
       oldNo = Number(h[1]);
       newNo = Number(h[2]);
-      hunks.push({ lines: [line], ours: true });
       continue;
     }
-    const hunk = hunks[hunks.length - 1];
-    if (!hunk) {
+    if (!inHunk) {
       header.push(line);
       continue;
     }
-    hunk.lines.push(line);
-    if (line.startsWith('-')) {
-      if (!inOld(oldNo)) hunk.ours = false;
-      oldNo++;
-    } else if (line.startsWith('+')) {
-      if (!inNew(newNo)) hunk.ours = false;
-      newNo++;
-    } else if (line.startsWith(' ')) {
-      oldNo++;
-      newNo++;
-    }
+    const tag = line.charAt(0);
+    let drop = false;
+    if (tag === '-') drop = inOld(oldNo);
+    else if (tag === '+') drop = inNew(newNo);
+    else if (tag === ' ') drop = inOld(oldNo) && inNew(newNo);
+    else if (tag === '\\') drop = run.length === 0;
+    if (drop) flush();
+    else run.push({ line, oldNo, newNo });
+    if (tag === '-' || tag === ' ') oldNo++;
+    if (tag === '+' || tag === ' ') newNo++;
   }
-  const kept = hunks.filter((h) => !h.ours);
-  if (kept.length === 0) return undefined;
-  if (kept.length === hunks.length) return text;
-  const res = [...header, ...kept.flatMap((h) => h.lines)].join('\n');
-  return res.endsWith('\n') ? res : `${res}\n`;
+  flush();
+  if (hunks.length === 0) return undefined;
+  return `${[...header, ...hunks].join('\n')}\n`;
 }
 
 /**
@@ -170,7 +188,7 @@ export async function withoutGlassboxChanges(diff: string, files: FileReaders): 
         const base = before === null ? outsideBlock(AGENTS_HEADER) : outsideBlock(before);
         const now = outsideBlock(after);
         if (now === base || (before === null && now === '')) continue;
-        const kept = dropBlockHunks(section.text, before === null ? undefined : blockLineRange(before), blockLineRange(after));
+        const kept = dropBlockLines(section.text, before === null ? undefined : blockLineRange(before), blockLineRange(after));
         if (kept === undefined) continue;
         out.push(kept);
         continue;

@@ -27,6 +27,12 @@ export interface OcclusionOptions {
   baseline?: number;
   /** Passed to every re-ask (permutations, calibrators, bands). */
   decide?: DecideOptions;
+  /**
+   * Builds the state with some chunks hidden. Default renderState (### headers).
+   * Callers whose state has another layout (decide's hint, tags and excerpts)
+   * pass their own, so evidence is measured on the input the answer came from.
+   */
+  render?: (hidden: ReadonlySet<string>) => string;
 }
 
 export interface OcclusionTrial {
@@ -99,6 +105,7 @@ export async function occlude(
   const decideOpts = { ...opts.decide, permutations: perAsk };
   const qid = 'q';
   let calls = 0;
+  const render = opts.render ?? ((hidden: ReadonlySet<string>) => renderState(chunks, hidden));
 
   const ask = async (state: string): Promise<number> => {
     const res = await decide(state, { [qid]: question }, backend, decideOpts);
@@ -107,7 +114,7 @@ export async function occlude(
   };
 
   let baselineP = opts.baseline;
-  if (baselineP === undefined && calls + perAsk <= budget) baselineP = await ask(renderState(chunks));
+  if (baselineP === undefined && calls + perAsk <= budget) baselineP = await ask(render(new Set()));
 
   // Prefilter: the model's own per-chunk relevance, asked in batches when not supplied.
   let relevance = opts.relevance;
@@ -115,7 +122,7 @@ export async function occlude(
     const asked: Record<string, number> = {};
     const qs = relevanceQuestions(chunks, question.instructions);
     const ids = Object.keys(qs);
-    const state = renderState(chunks);
+    const state = render(new Set());
     for (let i = 0; i < ids.length; i += RELEVANCE_BATCH) {
       const cost = backend.capabilities.batch ? perAsk : perAsk * Math.min(RELEVANCE_BATCH, ids.length - i);
       if (calls + cost > budget) break;
@@ -144,7 +151,7 @@ export async function occlude(
 
   const results = await mapLimit(tried, Math.max(1, opts.concurrency ?? 4), async (c) => {
     try {
-      const p = await ask(renderState(chunks, new Set([c.id])));
+      const p = await ask(render(new Set([c.id])));
       return { chunkId: c.id, p, deltaP: round(p - full) };
     } catch {
       return undefined;

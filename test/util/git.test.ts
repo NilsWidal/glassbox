@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { syncAgentsMd, type AgentsMdSummary } from '../../src/agents-md/index.js';
 import { chunkDiff } from '../../src/scope.js';
-import { withoutGlassboxChanges, workingDiff } from '../../src/util/git.js';
+import { dropBlockLines, withoutGlassboxChanges, workingDiff } from '../../src/util/git.js';
 
 describe('workingDiff', () => {
   it('gives one short line outside a git repository', async () => {
@@ -78,6 +78,27 @@ describe('workingDiff filtering', () => {
     expect(chunkDiff(diff).map((c) => c.file)).toEqual(['AGENTS.md', 'a.ts']);
   });
 
+  it('filters block changes line by line, even when a user edit sits next to the block', async () => {
+    const { dir, git } = await repo();
+    await writeFile(join(dir, 'AGENTS.md'), '# AGENTS.md\n\nIntro line.\n');
+    await syncAgentsMd(dir, summary);
+    git('add', '-A');
+    git('commit', '-qm', 'init');
+    const before = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    // The user edit is 2 lines above the start marker, so git puts it in the same hunk as the block change.
+    await writeFile(join(dir, 'AGENTS.md'), before.replace('Intro line.', 'Intro line, edited.').replace('**auth**', '**authn**'));
+    const diff = await workingDiff(dir);
+    expect(diff).toContain('+Intro line, edited.');
+    expect(diff).toContain('-Intro line.');
+    expect(diff).not.toContain('authn');
+    expect(diff).not.toContain('glassbox:start');
+    const chunks = chunkDiff(diff);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ file: 'AGENTS.md', changedLines: [3] });
+    // The start marker is on line 5; nothing from the block is left in the chunk.
+    expect(chunks[0]!.endLine).toBeLessThan(5);
+  });
+
   it('keeps an import added next to other CLAUDE.md edits', async () => {
     const { dir, git } = await repo();
     await writeFile(join(dir, 'CLAUDE.md'), 'Be terse.\n');
@@ -96,6 +117,29 @@ describe('workingDiff filtering', () => {
     git('mv', 'a.ts', 'moved.ts');
     const chunks = chunkDiff(await workingDiff(dir));
     expect(chunks).toEqual([expect.objectContaining({ file: 'moved.ts', renamedFrom: 'a.ts', renameOnly: true })]);
+  });
+});
+
+describe('dropBlockLines', () => {
+  it('drops block lines, keeps user lines with fresh hunk headers, and drops hunks left with only context', () => {
+    const section = [
+      'diff --git a/AGENTS.md b/AGENTS.md',
+      '--- a/AGENTS.md',
+      '+++ b/AGENTS.md',
+      '@@ -1,6 +1,6 @@',
+      '-user old',
+      '+user new',
+      ' ctx',
+      ' <!-- glassbox:start -->',
+      '-block old',
+      '+block new',
+      ' <!-- glassbox:end -->',
+      ' tail',
+      '',
+    ].join('\n');
+    const out = dropBlockLines(section, { start: 3, end: 5 }, { start: 3, end: 5 });
+    expect(out).toBe(['diff --git a/AGENTS.md b/AGENTS.md', '--- a/AGENTS.md', '+++ b/AGENTS.md', '@@ -1,2 +1,2 @@', '-user old', '+user new', ' ctx', ''].join('\n'));
+    expect(dropBlockLines(section, { start: 1, end: 30 }, { start: 1, end: 30 })).toBeUndefined();
   });
 });
 

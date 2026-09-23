@@ -5,7 +5,7 @@ import { calibratorsForQuestion } from '../engine/questions.js';
 import { SourceCache } from '../memory/source.js';
 import type { GraphStore } from '../memory/store.js';
 import { nodeTagLabels } from '../memory/tags.js';
-import { spanLabel } from '../scope.js';
+import { spanLabel, type Chunk } from '../scope.js';
 import type { Backend, Band, ChoiceAnswer, ChoiceQuestion, DecideOptions, DecisionRecord } from '../types.js';
 import { lexicalScore, queryTerms } from './lexical.js';
 import { whereCandidates } from './where.js';
@@ -60,40 +60,84 @@ function relatedNodes(question: string, options: readonly string[], hint: string
     .map((x) => x.node.id);
 }
 
+/** One hideable part of decide's state: the agent's hint, or one related node's section. */
+export interface DecideSegment {
+  /** For occlusion and highlights: the hint is `(agent context)`, a node its own file and lines. */
+  chunk: Chunk;
+  /** The segment exactly as it appears in the state. */
+  text: string;
+}
+
+const HINT_HEADER = '## Context from the agent';
+const RELATED_HEADER = '## Related code (from the glassbox graph)';
+export const HINT_FILE = '(agent context)';
+
 /**
- * The state decide asks over: the hint, then the given nodes with their stored
- * tags and a short source excerpt. Exported so explain can rebuild the state a
- * logged decide call used and tell whether the code changed since.
+ * The parts of the state decide asks over: the hint, then the given nodes with
+ * their stored tags and a short source excerpt.
  */
+export async function decideSegments(
+  hint: string | undefined,
+  nodeIds: readonly string[],
+  opts: { root: string; store?: GraphStore },
+): Promise<DecideSegment[]> {
+  const out: DecideSegment[] = [];
+  const h = hint?.trim();
+  if (h) {
+    out.push({
+      chunk: { id: 'hint', file: HINT_FILE, startLine: 1, endLine: h.split('\n').length, text: h },
+      text: `${HINT_HEADER}\n${h}`,
+    });
+  }
+  const store = opts.store;
+  if (!store) return out;
+  const src = new SourceCache(opts.root);
+  for (const [i, id] of nodeIds.entries()) {
+    const node = store.getNode(id);
+    if (!node) {
+      // A node that no longer exists: the rebuilt state differs, as it should.
+      const text = `### ${id} (missing)`;
+      out.push({ chunk: { id: `n${i + 1}`, file: id.split('#')[0]!, startLine: 1, endLine: 1, text }, text });
+      continue;
+    }
+    const lines = [`### ${spanLabel(node.file, node.startLine, node.endLine)} (${node.kind} ${node.name})`];
+    const tags = nodeTagLabels(store, node.id);
+    if (tags.length) lines.push(`tags: ${tags.join(', ')}`);
+    if (i < SOURCE_NODES) {
+      const text = await src.text(node, SOURCE_LINES);
+      if (text) lines.push(text);
+    }
+    const text = lines.join('\n');
+    out.push({
+      chunk: { id: `n${i + 1}`, file: node.file, startLine: node.startLine, endLine: node.endLine, text, nodeId: node.id },
+      text,
+    });
+  }
+  return out;
+}
+
+/** The state text from segments, leaving out hidden ones (by chunk id). */
+export function renderDecideState(segments: readonly DecideSegment[], hidden?: ReadonlySet<string>): string {
+  const parts: string[] = [];
+  let related = false;
+  for (const seg of segments) {
+    if (hidden?.has(seg.chunk.id)) continue;
+    if (seg.chunk.id !== 'hint' && !related) {
+      parts.push(RELATED_HEADER);
+      related = true;
+    }
+    parts.push(seg.text);
+  }
+  return parts.length ? parts.join('\n') : '(no extra context)';
+}
+
+/** The full state decide asks over (see decideSegments). */
 export async function decideState(
   hint: string | undefined,
   nodeIds: readonly string[],
   opts: { root: string; store?: GraphStore },
 ): Promise<string> {
-  const parts: string[] = [];
-  if (hint?.trim()) parts.push('## Context from the agent', hint.trim());
-  const store = opts.store;
-  if (store && nodeIds.length) {
-    const src = new SourceCache(opts.root);
-    parts.push('## Related code (from the glassbox graph)');
-    for (const [i, id] of nodeIds.entries()) {
-      const node = store.getNode(id);
-      if (!node) {
-        // A node that no longer exists: the rebuilt state differs, as it should.
-        parts.push(`### ${id} (missing)`);
-        continue;
-      }
-      const tags = nodeTagLabels(store, node.id);
-      parts.push(`### ${spanLabel(node.file, node.startLine, node.endLine)} (${node.kind} ${node.name})`);
-      if (tags.length) parts.push(`tags: ${tags.join(', ')}`);
-      if (i < SOURCE_NODES) {
-        const text = await src.text(node, SOURCE_LINES);
-        if (text) parts.push(text);
-      }
-    }
-  }
-  if (parts.length === 0) parts.push('(no extra context)');
-  return parts.join('\n');
+  return renderDecideState(await decideSegments(hint, nodeIds, opts));
 }
 
 /** The state: the hint, then related nodes with their stored tags and a short source excerpt. */
