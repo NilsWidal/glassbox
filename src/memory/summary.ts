@@ -1,7 +1,7 @@
 import { syncAgentsMd } from '../agents-md/sync.js';
 import type { AgentsMdSummary, AreaSummary, RiskyNode, SyncAgentsMdOptions, SyncAgentsMdResult } from '../agents-md/types.js';
 import type { GraphStore, StoredNode } from './store.js';
-import { OTHER_AREA, RISK_LEVELS, areaOf } from './tags.js';
+import { OTHER_AREA, RISK_LEVELS, areaOf, inferAreas } from './tags.js';
 
 const MAX_ENTRY_POINTS = 5;
 const MAX_RISKY = 10;
@@ -27,7 +27,9 @@ function byLocation(a: StoredNode, b: StoredNode): number {
 export function buildAgentsSummary(store: GraphStore, now: Date = new Date()): AgentsMdSummary {
   const nodes = store.getNodes();
   const fns = nodes.filter((n) => n.kind === 'function' || n.kind === 'method');
-  const areaTags = new Map(store.tagsForQuestion('area').map((t) => [t.nodeId, t.answer]));
+  // Only area answers from the question's own label set (directory names) are kept.
+  const knownAreas = new Set(inferAreas(nodes.map((n) => n.file)));
+  const areaTags = new Map(store.tagsForQuestion('area').filter((t) => knownAreas.has(t.answer)).map((t) => [t.nodeId, t.answer]));
   const fileOf = new Map(nodes.map((n) => [n.id, n.file]));
   const areaFor = (id: string) => areaTags.get(id) ?? areaOf(fileOf.get(id) ?? id) ?? OTHER_AREA;
   const callers = new Map<string, number>();

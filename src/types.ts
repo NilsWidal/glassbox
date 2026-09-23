@@ -120,6 +120,8 @@ export interface Backend {
   readonly name: string;
   /** Model id in use, if known. */
   readonly model?: string;
+  /** Model runs averaged per call (host CLIs start one process each), when more than one. */
+  readonly samples?: number;
   readonly capabilities: BackendCapabilities;
   /**
    * Answers every question about one state in ONE call (host CLI calls are

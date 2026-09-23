@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -7,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = join(REPO, 'hooks', 'glassbox-hook.sh');
+// npx runs are pinned to this exact version, so a later publish cannot change what runs.
+const PKG_VERSION = (JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { version: string }).version;
 
 async function readJson<T>(rel: string): Promise<T> {
   return JSON.parse(await readFile(join(REPO, rel), 'utf8')) as T;
@@ -36,7 +39,7 @@ describe('plugin manifests', () => {
 
   it('.mcp.json starts the server with `glassbox mcp`', async () => {
     const m = await readJson<{ mcpServers: Record<string, { command: string; args: string[] }> }>('.mcp.json');
-    expect(m.mcpServers.glassbox!.args.slice(-2)).toEqual(['@nilswidal/glassbox', 'mcp']);
+    expect(m.mcpServers.glassbox!.args.slice(-2)).toEqual([`@nilswidal/glassbox@${PKG_VERSION}`, 'mcp']);
   });
 
   it('hooks.json wires opt-in edit and session hooks with short timeouts', async () => {
@@ -70,7 +73,7 @@ describe('plugin manifests', () => {
       'docs/claude-code.md',
       'README.md',
     ];
-    for (const f of files) expect(await readFile(join(REPO, f), 'utf8'), f).not.toContain('—');
+    for (const f of files) expect(await readFile(join(REPO, f), 'utf8'), f).not.toContain(String.fromCharCode(0x2014));
   });
 });
 
@@ -144,7 +147,7 @@ describe('hook script', () => {
     await chmod(join(other, 'glassbox'), 0o755);
     await chmod(join(other, 'npx'), 0o755);
     const foreign = await runHook('session-start', { GLASSBOX_HOOKS: '1' }, '', project, other);
-    expect(foreign.calls).toBe(`npx -y @nilswidal/glassbox refresh --root ${project} --sync-md --no-claude-md --quiet`);
+    expect(foreign.calls).toBe(`npx -y @nilswidal/glassbox@${PKG_VERSION} refresh --root ${project} --sync-md --no-claude-md --quiet`);
 
     const plugin = join(tmp, 'plugin');
     await mkdir(join(plugin, 'dist', 'cli'), { recursive: true });

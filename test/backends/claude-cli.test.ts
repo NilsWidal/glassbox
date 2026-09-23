@@ -108,6 +108,12 @@ describe('ClaudeCliBackend', () => {
     expect(b.args()).not.toContain('--safe-mode');
   });
 
+  it('fails closed when the CLI rejects a flag that keeps the nested run tool-free', async () => {
+    const { run, calls } = fakeRunner(() => ({ code: 1, stderr: "error: unknown option '--setting-sources'" }));
+    await expect(new ClaudeCliBackend({ run, samples: 1 }).answerBatch('s', batch)).rejects.toThrow(/Update Claude Code/);
+    expect(calls).toHaveLength(1);
+  });
+
   it('generate returns the text result without a schema', async () => {
     const { run, calls } = fakeRunner(() => ({ stdout: JSON.stringify({ type: 'result', is_error: false, result: ' reads env TTL \n' }) }));
     const text = await new ClaudeCliBackend({ run }).generate('why?');

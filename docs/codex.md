@@ -11,7 +11,7 @@ Three parts, each optional:
 ## 1. Add the MCP server
 
 ```sh
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox mcp
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.1.0 mcp
 ```
 
 `GLASSBOX_HOST=codex` tells glassbox which agent started it. Codex gives MCP servers a trimmed environment, so glassbox cannot always tell on its own, and without the hint it would use whichever of `claude` or `codex` it finds on your PATH first.
@@ -21,7 +21,7 @@ Or edit `~/.codex/config.toml` (or `.codex/config.toml` in a project) by hand:
 ```toml
 [mcp_servers.glassbox]
 command = "npx"
-args = ["-y", "@nilswidal/glassbox", "mcp"]
+args = ["-y", "@nilswidal/glassbox@0.1.0", "mcp"]
 # The first run downloads the package; later starts take under a second.
 startup_timeout_sec = 30
 # Each answer takes seconds, and `explain` makes several calls, so allow more than the 60 s default.
@@ -64,7 +64,7 @@ In the repository you want glassbox to know about:
 npx -y @nilswidal/glassbox init
 ```
 
-`init` parses the code into a graph of files and functions, asks a small set of tag questions about each one (handles auth, side effects, touches personal data, needs tests, area, risk) and stores the result in `.glassbox/`. Add `.glassbox/` to your `.gitignore`.
+`init` parses the code into a graph of files and functions, asks a small set of tag questions about each one (handles auth, side effects, touches personal data, needs tests, area, risk) and stores the result in `.glassbox/`. That folder gets its own `.gitignore`, so it is not committed.
 
 It then writes a managed block into `AGENTS.md`, which Codex reads automatically:
 

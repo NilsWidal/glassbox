@@ -36,8 +36,9 @@ export interface ExplainDecisionResult {
   calls: number;
 }
 
+/** A one-line why alone is not evidence; explain must still run the evidence pass. */
 function hasContent(e: ExplainBlock | undefined): e is ExplainBlock {
-  return Boolean(e && (e.highlights.length || e.reasons.length || e.summary.length || e.why));
+  return Boolean(e && (e.highlights.length || e.reasons.length || e.summary.length));
 }
 
 /** Latest logged record whose id equals or starts with `id` (at least 4 characters). */
@@ -83,7 +84,7 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
     if (!scope.paths?.length && scope.diff === undefined && !scope.nodes?.length) {
       throw new Error('this decision has no stored scope, so it cannot be re-asked');
     }
-    const r = await ask(scope, record.question, { backend, root: opts.root, explain: budget, log: false });
+    const r = await ask(scope, record.question, { backend, root: opts.root, explain: budget, why: false, log: false });
     explain = r.explain ?? { highlights: [], reasons: [], summary: [] };
     stateHash = r.record.stateHash;
     calls = r.calls.decide + r.calls.explain + r.calls.why;
@@ -98,6 +99,9 @@ export async function explainDecision(id: string, opts: ExplainDecisionOptions):
         'so its evidence would not explain the logged decision; run the question again with --explain for a new decision',
     );
   }
+  // Keep the why the decision was logged with.
+  const oldWhy = record.explain?.why;
+  if (oldWhy && !explain.why) explain = { ...explain, why: oldWhy };
   const updated: DecisionRecord = { ...record, explain };
   await appendDecisionLog(logFile, updated);
   return { record: updated, explain, cached: false, changed: stateHash !== record.stateHash, calls };

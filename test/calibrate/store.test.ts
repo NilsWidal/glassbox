@@ -14,6 +14,7 @@ import {
   normalizeTruth,
   recordSample,
 } from '../../src/calibrate/store.js';
+import { calibratorsForQuestion } from '../../src/engine/questions.js';
 import type { DecisionRecord, Question } from '../../src/types.js';
 
 const yesno: Question = { type: 'yesno', instructions: 'q?' };
@@ -99,9 +100,21 @@ describe('labels and the calibration store', () => {
     expect(file?.entries).toHaveLength(1);
     expect(JSON.parse(await readFile(r.file!, 'utf8')).entries[0].beforeBins).toBeUndefined();
     const cals = await loadCalibrators(root, { name: 'claude-cli', model: 'haiku' });
-    expect(cals.q?.kind).toBe('temperature');
+    expect(cals['ask:yesno']?.kind).toBe('temperature');
     expect(calibratorsFor(file, 'claude-cli', 'sonnet')).toEqual({});
     expect(await loadCalibrators(join(root, 'missing'), { name: 'claude-cli', model: 'haiku' })).toEqual({});
+  });
+
+  it('keeps yes/no, choice and score asks in separate calibration groups', () => {
+    const choice3: Question = { type: 'choice', instructions: 'which?', criteria: { a: '', b: '', c: '' } };
+    const recs = [
+      ...Array.from({ length: 5 }, (_, i) => rec(`y${i}`, 0.9, { truth: 'true' })),
+      ...Array.from({ length: 5 }, (_, i) => ({ ...rec(`c${i}`, 0.9, { truth: 'a' }), question: choice3, raw: { a: 0.8, b: 0.1, c: 0.1 }, calibrated: { a: 0.8, b: 0.1, c: 0.1 } })),
+    ];
+    const keys = fitFromRecords(recs as DecisionRecord[]).entries.map((e) => e.questionId).sort();
+    expect(keys).toEqual(['ask:choice:3', 'ask:yesno']);
+    expect(calibratorsForQuestion({ 'ask:yesno': { kind: 'temperature', T: 2 } }, 'q', choice3)).toEqual({});
+    expect(calibratorsForQuestion({ 'ask:yesno': { kind: 'temperature', T: 2 } }, 'q', yesno)).toEqual({ q: { kind: 'temperature', T: 2 } });
   });
 
   it('dry run writes nothing', async () => {

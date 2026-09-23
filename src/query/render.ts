@@ -1,4 +1,4 @@
-import { answerLabel, answerP, explainLines } from '../render.js';
+import { answerLabel, answerP, callsText, explainLines } from '../render.js';
 import { spanLabel } from '../scope.js';
 import type { DecisionRecord, GraphEdge } from '../types.js';
 import type { StoredNode } from '../memory/store.js';
@@ -25,7 +25,7 @@ export function renderWhere(r: WhereResult): string {
       ...pad(r.hits.map((h) => [`p=${h.p.toFixed(2)}`, spanLabel(h.file, h.startLine, h.endLine), `${h.name} (${h.kind})`])),
     );
   }
-  out.push(`cost  ${r.calls} call${r.calls === 1 ? '' : 's'}, ${r.asked}/${r.matched} candidates asked, ${secs(r.latencyMs)}`);
+  out.push(`cost  ${callsText(r.calls, r.samples)}, ${r.asked}/${r.matched} candidates asked, ${secs(r.latencyMs)}`);
   return out.join('\n');
 }
 
@@ -38,7 +38,8 @@ export function renderTriage(r: TriageResult): string {
   }
   out.push(...explainLines(r.explain));
   const explainCost = r.calls.explain ? ` + ${r.calls.explain} explain` : '';
-  out.push(`cost  ${r.calls.decide} calls${explainCost}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
+  const runs = r.samples && r.samples > 1 ? ` (x ${r.samples} samples = ${(r.calls.decide + r.calls.explain) * r.samples} model runs)` : '';
+  out.push(`cost  ${r.calls.decide} calls${explainCost}${runs}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
   if (r.record.id) out.push(`id    ${r.record.id}`);
   return out.join('\n');
 }
@@ -50,7 +51,7 @@ export function renderDecide(r: DecideQueryResult): string {
     'advice only: the choice stays with you',
   ];
   if (r.context.length) out.push(`context  ${r.context.join(', ')}`);
-  out.push(`cost  ${r.calls} call${r.calls === 1 ? '' : 's'}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
+  out.push(`cost  ${callsText(r.calls, r.samples)}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
   if (r.record.id) out.push(`id    ${r.record.id}`);
   return out.join('\n');
 }

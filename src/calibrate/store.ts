@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { ensureStoreDirSync, writeInside } from '../util/safefs.js';
 import { DECISION_LOG, STORE_DIR, readDecisionLog } from '../ask.js';
-import { optionKeys } from '../engine/questions.js';
+import { calibrationKey, optionKeys } from '../engine/questions.js';
 import type { Backend, Calibrator, DecisionRecord, Question } from '../types.js';
 import { calibrateSamples, fitCalibrator, type FitMethod } from './fit.js';
 import { computeMetrics, type Metrics, type Sample } from './metrics.js';
@@ -47,8 +48,8 @@ export async function loadCalibration(root: string): Promise<CalibrationFile | u
 
 export async function saveCalibration(root: string, file: CalibrationFile): Promise<string> {
   const path = calibrationPath(root);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(file, null, 2)}\n`, 'utf8');
+  ensureStoreDirSync(root, STORE_DIR);
+  await writeInside(root, path, `${JSON.stringify(file, null, 2)}\n`);
   return path;
 }
 
@@ -116,9 +117,7 @@ export async function labelDecision(root: string, idPrefix: string, answer: stri
   }
   const truth = normalizeTruth(matches[0]!.question, answer);
   for (const m of matches) m.truth = truth;
-  const tmp = `${logFile}.${process.pid}.tmp`;
-  await writeFile(tmp, records.map((r) => `${JSON.stringify(r)}\n`).join(''), 'utf8');
-  await rename(tmp, logFile);
+  await writeInside(dirname(logFile), logFile, records.map((r) => `${JSON.stringify(r)}\n`).join(''));
   const keys = optionKeys(matches[0]!.question);
   const raw = keys.map((k) => matches[0]!.raw[k] ?? 0);
   const predicted = keys[raw.indexOf(Math.max(...raw))]!;
@@ -153,16 +152,17 @@ export function latestPerId(records: readonly DecisionRecord[]): DecisionRecord[
   return records.filter((r, i) => r.id === undefined || last.get(r.id) === i);
 }
 
-/** Groups labeled records by (questionId, backend, model), one sample per decision id. */
+/** Groups labeled records by (calibration key, backend, model), one sample per decision id. */
 export function groupLabeled(records: readonly DecisionRecord[]): FitGroup[] {
   const groups = new Map<string, FitGroup>();
   for (const r of latestPerId(records)) {
     const s = recordSample(r);
     if (!s) continue;
     const model = r.model ?? '';
-    const key = `${r.questionId}\u0000${r.backend}\u0000${model}`;
+    const questionId = calibrationKey(r.questionId, r.question, r.source);
+    const key = `${questionId}\u0000${r.backend}\u0000${model}`;
     let g = groups.get(key);
-    if (!g) groups.set(key, (g = { questionId: r.questionId, backend: r.backend, model, samples: [] }));
+    if (!g) groups.set(key, (g = { questionId, backend: r.backend, model, samples: [] }));
     g.samples.push(s);
   }
   return [...groups.values()];

@@ -1,5 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readInsideOrNull, writeInside } from '../util/safefs.js';
 import { END_MARKER, START_MARKER, renderBlock, withoutStamp } from './render.js';
 import type {
   AgentsMdSummary,
@@ -11,15 +11,6 @@ import type {
 const AGENTS_HEADER = '# AGENTS.md\n\nInstructions for coding agents working in this repository.\n';
 const IMPORT_LINE = '@AGENTS.md';
 const IMPORT_FORMS = new Set(['@AGENTS.md', '@./AGENTS.md']);
-
-async function readOrNull(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
-  }
-}
 
 function eolOf(text: string): string {
   return text.includes('\r\n') ? '\r\n' : '\n';
@@ -65,6 +56,7 @@ export function addAgentsImport(existing: string): string {
 /**
  * Writes the glassbox block into AGENTS.md and makes CLAUDE.md import it.
  * Text outside the markers is never changed; a second run with the same summary writes nothing.
+ * Symlinked files, or files that resolve outside the repo, are refused.
  */
 export async function syncAgentsMd(
   repoRoot: string,
@@ -75,27 +67,27 @@ export async function syncAgentsMd(
   const claudeMdPath = join(repoRoot, 'CLAUDE.md');
   const rendered = renderBlock(summary, opts.maxLines);
 
-  const agentsOld = await readOrNull(agentsMdPath);
+  const agentsOld = await readInsideOrNull(repoRoot, agentsMdPath);
   const agentsNew = upsertBlock(agentsOld, rendered.text);
   let agentsMd: FileAction = 'unchanged';
   if (agentsNew !== agentsOld) {
-    await writeFile(agentsMdPath, agentsNew, 'utf8');
+    await writeInside(repoRoot, agentsMdPath, agentsNew);
     agentsMd = agentsOld === null ? 'created' : 'updated';
   }
 
-  const claudeOld = await readOrNull(claudeMdPath);
+  const claudeOld = await readInsideOrNull(repoRoot, claudeMdPath);
   let claudeMd: FileAction;
   if (claudeOld === null) {
     if (opts.claudeMd === false) {
       claudeMd = 'skipped';
     } else {
-      await writeFile(claudeMdPath, `${IMPORT_LINE}\n`, 'utf8');
+      await writeInside(repoRoot, claudeMdPath, `${IMPORT_LINE}\n`);
       claudeMd = 'created';
     }
   } else {
     const claudeNew = addAgentsImport(claudeOld);
     claudeMd = claudeNew === claudeOld ? 'unchanged' : 'updated';
-    if (claudeMd === 'updated') await writeFile(claudeMdPath, claudeNew, 'utf8');
+    if (claudeMd === 'updated') await writeInside(repoRoot, claudeMdPath, claudeNew);
   }
 
   return {

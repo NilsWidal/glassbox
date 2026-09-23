@@ -76,6 +76,8 @@ export interface TriageResult {
   latencyMs: number;
   backend: string;
   model?: string;
+  /** Model runs per call (processes started for each call). */
+  samples?: number;
   logFile?: string;
 }
 
@@ -83,10 +85,11 @@ function riskQuestion(instructions: string): ScoreQuestion {
   return { type: 'score', instructions, criteria: [...RISK_LEVELS] };
 }
 
-/** Innermost node per line of the hunk; the file node for lines outside any function. */
-function touchedNodes(c: Pick<Chunk, 'file' | 'startLine' | 'endLine'>, nodes: readonly StoredNode[]): string[] {
+/** Innermost node per changed line of the hunk (context lines skipped); the file node outside any function. */
+function touchedNodes(c: Pick<Chunk, 'file' | 'startLine' | 'endLine' | 'changedLines'>, nodes: readonly StoredNode[]): string[] {
   const out = new Set<string>();
-  for (let line = c.startLine; line <= c.endLine; line++) {
+  const lines = c.changedLines ?? Array.from({ length: c.endLine - c.startLine + 1 }, (_, i) => c.startLine + i);
+  for (const line of lines) {
     const n = nodeAt(nodes, c.file, line);
     out.add(n ? n.id : c.file);
   }
@@ -231,6 +234,7 @@ export async function triage(diff: string, opts: TriageOptions): Promise<TriageR
     calls: { decide: main.calls, explain: explainCalls },
     latencyMs: Math.round(performance.now() - started),
     backend: backend.name,
+    ...(backend.samples && backend.samples > 1 ? { samples: backend.samples } : {}),
   };
   if (backend.model !== undefined) result.model = backend.model;
   if (logFile) result.logFile = logFile;

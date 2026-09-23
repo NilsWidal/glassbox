@@ -1,9 +1,10 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
+import { appendNoFollow, ensureStoreDirSync } from './util/safefs.js';
 import { createBackend } from './backends/index.js';
 import { winningOption } from './engine/answer.js';
 import { decide } from './engine/decide.js';
-import { validateQuestion } from './engine/questions.js';
+import { calibratorsForQuestion, validateQuestion } from './engine/questions.js';
 import {
   DEFAULT_BUDGET,
   RELEVANCE_BATCH,
@@ -73,6 +74,8 @@ export interface AskResult {
   latencyMs: number;
   backend: string;
   model?: string;
+  /** Model runs per call (processes started for each call). */
+  samples?: number;
   logFile?: string;
 }
 
@@ -127,8 +130,10 @@ export async function readDecisionLog(file: string): Promise<DecisionRecord[]> {
 
 /** Appends one record to the JSONL decision log. */
 export async function appendDecisionLog(file: string, record: DecisionRecord): Promise<void> {
-  await mkdir(dirname(file), { recursive: true });
-  await appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+  const dir = dirname(file);
+  if (basename(dir) === STORE_DIR) ensureStoreDirSync(dirname(dir), STORE_DIR);
+  else await mkdir(dir, { recursive: true });
+  await appendNoFollow(file, `${JSON.stringify(record)}\n`);
 }
 
 /** The scope as stored in the log (only the parts that were given). */
@@ -159,7 +164,12 @@ export async function ask(scope: AskScope, question: string | Question, opts: As
     ...(opts.maxChars !== undefined ? { maxChars: opts.maxChars } : {}),
   });
   const state = renderState(chunks);
-  const decideOpts: DecideOptions = { ...opts.decide, ...(opts.signal ? { signal: opts.signal } : {}) };
+  const calibrators = calibratorsForQuestion(opts.decide?.calibrators, QID, q, 'ask');
+  const decideOpts: DecideOptions = {
+    ...opts.decide,
+    ...(calibrators ? { calibrators } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  };
   const explainOpts: AskExplainOptions | undefined = opts.explain === true ? {} : opts.explain || undefined;
 
   // Hidden questions: reason codes, plus per-chunk relevance when it fits one batch.
@@ -242,6 +252,7 @@ export async function ask(scope: AskScope, question: string | Question, opts: As
     calls: { decide: main.calls, explain: explainCalls, why: whyCalls },
     latencyMs: Math.round(performance.now() - started),
     backend: backend.name,
+    ...(backend.samples && backend.samples > 1 ? { samples: backend.samples } : {}),
   };
   if (explain) result.explain = explain;
   if (explainStats) result.explainStats = explainStats;

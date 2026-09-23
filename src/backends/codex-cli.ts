@@ -43,6 +43,7 @@ export const NO_TOOL_FEATURES: readonly string[] = [
   'browser_use',
   'computer_use',
   'image_generation',
+  'code_mode_host',
 ];
 
 /** Longest free-text reply kept from generate (why lines and summaries are short). */
@@ -86,6 +87,8 @@ export class CodexCliBackend implements Backend {
       '-c', 'mcp_servers={}',
       '-c', 'notify=[]',
       '-c', 'project_doc_max_bytes=0',
+      // No web search either: injected repo text could use it to send code out.
+      '-c', 'web_search="disabled"',
     );
     // No tools: the prompt holds untrusted repo code, so the nested agent gets no shell to act on it.
     for (const feature of NO_TOOL_FEATURES) args.push('-c', `features.${feature}=false`);

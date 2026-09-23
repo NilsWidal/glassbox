@@ -165,6 +165,24 @@ describe('triage', () => {
     expect(rec.explain?.highlights).toHaveLength(1);
   });
 
+  it('maps a hunk to nodes by its changed lines, not its context lines', async () => {
+    const append = [
+      'diff --git a/src/auth/session.ts b/src/auth/session.ts',
+      '--- a/src/auth/session.ts',
+      '+++ b/src/auth/session.ts',
+      '@@ -50,3 +50,6 @@',
+      '   if (!user || !comparePassword(password, String(user.passwordHash))) return null;',
+      '   return issueToken(String(user.id));',
+      ' }',
+      '+',
+      '+export const MAX_SESSIONS = 5;',
+      '',
+    ].join('\n');
+    const quick = await triage(append, { store, root, backend: new FakeBackend({ rules: [riskRule] }), explain: false, log: false });
+    expect(quick.hunks[0]!.nodes).toEqual(['src/auth/session.ts']);
+    expect(quick.affected.some((a) => a.via === 'src/auth/session.ts#login')).toBe(false);
+  });
+
   it('skips evidence with explain: false and rejects an empty diff', async () => {
     const b = new FakeBackend({ rules: [riskRule] });
     const quick = await triage(DIFF, { store, root, backend: b, explain: false, log: false });
@@ -226,6 +244,20 @@ describe('explainDecision', () => {
     expect(again.cached).toBe(true);
     expect(again.explain).toEqual(r.explain);
     expect(backend.calls.length).toBe(calls);
+  });
+
+  it('adds evidence to an ask that was logged with only a one-line why', async () => {
+    const backend = new FakeBackend({ rules: [expiryRule] });
+    const logFile = join(root, '.glassbox', 'why-only.jsonl');
+    const asked = await ask({ paths: ['src/auth/session.ts'] }, 'Do sessions expire?', { backend, root, why: true, log: logFile });
+    const why = asked.record.explain?.why;
+    expect(why).toBeTruthy();
+    expect(asked.record.explain?.highlights ?? []).toEqual([]);
+
+    const r = await explainDecision(asked.record.id!, { root, backend: () => backend, budget: 100, logFile });
+    expect(r.cached).toBe(false);
+    expect(r.explain.highlights.length).toBeGreaterThan(0);
+    expect(r.explain.why).toEqual(why);
   });
 
   it('counts an explained and labeled decision once when calibrating', async () => {

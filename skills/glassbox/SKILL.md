@@ -12,7 +12,7 @@ glassbox answers typed questions about code with a probability instead of free t
 | You want to | Tool | Example |
 |---|---|---|
 | Find the code for a concept | `where` | `where { concept: "billing charge retries" }` |
-| Rate the risk of your changes before you commit or hand off | `triage` | `triage {}` (uses `git diff HEAD`) or `triage { diff }` |
+| Rate the risk of your changes before you commit or hand off | `triage` | `triage {}` (uses `git diff HEAD` plus new untracked files) or `triage { diff }` |
 | Choose between two or more approaches | `decide` | `decide { question: "Where should the retry limit live?", options: ["config=in config.ts", "inline=next to the loop"], context: "user wants one place to tune it" }` |
 | A yes/no, choice or score answer about specific code | `ask` | `ask { question: "Does this change auth behavior?", paths: ["src/auth"], explain: true }` |
 | Evidence for an earlier answer | `explain` | `explain { id: "3f9c2a1b7d4e" }` |

@@ -45,7 +45,7 @@ describe('cli: label, calibrate, bench', () => {
 
     const c = io(root);
     expect(await main(['calibrate'], c.io)).toBe(0);
-    expect(c.out()).toMatch(/q {2}fake \(fake-1\) {2}temperature T=/);
+    expect(c.out()).toMatch(/ask:yesno {2}fake \(fake-1\) {2}temperature T=/);
     expect(c.out()).toContain('ECE=');
     expect(c.out()).toContain('saved');
     const file = JSON.parse(await readFile(join(root, '.glassbox', 'calibration.json'), 'utf8')) as { entries: Array<{ calibrator: { T: number } }> };

@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { delimiter, isAbsolute, relative, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -19,7 +18,9 @@ import { renderDecide, renderExplained, renderGraph, renderTriage, renderWhere }
 import { triage } from '../query/triage.js';
 import { where } from '../query/where.js';
 import { renderJson, renderPretty } from '../render.js';
-import type { Backend } from '../types.js';
+import type { Backend, Calibrator } from '../types.js';
+import { loadCalibrators } from '../calibrate/store.js';
+import { workingDiff } from '../util/git.js';
 import { defaultRoot, withPluginOptions } from './env.js';
 
 export interface GlassboxMcpOptions {
@@ -113,12 +114,10 @@ function failure(err: unknown): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: `glassbox: ${err instanceof Error ? err.message : String(err)}` }] };
 }
 
-function gitDiff(cwd: string): Promise<string> {
-  return new Promise((ok, fail) => {
-    execFile('git', ['diff', 'HEAD'], { cwd, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
-      err ? fail(new Error(`git diff failed: ${err.message}`)) : ok(stdout),
-    );
-  });
+/** Fitted calibrators from .glassbox/calibration.json for this backend, as decide options. */
+async function calibrated(root: string, backend: Backend): Promise<{ decide?: { calibrators: Record<string, Calibrator> } }> {
+  const calibrators = await loadCalibrators(root, backend);
+  return Object.keys(calibrators).length ? { decide: { calibrators } } : {};
 }
 
 /** Builds the glassbox MCP server with its seven tools. Connect it to any transport. */
@@ -191,9 +190,12 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         if (a.diff !== undefined) scope.diff = a.diff;
         if (a.nodes?.length) scope.nodes = a.nodes;
         if (!scope.paths && !scope.nodes && scope.diff === undefined) scope.paths = ['.'];
+        const backend = backendOf(a);
+        const dir = rootOf(a.root);
         const r = await ask(scope, makeQuestion(a.question, a.type ?? 'yesno', a.options ?? []), {
-          backend: backendOf(a),
-          root: rootOf(a.root),
+          backend,
+          root: dir,
+          ...(await calibrated(dir, backend)),
           explain: a.explain ? (a.budget !== undefined ? { budget: a.budget } : true) : false,
           ...(a.why !== undefined ? { why: a.why } : {}),
           ...(a.reasons?.length ? { reasons: parseReasons(a.reasons) } : {}),
@@ -221,11 +223,14 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
     (a) =>
       run(async () => {
         const dir = rootOf(a.root);
+        const backend = backendOf(a);
+        const cal = await calibrated(dir, backend);
         const r = await withGraph(dir, (store) =>
           where(a.concept, {
             store,
             root: dir,
-            backend: backendOf(a),
+            backend,
+            ...cal,
             ...(a.top !== undefined ? { top: a.top } : {}),
             ...(a.candidates !== undefined ? { candidates: a.candidates } : {}),
           }),
@@ -253,13 +258,16 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
     (a) =>
       run(async () => {
         const dir = rootOf(a.root);
-        const diff = a.diff ?? (await gitDiff(dir));
+        const diff = a.diff ?? (await workingDiff(dir));
         if (!diff.trim()) return text('no changes to triage');
+        const backend = backendOf(a);
+        const cal = await calibrated(dir, backend);
         const r = await withGraph(dir, (store) =>
           triage(diff, {
             store,
             root: dir,
-            backend: backendOf(a),
+            backend,
+            ...cal,
             explain: a.explain === false ? false : a.budget !== undefined ? { budget: a.budget } : true,
           }),
         );
@@ -288,7 +296,9 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
     (a) =>
       run(async () => {
         const dir = rootOf(a.root);
-        const r = await withGraph(dir, (store) => decide(a.question, a.options, a.context, { store, root: dir, backend: backendOf(a) }));
+        const backend = backendOf(a);
+        const cal = await calibrated(dir, backend);
+        const r = await withGraph(dir, (store) => decide(a.question, a.options, a.context, { store, root: dir, backend, ...cal }));
         if (a.format !== 'json') return text(renderDecide(r));
         const { record, ...rest } = r;
         return json({ ...rest, id: record.id });

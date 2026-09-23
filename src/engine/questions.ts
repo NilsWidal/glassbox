@@ -74,3 +74,29 @@ export function validateQuestion(id: string, question: Question): void {
     }
   }
 }
+
+/**
+ * Calibration group for a question. Free-form asks and decides all use the id
+ * 'q', so they are grouped by source, type and option count instead: a yes/no
+ * fit must never be applied to a 3-way choice.
+ */
+export function calibrationKey(questionId: string, question: Question, source: 'ask' | 'triage' | 'decide' = 'ask'): string {
+  if (questionId !== 'q') return questionId;
+  return question.type === 'yesno' ? `${source}:yesno` : `${source}:${question.type}:${optionKeys(question).length}`;
+}
+
+const GROUP_KEY = /^(ask|decide|triage):/;
+
+/** Calibrators with the entry for question `id` replaced by the one fitted for its group (or removed). */
+export function calibratorsForQuestion<T>(
+  calibrators: Record<string, T> | undefined,
+  id: string,
+  question: Question,
+  source: 'ask' | 'triage' | 'decide' = 'ask',
+): Record<string, T> | undefined {
+  if (!calibrators) return undefined;
+  const rest: Record<string, T> = {};
+  for (const [k, c] of Object.entries(calibrators)) if (k !== id && !GROUP_KEY.test(k)) rest[k] = c;
+  const fitted = calibrators[calibrationKey(id, question, source)];
+  return fitted ? { ...rest, [id]: fitted } : rest;
+}

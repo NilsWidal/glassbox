@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -57,6 +57,17 @@ describe('chunkDiff', () => {
 });
 
 describe('buildScope', () => {
+  it('refuses symlinks that leave the root and files that may hold secrets', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'glassbox-scope-link-'));
+    const root = join(base, 'repo');
+    await mkdir(root);
+    await writeFile(join(base, 'id_secret'), 'PRIVATE KEY\n');
+    await symlink('../id_secret', join(root, 'link.ts'));
+    await writeFile(join(root, '.env'), 'TOKEN=abc\n');
+    await expect(buildScope({ paths: ['link.ts'] }, { root })).rejects.toThrow(/outside the repo root/);
+    await expect(buildScope({ paths: ['.env'] }, { root })).rejects.toThrow(/secrets/);
+  });
+
   it('reads files into chunks with enclosing node ids', async () => {
     const { chunks } = await buildScope({ paths: ['src/auth/session.ts'] }, { root: FIXTURE });
     const verify = chunks.find((c) => c.text.includes('session.expiresAt < Date.now()'))!;

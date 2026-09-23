@@ -61,7 +61,7 @@ The plugin adds the MCP tools, a skill that teaches Claude when to use them, and
 ### Codex
 
 ```sh
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox mcp
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.1.0 mcp
 npx skills add NilsWidal/glassbox
 ```
 
@@ -73,7 +73,7 @@ Inside Codex, glassbox asks the model through `codex exec`, with your Codex logi
 npx -y @nilswidal/glassbox init
 ```
 
-This builds the code graph and its tags in `.glassbox/` (add it to `.gitignore`), and writes a short managed block into `AGENTS.md`. It also adds an `@AGENTS.md` import to `CLAUDE.md`, so both agents read the same summary.
+This builds the code graph and its tags in `.glassbox/` (which gets its own `.gitignore`, since the decision log can hold diff text), and writes a short managed block into `AGENTS.md`. It also adds an `@AGENTS.md` import to `CLAUDE.md`, so both agents read the same summary.
 
 ### MCP tools
 
@@ -92,10 +92,11 @@ The same commands exist on the CLI (`glassbox ask`, `glassbox where`, ...), and 
 ## How the numbers are made
 
 - **One call per state.** Every question about one piece of code goes into a single model call, because host CLI calls take seconds.
+- **Calls and model runs.** Each call is asked in 2 option orders by default, and the host CLI backends average K=3 samples per call (`GLASSBOX_SAMPLES`), each one a separate `claude -p` or `codex exec` process. So one plain `ask` starts 6 processes in parallel. The cost line shows both, for example `2 calls (x 3 samples = 6 model runs)`.
 - **Option shuffling.** Options get single-letter labels (A, B, C, ...). The engine asks again with the options in a different order (in parallel) and averages, which cancels the model's preference for particular positions.
 - **Confidence** is `(K * pmax - 1) / (K - 1)`, where K is the number of options: 0 for a uniform answer, 1 when one option has all the probability. This is our own definition.
 - **Bands.** By default `act` when confidence is at least 0.85, `confirm` at 0.6 or above, else `escalate`. Each question can set its own thresholds.
-- **Calibration.** Every decision is logged to `.glassbox/decisions.jsonl` with an id. Record the true answer with `glassbox label <id> yes` (or a choice key, or a score level), then run `glassbox calibrate` to fit temperature or Platt scaling per question, backend and model from those labels. The result goes to `.glassbox/calibration.json`, and later CLI answers from the same backend and model use it (the MCP tools do not apply it yet). `calibrate --dry-run` shows ECE and Brier before and after without saving. Below a minimum number of labels nothing is fitted, Platt scaling is pulled toward no change, and the "after" numbers are in-sample, so they are optimistic.
+- **Calibration.** Every decision is logged to `.glassbox/decisions.jsonl` with an id. Record the true answer with `glassbox label <id> yes` (or a choice key, or a score level), then run `glassbox calibrate` to fit temperature or Platt scaling per question kind, backend and model from those labels (free-form questions are grouped by type and option count, so a yes/no fit is never applied to a 3-way choice). The result goes to `.glassbox/calibration.json`, and later answers from the same backend and model use it, in the CLI and the MCP tools alike. `calibrate --dry-run` shows ECE and Brier before and after without saving. Below a minimum number of labels nothing is fitted, Platt scaling is pulled toward no change, and the "after" numbers are in-sample, so they are optimistic.
 
 Probabilities from the host CLIs are stated by the model, not read from token probabilities, so they are coarser than a dedicated classifier until calibrated.
 

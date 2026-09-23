@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { execFile } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -10,6 +9,7 @@ import { createBackend, type BackendConfig } from '../backends/index.js';
 import { isBackendName } from '../config.js';
 import { runBenchCommand, runCalibrate, runLabel, type BenchFlags, type CalibrateFlags } from '../calibrate/cli.js';
 import { loadCalibrators } from '../calibrate/store.js';
+import { workingDiff } from '../util/git.js';
 import { parseReasons } from '../explain/reasons.js';
 import { renderJson, renderPretty } from '../render.js';
 import { buildAgentsSummary } from '../memory/summary.js';
@@ -249,12 +249,8 @@ async function runIndex(flags: IndexFlags, io: CliIo, store: GraphStore, root: s
 async function readDiff(flags: { diff?: string }, io: CliIo, root: string): Promise<string> {
   if (flags.diff === '-') return io.readStdin();
   if (flags.diff !== undefined) return readFile(resolve(io.cwd, flags.diff), 'utf8');
-  // Default: uncommitted changes against HEAD.
-  return new Promise((ok, fail) => {
-    execFile('git', ['diff', 'HEAD'], { cwd: root, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
-      err ? fail(new Error(`git diff failed: ${err.message}`)) : ok(stdout),
-    );
-  });
+  // Default: uncommitted changes against HEAD, plus new untracked files.
+  return workingDiff(root);
 }
 
 /** Finds a node by exact id, else by a unique name or id suffix. */

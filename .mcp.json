@@ -2,7 +2,7 @@
   "mcpServers": {
     "glassbox": {
       "command": "npx",
-      "args": ["-y", "@nilswidal/glassbox", "mcp"],
+      "args": ["-y", "@nilswidal/glassbox@0.1.0", "mcp"],
       "env": {
         "GLASSBOX_HOST": "claude-code",
         "GLASSBOX_ROOT": "${CLAUDE_PROJECT_DIR}"

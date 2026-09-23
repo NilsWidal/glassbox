@@ -38,22 +38,36 @@ function clean(text: string, max = MAX_TEXT): string {
   return flat.length > max ? `${flat.slice(0, max - 3)}...` : flat;
 }
 
+/**
+ * Names, paths and tags come from the repo or the model, and every later agent
+ * session reads this block as instructions. Keep them to a plain token charset
+ * so they cannot carry markdown, backticks or shell syntax.
+ */
+function token(text: string, max = MAX_TEXT): string {
+  return clean(text.replace(/[^A-Za-z0-9_./:@+-]/g, '_'), max);
+}
+
+/** Free text (reasons): letters, digits, spaces and light punctuation only. */
+function prose(text: string, max = MAX_TEXT): string {
+  return clean(text.replace(/[^A-Za-z0-9 ,.;()_-]/g, ' '), max);
+}
+
 function more(n: number): string {
   return `(+${n} more, ${MORE_HINT})`;
 }
 
 function areaLine(a: AreaSummary): string {
-  const shown = a.entryPoints.slice(0, MAX_ENTRY_POINTS).map((e) => `\`${clean(e)}\``);
+  const shown = a.entryPoints.slice(0, MAX_ENTRY_POINTS).map((e) => `\`${token(e)}\``);
   const extra = a.entryPoints.length - shown.length;
   if (extra > 0) shown.push(`+${extra} more`);
   const entries = shown.length > 0 ? `: ${shown.join(', ')}` : '';
-  return `- **${clean(a.name, 60)}** (${a.nodeCount} nodes)${entries}`;
+  return `- **${token(a.name, 60)}** (${a.nodeCount} nodes)${entries}`;
 }
 
 function riskyLine(n: RiskyNode): string {
   const p = Math.min(1, Math.max(0, n.p)).toFixed(2);
-  const reason = clean(n.reason);
-  return `- \`${clean(n.name, 60)}\` ${clean(n.file)}:${n.line} p=${p}${reason ? `: ${reason}` : ''}`;
+  const reason = prose(n.reason);
+  return `- \`${token(n.name, 60)}\` ${token(n.file)}:${Math.trunc(n.line)} p=${p}${reason ? `: ${reason}` : ''}`;
 }
 
 function listSection(title: string, items: string[], limit: number, empty: string): string[] {
@@ -66,7 +80,7 @@ function listSection(title: string, items: string[], limit: number, empty: strin
 }
 
 function uniqueTags(tags: string[]): string[] {
-  return [...new Set(tags.map((t) => clean(t, 40)).filter((t) => t.length > 0))].sort();
+  return [...new Set(tags.map((t) => token(t, 40)).filter((t) => t.length > 0))].sort();
 }
 
 function tagsSection(tags: string[]): string[] {

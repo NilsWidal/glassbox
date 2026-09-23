@@ -15,7 +15,7 @@ The plugin brings:
 
 | Part | File | What it does |
 |---|---|---|
-| MCP server | `.mcp.json` | Starts `npx -y @nilswidal/glassbox mcp`, which provides the tools `ask`, `where`, `triage`, `decide`, `explain`, `graph` and `refresh`. |
+| MCP server | `.mcp.json` | Starts `npx -y @nilswidal/glassbox@0.1.0 mcp`, which provides the tools `ask`, `where`, `triage`, `decide`, `explain`, `graph` and `refresh`. |
 | Skill | `skills/glassbox/SKILL.md` | Teaches Claude when to use each tool and how to read `p`, confidence, bands and highlights. |
 | Hooks | `hooks/hooks.json` | Opt-in. Keep the graph and the AGENTS.md block fresh while you work. |
 | Settings | `.claude-plugin/plugin.json` | The options below. |
@@ -45,7 +45,7 @@ The graph tools work without it: on first use they build the code graph, without
 npx -y @nilswidal/glassbox init
 ```
 
-This writes `.glassbox/` (add it to `.gitignore`), a managed block in `AGENTS.md`, and an `@AGENTS.md` import line in `CLAUDE.md`. Claude Code and Codex then read the same summary.
+This writes `.glassbox/` (with its own `.gitignore`, so it is not committed), a managed block in `AGENTS.md`, and an `@AGENTS.md` import line in `CLAUDE.md`. Claude Code and Codex then read the same summary.
 
 ## Hooks (opt-in)
 

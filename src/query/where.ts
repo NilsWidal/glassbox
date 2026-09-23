@@ -43,6 +43,8 @@ export interface WhereResult {
   /** Nodes the model was asked about. */
   asked: number;
   calls: number;
+  /** Model runs per call (processes started for each call). */
+  samples?: number;
   latencyMs: number;
 }
 
@@ -114,6 +116,7 @@ export async function where(concept: string, opts: WhereOptions): Promise<WhereR
     matched: matched.length,
     asked: picked.length,
     calls: res.calls,
+    ...(opts.backend.samples && opts.backend.samples > 1 ? { samples: opts.backend.samples } : {}),
     latencyMs: Math.round(performance.now() - started),
   };
 }

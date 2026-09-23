@@ -57,6 +57,15 @@ export function explainLines(ex: ExplainBlock): string[] {
   return out;
 }
 
+/**
+ * "2 calls" or "2 calls x 3 samples = 6 model runs": host CLI backends start one
+ * process per sample, so the product is what latency and quota follow.
+ */
+export function callsText(calls: number, samples?: number, label = 'call'): string {
+  const base = `${calls} ${label}${calls === 1 ? '' : 's'}`;
+  return samples && samples > 1 && calls > 0 ? `${base} x ${samples} samples = ${calls * samples} model runs` : base;
+}
+
 /** The human-readable output shown in the plan. */
 export function renderPretty(r: AskResult): string {
   const out = [headline(r)];
@@ -67,8 +76,11 @@ export function renderPretty(r: AskResult): string {
   if (r.explain) out.push(...explainLines(r.explain));
   else if (r.explainStats) out.push('highlights', '  none above the threshold');
 
+  // The why is one free-text call; decide and explain calls are sampled.
+  const sampled = r.calls.decide + r.calls.explain;
   const parts = [`${r.calls.decide} call${r.calls.decide === 1 ? '' : 's'}`];
   if (r.calls.explain) parts.push(`${r.calls.explain} explain`);
+  if (r.samples && r.samples > 1) parts[parts.length - 1] += ` (x ${r.samples} samples = ${sampled * r.samples} model runs)`;
   if (r.calls.why) parts.push(`${r.calls.why} why`);
   const stats = r.explainStats;
   const tested = stats ? `, ${stats.tested}/${stats.candidates} spans tested` : '';

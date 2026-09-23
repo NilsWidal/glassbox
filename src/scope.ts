@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { extractSource, type FileExtract } from './graph/extract.js';
 import { grammarFor } from './graph/languages.js';
@@ -27,6 +27,8 @@ export interface Chunk {
   nodeId?: string;
   /** True when `text` holds unified diff lines (+/-/space prefixed). */
   diff?: boolean;
+  /** Diff chunks: the lines that were added or removed (context lines left out). */
+  changedLines?: number[];
 }
 
 export interface ChunkOptions {
@@ -116,6 +118,7 @@ export function chunkDiff(diff: string, opts: ChunkOptions = {}): Omit<Chunk, 'i
         endLine: Math.max(...buf.map((l) => l.line)),
         text: buf.map((l) => l.text).join('\n'),
         diff: true,
+        changedLines: [...new Set(buf.filter((l) => l.text.startsWith('+') || l.text.startsWith('-')).map((l) => l.line))],
       });
     }
     buf = [];
@@ -189,10 +192,28 @@ function insideRoot(root: string, p: string): boolean {
   }
 }
 
+/** Files that likely hold secrets; never sent to the model, even when named. */
+const SECRET_FILE = /(^|\/)(\.env(\..*)?|\.npmrc|\.netrc|\.pypirc|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|key|p12|pfx))$/i;
+
+/** Throws when a path under root resolves (through symlinks) outside it. Missing files pass. */
+async function assertResolvesInside(root: string, rel: string): Promise<void> {
+  const real = await realpath(join(root, rel)).catch(() => undefined);
+  if (real === undefined) return;
+  const back = relative(await realpath(root), real);
+  if (back.startsWith('..') || isAbsolute(back)) throw new Error(`path resolves outside the repo root: ${rel}`);
+}
+
+async function readInside(root: string, rel: string): Promise<string> {
+  await assertResolvesInside(root, rel);
+  return readFile(join(root, rel), 'utf8');
+}
+
 async function listFiles(root: string, paths: readonly string[]): Promise<string[]> {
   const files: string[] = [];
   for (const p of paths) {
     const rel = relPath(root, p);
+    await assertResolvesInside(root, rel);
+    if (SECRET_FILE.test(rel)) throw new Error(`refusing to send a file that may hold secrets: ${p}`);
     const info = await stat(join(root, rel)).catch(() => undefined);
     if (!info) throw new Error(`no such file or directory: ${p}`);
     if (info.isDirectory()) {
@@ -206,7 +227,7 @@ async function listFiles(root: string, paths: readonly string[]): Promise<string
 async function tryExtract(root: string, file: string): Promise<FileExtract | undefined> {
   if (!grammarFor(file)) return undefined;
   try {
-    return await extractSource(file, await readFile(join(root, file), 'utf8'));
+    return await extractSource(file, await readInside(root, file));
   } catch {
     return undefined;
   }
@@ -239,7 +260,7 @@ export async function buildScope(scope: AskScope, opts: BuildScopeOptions = {}):
   };
 
   for (const file of await listFiles(root, scope.paths ?? [])) {
-    const text = await readFile(join(root, file), 'utf8');
+    const text = await readInside(root, file);
     raw.push(...chunkText(file, text, opts));
     await extractFor(file);
   }
@@ -257,7 +278,7 @@ export async function buildScope(scope: AskScope, opts: BuildScopeOptions = {}):
     const x = await extractFor(file);
     const node = x?.nodes.find((n) => n.id === id);
     if (!node) throw new Error(`unknown node id: ${id}`);
-    const lines = (await readFile(join(root, file), 'utf8')).replace(/\r\n?/g, '\n').split('\n');
+    const lines = (await readInside(root, file)).replace(/\r\n?/g, '\n').split('\n');
     const text = lines.slice(node.startLine - 1, node.endLine).join('\n');
     raw.push(...chunkText(file, text, { ...opts, firstLine: node.startLine }));
   }

@@ -31,18 +31,25 @@ const INSTALL_HINT =
   'Install Claude Code (https://claude.com/claude-code) and run `claude` once to log in, or pick another backend with GLASSBOX_BACKEND.';
 
 /**
- * Flags that keep the nested call small and side-effect free: no tools, no
- * CLAUDE.md, plugins, hooks, MCP servers or skills, no saved session, no
- * extended thinking. Each group is optional: if an older CLI rejects the flag,
- * the group is dropped and the call retried.
+ * Flags that make the nested call safe on untrusted repo code: no tools, no
+ * user or project settings (which could grant permissions), no MCP servers.
+ * These fail closed: a CLI that rejects one is too old to use.
  */
-const QUIET_FLAGS: readonly (readonly string[])[] = [
+export const REQUIRED_FLAGS: readonly (readonly string[])[] = [
   ['--tools', ''],
-  ['--safe-mode'],
+  ['--setting-sources', ''],
   ['--strict-mcp-config'],
+];
+
+/**
+ * Flags that keep the call small: no CLAUDE.md, plugins, hooks or skills, no
+ * saved session, no extended thinking. If an older CLI rejects one, it is
+ * dropped and the call retried.
+ */
+const OPTIONAL_FLAGS: readonly (readonly string[])[] = [
+  ['--safe-mode'],
   ['--disable-slash-commands'],
   ['--no-session-persistence'],
-  ['--setting-sources', ''],
   ['--settings', '{"alwaysThinkingEnabled":false}'],
 ];
 
@@ -84,7 +91,8 @@ export class ClaudeCliBackend implements Backend {
   args(schema?: Record<string, unknown>): string[] {
     const args = ['-p', '--model', this.model, '--output-format', 'json'];
     if (schema) args.push('--json-schema', JSON.stringify(schema));
-    for (const group of QUIET_FLAGS) if (!this.dropped.has(group[0]!)) args.push(...group);
+    for (const group of REQUIRED_FLAGS) args.push(...group);
+    for (const group of OPTIONAL_FLAGS) if (!this.dropped.has(group[0]!)) args.push(...group);
     return args;
   }
 
@@ -124,7 +132,13 @@ export class ClaudeCliBackend implements Backend {
         throw e;
       }
       const flag = res.code !== 0 ? unknownFlag(res.stderr) : undefined;
-      if (flag && attempt < QUIET_FLAGS.length && QUIET_FLAGS.some((g) => g[0] === flag) && !this.dropped.has(flag)) {
+      if (flag && REQUIRED_FLAGS.some((g) => g[0] === flag)) {
+        throw new CliCallError(
+          `this Claude Code does not support ${flag}, which glassbox needs to run the model without tools. Update Claude Code (claude update) and retry.`,
+          res.stderr,
+        );
+      }
+      if (flag && attempt < OPTIONAL_FLAGS.length && OPTIONAL_FLAGS.some((g) => g[0] === flag) && !this.dropped.has(flag)) {
         this.dropped.add(flag);
         continue;
       }

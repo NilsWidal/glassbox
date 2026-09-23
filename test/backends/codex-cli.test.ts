@@ -45,6 +45,8 @@ describe('CodexCliBackend', () => {
     const c = calls[0]!;
     expect(c.args).toContain('features.shell_tool=false');
     expect(c.args).toContain('features.unified_exec=false');
+    expect(c.args).toContain('features.code_mode_host=false');
+    expect(c.args).toContain('web_search="disabled"');
     expect(c.opts.env?.GLASSBOX_OPENAI_API_KEY).toBeUndefined();
     expect(() => new CodexCliBackend({ run, model: '-c' })).toThrow(/invalid model id/);
   });

@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { assertNotSymlinkSync, ensureStoreDirSync } from '../util/safefs.js';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { EdgeKind, GraphEdge, GraphNode, NodeKind, Tag } from '../types.js';
@@ -96,9 +96,10 @@ export class GraphStore {
   }
 
   static open(repoRoot: string): GraphStore {
-    const dir = join(repoRoot, STORE_DIR);
-    mkdirSync(dir, { recursive: true });
-    return new GraphStore(join(dir, STORE_FILE));
+    const dir = ensureStoreDirSync(repoRoot, STORE_DIR);
+    const file = join(dir, STORE_FILE);
+    for (const f of [file, `${file}-wal`, `${file}-shm`]) assertNotSymlinkSync(f);
+    return new GraphStore(file);
   }
 
   close(): void {

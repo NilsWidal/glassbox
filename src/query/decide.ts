@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { appendDecisionLog, decisionId, makeQuestion, DECISION_LOG, STORE_DIR } from '../ask.js';
 import { decide as decideEngine } from '../engine/decide.js';
+import { calibratorsForQuestion } from '../engine/questions.js';
 import { SourceCache } from '../memory/source.js';
 import type { GraphStore } from '../memory/store.js';
 import { nodeTagLabels } from '../memory/tags.js';
@@ -43,6 +44,8 @@ export interface DecideQueryResult {
   latencyMs: number;
   backend: string;
   model?: string;
+  /** Model runs per call (processes started for each call). */
+  samples?: number;
   logFile?: string;
 }
 
@@ -96,7 +99,8 @@ export async function decide(
   if (Object.keys(q.criteria).length < 2) throw new Error('decide needs at least 2 options');
   const optionText = Object.entries(q.criteria).map(([k, v]) => (v ? `${k} ${v}` : k));
   const { state, nodes } = await buildContext(question, optionText, contextHint, opts);
-  const res = await decideEngine(state, { [QID]: q }, opts.backend, opts.decide);
+  const calibrators = calibratorsForQuestion(opts.decide?.calibrators, QID, q, 'decide');
+  const res = await decideEngine(state, { [QID]: q }, opts.backend, calibrators ? { ...opts.decide, calibrators } : opts.decide);
   const answer = res.answers[QID] as ChoiceAnswer;
 
   const record: DecisionRecord = { ...res.records[0]!, source: 'decide' };
@@ -120,6 +124,7 @@ export async function decide(
     calls: res.calls,
     latencyMs: Math.round(performance.now() - started),
     backend: opts.backend.name,
+    ...(opts.backend.samples && opts.backend.samples > 1 ? { samples: opts.backend.samples } : {}),
   };
   if (opts.backend.model !== undefined) result.model = opts.backend.model;
   if (logFile) result.logFile = logFile;
