@@ -1,0 +1,56 @@
+{
+  "name": "@nilswidal/glassbox",
+  "version": "0.1.0",
+  "description": "Fast typed decisions about code, with probabilities, confidence and checked reasons. Runs on the host agent's own model in Claude Code and Codex.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Nils Widal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NilsWidal/glassbox.git"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "mcp",
+    "agents",
+    "decisions",
+    "calibration",
+    "explainability"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "glassbox": "dist/cli/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.4",
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
+  }
+}
