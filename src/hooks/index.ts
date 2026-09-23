@@ -217,8 +217,9 @@ export interface GateState {
   /** pass, block, timeout or error. */
   outcome?: string;
   /**
-   * Hunks the gate already blocked on, as `file#node,node` keys. A later turn
-   * whose diff still holds one of them is not blocked again for it.
+   * Hunks the gate already blocked on, as `file#hash` keys (hash of the hunk's
+   * added and removed lines). A later turn whose diff still holds the same
+   * change is not blocked again for it; a new change in the same function is.
    */
   flagged?: string[];
 }
@@ -332,6 +333,30 @@ function envMs(v: string | undefined): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+/**
+ * Key of a triage hunk: its file plus a hash of its added and removed lines.
+ * Line numbers are left out, so the key stays the same when edits elsewhere
+ * move the hunk. Triage numbers hunks h1, h2, ... in the order of the diff's
+ * chunks after secret files are dropped, so the chunks are rebuilt the same way.
+ */
+export function hunkKeys(
+  diff: string,
+  chunkDiff: typeof import('../scope.js').chunkDiff,
+  safeDiffChunks: typeof import('../scope.js').safeDiffChunks,
+): (h: { id: string; file: string; startLine: number; endLine: number }) => string {
+  const chunks = new Map(safeDiffChunks(chunkDiff(diff)).map((c, i) => [`h${i + 1}`, c]));
+  return (h) => {
+    const c = chunks.get(h.id);
+    const changed = c
+      ? c.text
+          .split('\n')
+          .filter((l) => l.startsWith('+') || l.startsWith('-'))
+          .join('\n')
+      : `${h.startLine}-${h.endLine}`;
+    return `${h.file}#${sha256(changed).slice(0, 16)}`;
+  };
+}
+
 async function gate(
   root: string,
   diff: string,
@@ -342,7 +367,11 @@ async function gate(
 ): Promise<{ reason: string; flagged: string[] }> {
   const none = { reason: '', flagged: [] };
   if (!ctx.backend) return none;
-  const [{ GraphStore }, { triage }] = await Promise.all([import('../memory/store.js'), import('../query/triage.js')]);
+  const [{ GraphStore }, { triage }, { chunkDiff, safeDiffChunks }] = await Promise.all([
+    import('../memory/store.js'),
+    import('../query/triage.js'),
+    import('../scope.js'),
+  ]);
   const store = GraphStore.open(root);
   try {
     // The gate never indexes: an empty graph means `glassbox init` has not run here.
@@ -355,7 +384,7 @@ async function gate(
       explain: false,
       decide: { ...(settings.permutations !== undefined ? { permutations: settings.permutations } : {}), signal },
     });
-    const keyOf = (h: (typeof r.hunks)[number]) => `${h.file}#${[...h.nodes].sort().join(',')}`;
+    const keyOf = hunkKeys(diff, chunkDiff, safeDiffChunks);
     // Only hunks not blocked on before: a risky change the agent already looked at does not stop every later turn.
     const risky = r.hunks.filter((h) => h.level === 'High' && h.answer.band === 'act' && !seen.has(keyOf(h)));
     if (risky.length === 0) return none;

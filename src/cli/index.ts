@@ -789,15 +789,19 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     .description(
       'entry point for agent hooks: reads the hook JSON on stdin; exits 0 and prints nothing on any error or an unknown event',
     )
-    .addArgument(new Argument('<event>', `hook event: ${HOOK_EVENTS.join(', ')}`))
-    .addOption(new Option('--host <host>', 'the agent running the hook').choices(['claude-code', 'codex']))
+    .addArgument(new Argument('[event]', `hook event: ${HOOK_EVENTS.join(', ')}`))
+    .option('--host <host>', 'the agent running the hook: claude-code or codex (anything else is ignored)')
     .option('--root <dir>', 'repo root (default: CLAUDE_PROJECT_DIR, the hook input cwd, or the current directory)')
-    .action(async (event: string, flags: { host?: string; root?: string }) => {
+    // A hook must never fail the turn: extra arguments and unknown options are ignored, not errors.
+    .allowExcessArguments(true)
+    .allowUnknownOption(true)
+    .action(async (event: string | undefined, rawFlags: { host?: string; root?: string }) => {
       setCode(0);
+      const flags = { ...rawFlags, host: rawFlags.host === 'claude-code' || rawFlags.host === 'codex' ? rawFlags.host : undefined };
       // GLASSBOX_NESTED: this is glassbox's own model call; do nothing before even reading stdin.
       if (io.env.GLASSBOX_NESTED === '1') return;
-      // An unknown event is not an error: a host may send events this version does not know.
-      if (!(HOOK_EVENTS as readonly string[]).includes(event)) return;
+      // A missing or unknown event is not an error: a host may send events this version does not know.
+      if (event === undefined || !(HOOK_EVENTS as readonly string[]).includes(event)) return;
       const stop = new AbortController();
       const off = event === 'stop' ? io.onTerminate?.(() => stop.abort()) : undefined;
       try {
@@ -896,7 +900,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
     await program.parseAsync(argv, { from: 'user' });
     return code;
   } catch (err) {
-    if (err instanceof CommanderError) return err.exitCode === 0 ? 0 : 2;
+    // `glassbox hook` exits 0 whatever it was given (a missing option value, say), as its help says.
+    if (err instanceof CommanderError) return err.exitCode === 0 || argv[0] === 'hook' ? 0 : 2;
     if (err instanceof UsageError) {
       io.stderr(`glassbox: ${err.message}\n`);
       return 2;

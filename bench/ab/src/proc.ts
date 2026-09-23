@@ -79,12 +79,11 @@ export const runProc: RunProc = (req) =>
       if (errLen < MAX_CAPTURE) err.push(b);
       errLen += b.length;
     });
-    let escalate: NodeJS.Timeout | undefined;
     const timer = setTimeout(() => {
       timedOut = true;
       killGroup(child.pid, 'SIGTERM');
-      // Referenced until close, so the SIGKILL happens even if nothing else keeps this process alive.
-      escalate = setTimeout(() => killGroup(child.pid, 'SIGKILL'), KILL_GRACE_MS);
+      // Referenced and never cancelled, so the group SIGKILL happens even after the child exits.
+      setTimeout(() => killGroup(child.pid, 'SIGKILL'), KILL_GRACE_MS);
     }, req.timeoutMs);
     child.on('error', (e) => {
       spawnError = e.message;
@@ -93,9 +92,10 @@ export const runProc: RunProc = (req) =>
     child.stdin.end(req.stdin ?? '');
     child.on('close', (code) => {
       clearTimeout(timer);
-      clearTimeout(escalate);
       // Anything the program left running in its group (a background server, a stuck test)
-      // must not outlive the run and write into a workspace that is about to be deleted.
+      // must not outlive the run and write into a workspace that is about to be deleted. The
+      // delayed SIGKILL of a timeout is kept too: it goes to the group, not the direct child,
+      // so it still matters after the child itself is gone.
       killGroup(child.pid, 'SIGKILL');
       if (child.pid !== undefined) live.delete(child.pid);
       resolveResult({

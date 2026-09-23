@@ -220,6 +220,36 @@ describe('workspace copies', () => {
 });
 
 describe('runProc', () => {
+  it.skipIf(process.platform === 'win32')('SIGKILLs a group member that ignores SIGTERM, even after the child itself exits', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'glassbox-ab-proc-'));
+    try {
+      const pidFile = join(dir, 'pid');
+      // The grandchild ignores SIGTERM and keeps the output pipe open; the child exits on SIGTERM.
+      const script =
+        `const {spawn}=require('child_process');const fs=require('fs');` +
+        `const c=spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});` +
+        `fs.writeFileSync(${JSON.stringify(pidFile)},String(c.pid));process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000);`;
+      const started = Date.now();
+      const r = await runProc({ cmd: process.execPath, args: ['-e', script], cwd: dir, timeoutMs: 1000 });
+      expect(r.timedOut).toBe(true);
+      const grandchild = Number(readFileSync(pidFile, 'utf8'));
+      const alive = () => {
+        try {
+          process.kill(grandchild, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const end = Date.now() + 3000;
+      while (alive() && Date.now() < end) await new Promise((res) => setTimeout(res, 50));
+      expect(alive()).toBe(false);
+      expect(Date.now() - started).toBeLessThan(12_000);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it.skipIf(process.platform === 'win32')('kills the whole process group on a timeout', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'glassbox-ab-proc-'));
     try {

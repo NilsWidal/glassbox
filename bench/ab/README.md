@@ -21,12 +21,12 @@ What the two arms were: the ambient arm is the whole glassbox plugin setup (cont
 | tomli-bug-literal-quote | bugfix | 2/2 / 2/2 | $0.076 / $0.098 | 6 / 14 | 216k / 435k | 32.8 / 52.3 s | 80 / 143 | 752 |
 | tomli-bug-false | bugfix | 2/2 / 2/2 | $0.077 / $0.085 | 7 / 9 | 241k / 310k | 28.6 / 33.1 s | 110 / 88 | 699 |
 | tomli-q-parse-float-guard | question | 2/2 / 2/2 | $0.033 / $0.025 | 3 / 1 | 96k / 49k | 12.7 / 8.5 s | 62 / 63 | 658 |
-| **all 24 runs** | | **12/12 / 12/12** | **$0.600 / $0.608 total** | **5.2 / 5.3 mean** | **161k / 172k mean** | **20.4 / 22.1 s mean** | **69 / 75 mean** | |
+| **all 24 runs** | | **12/12 / 12/12** | **$0.601 / $0.608 total** | **5.2 / 5.3 mean** | **161k / 172k mean** | **20.4 / 22.1 s mean** | **69 / 75 mean** | |
 
 What this pilot shows, and what it does not:
 
 - **Success: no difference.** Every run passed in both arms. These tasks are too easy for haiku to separate the arms on success.
-- **Cost: no difference.** $0.600 without glassbox and $0.608 with it, over 12 runs each.
+- **Cost: no difference.** $0.601 without glassbox and $0.608 with it, over 12 runs each.
 - **Lookups: fewer on short "where is X" questions and the one-file edit.** The hook added context on 5 of the 6 tasks. On the 3 of those that ask to find or change one spot (2 questions, 1 edit), the ambient runs made about half the tool calls (for example 1 instead of 3 on `tomli-q-parse-float-guard`): Claude read one file straight away instead of searching first. That saved tokens but not always money: on `fx-q-session-expiry` the ambient runs cost slightly more.
 - **Bug fixes: worse, not better.** On both tomli bug tasks the ambient runs used more tool calls, tokens and time (on `tomli-bug-literal-quote`, 14 tool calls against 6). The pilot does not show why; one ambient run wrote extra test scripts before fixing the bug.
 - **Noise is as large as the effects.** On `fx-q-sql-strings` the hook added nothing (0 characters), yet the arms still differ by 2x in tool calls, because one baseline run made 13 calls and the other 5. Two repeats per arm cannot separate an effect of this size from chance. It also shows the arms differ in more than the injected context: the `AGENTS.md` block and the skill were there even when the hook said nothing.

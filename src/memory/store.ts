@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { assertNotSymlinkSync, ensureStoreDirSync } from '../util/safefs.js';
-import { trackedByGit } from '../util/tracked.js';
+import { storeTrackedByGit } from '../util/tracked.js';
 import type { EdgeKind, GraphEdge, GraphNode, NodeKind, Tag } from '../types.js';
 
 export const STORE_DIR = '.glassbox';
@@ -218,7 +218,7 @@ export class GraphStore {
     const files = [file, `${file}-wal`, `${file}-shm`];
     for (const f of [dir, ...files]) assertNotSymlinkSync(f);
     // A store that git tracks came with the clone; its rows are someone else's text. open() rebuilds it.
-    if (files.some((f) => existsSync(f) && trackedByGit(repoRoot, f))) return undefined;
+    if (storeTrackedByGit(repoRoot)) return undefined;
     return new GraphStore(file, { readOnly: true });
   }
 
@@ -243,7 +243,7 @@ export class GraphStore {
 
   /**
    * Opens <repoRoot>/.glassbox/graph.db. An existing file is checked first: one
-   * that git tracks (it came with a clone, so someone else wrote it) or that
+   * in a store directory git tracks (storeTrackedByGit: it came with a clone, so someone else wrote it) or that
    * fails storeProblem() is deleted and rebuilt empty; the graph is a cache
    * and is re-indexed on next use.
    */
@@ -254,7 +254,7 @@ export class GraphStore {
     for (const f of files) assertNotSymlinkSync(f);
     let reason: string | undefined;
     if (existsSync(file)) {
-      reason = files.some((f) => existsSync(f) && trackedByGit(repoRoot, f)) ? 'it is committed to git' : storeProblem(file);
+      reason = storeTrackedByGit(repoRoot) ? 'it is committed to git' : storeProblem(file);
       if (reason) for (const f of files) rmSync(f, { force: true });
     }
     const store = new GraphStore(file);

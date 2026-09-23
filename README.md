@@ -122,8 +122,8 @@ In Claude Code the plugin wires them up (see [docs/claude-code.md](docs/claude-c
 `glassbox context --prompt "<text>"` (or `-` for stdin) prints graph matches for a prompt: `file:line`, node name, stored tags and direct callers, at most about 1,500 characters.
 
 - It uses only the stored graph. A rule-based check first skips prompts that are not about code.
-- It prints nothing when there is no graph, when git tracks the graph (it came with the clone), when no node clears the match floor, or when most matching files changed after the last parse.
-- The matches come inside a fenced block that the header marks as data, not instructions. Only paths without whitespace (each segment at most 64 characters) and plain identifiers are shown, so a file name cannot carry a sentence into the context.
+- It prints nothing when there is no graph, when git tracks anything in `.glassbox/` in any letter case or `.glassbox` is a submodule (it came with the clone), when no node clears the match floor, or when most matching files changed after the last parse.
+- The matches come inside a fenced block that the header marks as data, not instructions. Only paths without whitespace (each segment at most 40 characters) and plain identifiers are shown, which keeps what a file name can say short. It cannot stop a short name made of words, which is why the block is labelled as data. The AGENTS.md block does the same: paths are in code format, long path segments are cut, and a note says they are data.
 - On the sample repo it takes about 10 ms in process, and about 100 ms as a hook (starting `node` is most of it).
 
 The `UserPromptSubmit` hook adds this text to the prompt as extra context. On with the plugin's `ambient` option, `GLASSBOX_AMBIENT=1` or `"ambient": {"enabled": true}` in `.glassbox/config.json`.
@@ -184,11 +184,11 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 
 For each setting the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else the default. The worker limits and the gate timeout are clamped to the bounds in the environment table under [No extra keys or models](#no-extra-keys-or-models), whatever sets them.
 
-A `.glassbox/config.json` that git tracks came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, and `"conciseRules": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
+A `.glassbox/config.json` in a `.glassbox/` that git tracks (any file in it, in any letter case, or `.glassbox` as a submodule) came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, and `"conciseRules": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
 
 ### Hook entry points
 
-`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin (at most 1 MiB; more is dropped unread) and prints what the host expects (`additionalContext` for `prompt`, `{"decision":"block","reason":...}` for `stop`, nothing for the others). It always exits 0 and prints nothing on any error, for an event it does not know, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/`. `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
+`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin (at most 1 MiB; more is dropped unread) and prints what the host expects (`additionalContext` for `prompt`, `{"decision":"block","reason":...}` for `stop`, nothing for the others). It always exits 0 and prints nothing on any error, for a missing or unknown event or bad arguments, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/`. `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
 
 ### Ambient mode in Codex
 
@@ -238,7 +238,7 @@ A first **pilot, small n** (2026-09-23): Claude Code with haiku, 6 tasks x 2 arm
 
 | arm | passed | total cost | mean tool calls | mean wall time | mean answer words |
 |---|---|---|---|---|---|
-| baseline (no glassbox) | 12/12 | $0.600 | 5.2 | 20.4 s | 69 |
+| baseline (no glassbox) | 12/12 | $0.601 | 5.2 | 20.4 s | 69 |
 | ambient | 12/12 | $0.608 | 5.3 | 22.1 s | 75 |
 
 - No difference in success or cost. Every run passed in both arms.

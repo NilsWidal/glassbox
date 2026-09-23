@@ -67,9 +67,11 @@ export interface AmbientResult {
 
 // Output is built only from these shapes, so a store that came with a clone
 // cannot put free text (instructions) into the agent's context. Paths allow
-// no whitespace at all, and each path segment is at most 64 characters.
+// no whitespace at all, and each path segment is at most 40 characters, so a
+// file name can carry a few words at most. That cannot stop a short name made
+// of words, so the block is also fenced and labelled as data.
 const SAFE_FILE = /^[\w@+.,/-]{1,200}$/;
-const MAX_SEGMENT = 64;
+export const MAX_SEGMENT = 40;
 const SAFE_NAME = /^[\w$.#<>-]{1,100}$/;
 const SAFE_QID = /^[a-z][a-z0-9_]{0,31}$/;
 const SAFE_ANSWER = /^[\w-]{1,32}$/;

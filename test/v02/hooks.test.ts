@@ -10,6 +10,7 @@ import {
   editHooksEnabled,
   editedFiles,
   gateTimeoutMs,
+  hunkKeys,
   findGraphRoot,
   parseHookInput,
   postEditHook,
@@ -354,23 +355,50 @@ describe('stop hook: more gate cases', () => {
     }
   });
 
-  it('does not block again in a later turn for a hunk it already flagged', async () => {
+  it('does not block again in a later turn for a change it already flagged, but does for a new change in the same function', async () => {
     const copy = await indexedFixture({ git: true });
     try {
       const file = join(copy, 'src/auth/session.ts');
-      writeFileSync(file, RISKY(readFileSync(file, 'utf8')));
-      const backend = new FakeBackend({ rules });
+      const original = readFileSync(file, 'utf8');
+      writeFileSync(file, RISKY(original));
+      // Only hunks in session.ts are rated High, so the edit in format.ts below is a low-risk change.
+      const backend = new FakeBackend({
+        rules: [
+          (ctx) =>
+            ctx.question.instructions.startsWith('How risky is')
+              ? ctx.question.instructions.includes('src/auth/session.ts')
+                ? { '2': 0.97, '1': 0.02, '0': 0.01 }
+                : { '0': 0.97, '1': 0.02, '2': 0.01 }
+              : undefined,
+          ...rules,
+        ],
+      });
       const c: HookContext = { env: { GLASSBOX_GATE: '1' }, cwd: copy, backend: () => backend };
       expect((JSON.parse(await stopHook({ cwd: copy }, c)) as { decision: string }).decision).toBe('block');
-      expect(readGateState(copy)?.flagged).toEqual(['src/auth/session.ts#src/auth/session.ts#verifySession']);
-      // Next turn: another edit in the same function changes the diff; the flagged change is still in it.
-      writeFileSync(file, readFileSync(file, 'utf8').replace('store.revoke(token);', 'store.revoke(token); // expired'));
+      const flagged = readGateState(copy)?.flagged;
+      expect(flagged).toEqual([expect.stringMatching(/^src\/auth\/session\.ts#[0-9a-f]{16}$/)]);
+      // Next turn: an edit elsewhere changes the diff; the flagged change is still in it, unchanged.
+      const other = join(copy, 'src/ui/format.ts');
+      writeFileSync(other, `${readFileSync(other, 'utf8')}\n// note\n`);
       expect(await stopHook({ cwd: copy }, c)).toBe('');
       expect(backend.calls.length).toBeGreaterThanOrEqual(2);
-      expect(readGateState(copy)).toMatchObject({ outcome: 'pass', flagged: ['src/auth/session.ts#src/auth/session.ts#verifySession'] });
+      expect(readGateState(copy)).toMatchObject({ outcome: 'pass', flagged });
+      // A different risky change in the same function is a new change: it is flagged again.
+      writeFileSync(file, original.replace('session.expiresAt < Date.now()', 'session.expiresAt < Date.now() - 60_000'));
+      expect((JSON.parse(await stopHook({ cwd: copy }, c)) as { decision: string }).decision).toBe('block');
+      expect(readGateState(copy)?.flagged).toHaveLength(2);
     } finally {
       await rm(copy, { recursive: true, force: true });
     }
+  });
+
+  it('keys a hunk by its changed lines, not its position or node', async () => {
+    const { chunkDiff, safeDiffChunks } = await import('../../src/scope.js');
+    const diff = (at: number, line: string) =>
+      `diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -${at},1 +${at},1 @@\n-old\n+${line}\n`;
+    const key = (d: string) => hunkKeys(d, chunkDiff, safeDiffChunks)({ id: 'h1', file: 'a.ts', startLine: 0, endLine: 0 });
+    expect(key(diff(10, 'x < y'))).toBe(key(diff(40, 'x < y')));
+    expect(key(diff(10, 'x < y'))).not.toBe(key(diff(10, 'x <= y')));
   });
 
   it('can be switched on by the plugin option alone', async () => {
@@ -418,6 +446,20 @@ describe('glassbox hook (CLI entry)', () => {
     expect(nested).toEqual({ code: 0, out: '', err: '' });
     expect(read).toBe(false);
   }, 10_000);
+
+  it('exits 0 with no output for a missing event, extra arguments, a bad --host or a missing option value', async () => {
+    for (const args of [['hook'], ['hook', 'prompt', 'extra', 'args'], ['hook', 'prompt', '--host', 'vim'], ['hook', 'prompt', '--root'], ['hook', 'prompt', '--nope']]) {
+      const r = await cli(root, args, { readStdin: async () => '{}' });
+      expect(r.code, args.join(' ')).toBe(0);
+      expect(r.out, args.join(' ')).toBe('');
+    }
+    // An invalid --host is ignored, not passed on: the prompt hook still works.
+    const r = await cli(root, ['hook', 'prompt', '--host', 'vim'], {
+      env: { GLASSBOX_AMBIENT: '1' },
+      readStdin: async () => JSON.stringify({ prompt: 'where is issueToken used?', cwd: root }),
+    });
+    expect(JSON.parse(r.out)).toMatchObject({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit' } });
+  });
 
   it('exits 0 with no output for an unknown event', async () => {
     let read = false;

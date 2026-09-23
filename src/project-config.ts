@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { assertNotSymlinkSync, within } from './util/safefs.js';
-import { trackedByGit } from './util/tracked.js';
+import { storeTrackedByGit } from './util/tracked.js';
 
 // Same directory as the graph store; kept local so reading the config never loads node:sqlite.
 const STORE_DIR = '.glassbox';
@@ -10,7 +10,8 @@ export const PROJECT_CONFIG_FILE = 'config.json';
 /**
  * Per-project settings in <repo>/.glassbox/config.json. glassbox git-ignores
  * the store directory it creates, so this is meant as a local, per-checkout
- * file. A config that git tracks came with the repo, so someone else wrote it:
+ * file. A config in a store directory that git tracks (in any letter case, or
+ * as a submodule; see storeTrackedByGit) came with the repo, so someone else wrote it:
  * only its switches that turn a feature off are kept (see onlyDisables).
  * Every field is optional; values of the wrong type are dropped rather than
  * trusted, and the worker and gate limits are clamped where they are used.
@@ -108,7 +109,8 @@ export function onlyDisables(config: ProjectConfig): ProjectConfig {
 /**
  * Reads <root>/.glassbox/config.json. A missing file is an empty config. A
  * symlinked file, one outside the root, or invalid JSON throws (callers on a
- * hook path catch and fail open). A file that git tracks is reduced to
+ * hook path catch and fail open). A file in a store directory that git
+ * tracks (storeTrackedByGit) is reduced to
  * onlyDisables().
  */
 export function loadProjectConfig(root: string): ProjectConfig {
@@ -129,7 +131,7 @@ export function loadProjectConfig(root: string): ProjectConfig {
   } catch {
     throw new Error(`${file} is not valid JSON`);
   }
-  return trackedByGit(root, file) ? onlyDisables(config) : config;
+  return storeTrackedByGit(root) ? onlyDisables(config) : config;
 }
 
 /** Like loadProjectConfig, but an unreadable config is an empty one (for hooks, which must fail open). */

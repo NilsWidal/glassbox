@@ -1,4 +1,6 @@
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { storeTrackedByGit } from '../../src/util/tracked.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -139,5 +141,71 @@ describe('a project config that git tracks', () => {
     git('add', '-f', '.glassbox/graph.db');
     git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-qm', 'store');
     expect(GraphStore.openForRead(dir)).toBeUndefined();
+  });
+});
+
+describe('storeTrackedByGit', () => {
+  const run = (cwd: string, ...args: string[]) =>
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'protocol.file.allow=always', ...args], {
+      cwd,
+      stdio: 'ignore',
+    });
+
+  it('is false outside git and for an untracked store', () => {
+    mkdirSync(join(dir, '.glassbox'));
+    writeFileSync(join(dir, '.glassbox', 'config.json'), '{}');
+    expect(storeTrackedByGit(dir)).toBe(false);
+    run(dir, 'init', '-q');
+    expect(storeTrackedByGit(dir)).toBe(false);
+  });
+
+  it('sees a store committed under another letter case', () => {
+    run(dir, 'init', '-q');
+    run(dir, 'config', 'core.ignorecase', 'false');
+    mkdirSync(join(dir, '.GlassBox'));
+    writeFileSync(join(dir, '.GlassBox', 'CONFIG.json'), JSON.stringify({ mode: 'strict', gate: { enabled: true } }));
+    run(dir, 'add', '-f', '.GlassBox/CONFIG.json');
+    run(dir, 'commit', '-qm', 'x');
+    expect(storeTrackedByGit(dir)).toBe(true);
+  });
+
+  it('reduces a config in a store committed as CONFIG.json (case-insensitive file systems read it as config.json)', () => {
+    run(dir, 'init', '-q');
+    mkdirSync(join(dir, '.glassbox'));
+    writeFileSync(join(dir, '.glassbox', 'CONFIG.json'), '{}');
+    run(dir, 'add', '-f', '.glassbox/CONFIG.json');
+    run(dir, 'commit', '-qm', 'x');
+    writeFileSync(join(dir, '.glassbox', 'config.json'), JSON.stringify({ mode: 'strict', gate: { enabled: true } }));
+    expect(loadProjectConfig(dir)).toEqual({});
+    // The graph next to it is not read either.
+    GraphStore.open(dir).close();
+    expect(GraphStore.openForRead(dir)).toBeUndefined();
+  });
+
+  it('sees a store shipped as a submodule, a .gitmodules entry or a nested checkout', () => {
+    const sub = join(dir, 'sub');
+    mkdirSync(sub);
+    run(sub, 'init', '-q');
+    writeFileSync(join(sub, 'config.json'), JSON.stringify({ mode: 'strict', gate: { enabled: true } }));
+    run(sub, 'add', 'config.json');
+    run(sub, 'commit', '-qm', 'cfg');
+    const repo = join(dir, 'repo');
+    mkdirSync(repo);
+    run(repo, 'init', '-q');
+    run(repo, 'submodule', 'add', '-q', sub, '.glassbox');
+    run(repo, 'commit', '-qm', 'sub');
+    expect(storeTrackedByGit(repo)).toBe(true);
+    expect(loadProjectConfig(repo)).toEqual({});
+    // Each signal on its own.
+    const only = (setup: (root: string) => void) => {
+      const root = mkdtempSync(join(dir, 'only-'));
+      run(root, 'init', '-q');
+      mkdirSync(join(root, '.glassbox'));
+      setup(root);
+      return storeTrackedByGit(root);
+    };
+    expect(only((r) => writeFileSync(join(r, '.gitmodules'), '[submodule "x"]\n\tpath = .glassbox\n\turl = ../x\n'))).toBe(true);
+    expect(only((r) => mkdirSync(join(r, '.glassbox', '.git')))).toBe(true);
+    expect(only(() => {})).toBe(false);
   });
 });

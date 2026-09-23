@@ -13,6 +13,7 @@ import {
   localDay,
   lockHeld,
   maybeStartWorker,
+  ownsLock,
   readLock,
   readWorkerState,
   releaseLock,
@@ -44,7 +45,7 @@ describe('worker lock', () => {
   it('is exclusive while its process lives', () => {
     expect(acquireLock(dir, T0, { alive: () => true })).toBe(true);
     expect(acquireLock(dir, T0 + 1000, { alive: () => true })).toBe(false);
-    expect(readLock(dir)).toEqual({ pid: process.pid, startedAt: T0 });
+    expect(readLock(dir)).toMatchObject({ pid: process.pid, startedAt: T0, token: expect.stringMatching(/^[0-9a-f]{24}$/) });
     releaseLock(dir);
     expect(existsSync(join(dir, '.glassbox', WORKER_LOCK_FILE))).toBe(false);
     expect(acquireLock(dir, T0 + 2000)).toBe(true);
@@ -85,6 +86,54 @@ describe('worker lock', () => {
     expect(readLock(dir)).toEqual(fresh);
     expect(readdirSync(join(dir, '.glassbox')).filter((f) => f.includes('.stale'))).toEqual([]);
     expect(acquireLock(dir, T0 + 20, { alive: () => true })).toBe(false);
+  });
+
+  it('survives three workers: a late takeover never removes a fresh lock', () => {
+    const file = join(dir, '.glassbox', WORKER_LOCK_FILE);
+    writeFileSync(file, JSON.stringify({ pid: 999_999, startedAt: T0 }));
+    let c = false;
+    // B has read the stale lock. While B decides, A takes the lock over properly...
+    const aliveB = (pid: number) => {
+      if (pid === 999_999) {
+        expect(acquireLock(dir, T0 + 1, { alive: () => false, pid: 111 })).toBe(true);
+        // ...and C, also starting now, finds A's live lock and backs off.
+        c = acquireLock(dir, T0 + 2, { alive: () => true, pid: 222 });
+      }
+      return false;
+    };
+    expect(acquireLock(dir, T0 + 3, { alive: aliveB, pid: 333 })).toBe(false);
+    expect(c).toBe(false);
+    expect(readLock(dir)?.pid).toBe(111);
+    expect(readdirSync(join(dir, '.glassbox')).sort()).toEqual([WORKER_LOCK_FILE]);
+  });
+
+  it('only releases a lock this process holds', () => {
+    const file = join(dir, '.glassbox', WORKER_LOCK_FILE);
+    writeFileSync(file, JSON.stringify({ pid: 4242, startedAt: T0, token: 'someone-else' }));
+    expect(ownsLock(dir)).toBe(false);
+    releaseLock(dir);
+    expect(readLock(dir)).toMatchObject({ token: 'someone-else' });
+    rmSync(file);
+    expect(acquireLock(dir, T0)).toBe(true);
+    expect(ownsLock(dir)).toBe(true);
+    // Another worker replaced it (it thought this one stale): release leaves that one in place.
+    writeFileSync(file, JSON.stringify({ pid: 4243, startedAt: T0 + 1, token: 'newer' }));
+    expect(ownsLock(dir)).toBe(false);
+    releaseLock(dir);
+    expect(readLock(dir)).toMatchObject({ token: 'newer' });
+  });
+
+  it('lets one takeover run at a time, and clears a takeover left by a dead process', () => {
+    const file = join(dir, '.glassbox', WORKER_LOCK_FILE);
+    writeFileSync(file, JSON.stringify({ pid: 999_999, startedAt: T0 }));
+    const mutex = `${file}.takeover`;
+    writeFileSync(mutex, '');
+    expect(acquireLock(dir, T0 + 1, { alive: () => false })).toBe(false);
+    expect(readLock(dir)?.pid).toBe(999_999);
+    const old = new Date(Date.now() - 5 * 60_000);
+    utimesSync(mutex, old, old);
+    expect(acquireLock(dir, T0 + 2, { alive: () => false })).toBe(true);
+    expect(existsSync(mutex)).toBe(false);
   });
 });
 
@@ -286,6 +335,50 @@ describe('runWorker', () => {
     expect(seen).toBeGreaterThanOrEqual(10 + r.summary!.asked);
     expect(r.state.callsToday).toBe(10 + r.summary!.modelRuns);
     expect(readWorkerState(root, T0).callsToday).toBe(10 + r.summary!.modelRuns);
+  });
+
+  it('charges one backend call per question and node for a backend that does not batch', async () => {
+    await touch('src/billing/retry.ts');
+    writeWorkerState(root, { day: localDay(T0), callsToday: 0 });
+    const inner = new FakeBackend({ rules });
+    let seen: number | undefined;
+    let calls = 0;
+    const single: Backend = {
+      name: 'single',
+      capabilities: { ...inner.capabilities, batch: false },
+      answerBatch: (state, questions) => {
+        seen ??= readWorkerState(root, T0).callsToday;
+        calls++;
+        return inner.answerBatch(state, questions);
+      },
+    };
+    const r = await runWorker(root, { env: { GLASSBOX_WORKER_MAX_NODES: '2' }, backend: () => single, now: () => T0 });
+    expect(r.ran).toBe(true);
+    const questionsPerNode = calls / r.summary!.asked;
+    expect(questionsPerNode).toBeGreaterThan(1);
+    // The up-front charge covered every call the run made, and the settled count is the real one.
+    expect(seen).toBeGreaterThanOrEqual(calls);
+    expect(r.summary!.modelRuns).toBe(calls);
+    expect(r.state.callsToday).toBe(calls);
+  });
+
+  it('never starts more backend calls than the budget has left when the backend does not batch', async () => {
+    await touch('src/billing/retry.ts');
+    const inner = new FakeBackend({ rules });
+    let calls = 0;
+    const single: Backend = {
+      name: 'single',
+      capabilities: { ...inner.capabilities, batch: false },
+      answerBatch: (state, questions) => {
+        calls++;
+        return inner.answerBatch(state, questions);
+      },
+    };
+    writeWorkerState(root, { day: localDay(T0), callsToday: 100 - 3 });
+    // 3 runs left, fewer than one node's questions: nothing is asked.
+    const r = await runWorker(root, { env: {}, backend: () => single, now: () => T0 });
+    expect(r).toMatchObject({ ran: false, reason: 'daily call budget used' });
+    expect(calls).toBe(0);
   });
 
   it('stops its model calls at the time cap and leaves the rest pending', async () => {

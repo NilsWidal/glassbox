@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, existsSync, linkSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadProjectConfigSafe, featureEnabled, type ProjectConfig } from '../project-config.js';
 import type { Backend } from '../types.js';
@@ -73,6 +73,8 @@ export interface WorkerState {
 export interface WorkerLock {
   pid: number;
   startedAt: number;
+  /** Random id of the run that took the lock; only that run releases it. */
+  token?: string;
 }
 
 function int(v: string | undefined): number | undefined {
@@ -178,7 +180,9 @@ function readLockAt(file: string): WorkerLock | undefined {
   }
   try {
     const v = JSON.parse(text) as Partial<WorkerLock>;
-    if (typeof v.pid === 'number' && typeof v.startedAt === 'number') return { pid: v.pid, startedAt: v.startedAt };
+    if (typeof v.pid === 'number' && typeof v.startedAt === 'number') {
+      return { pid: v.pid, startedAt: v.startedAt, ...(typeof v.token === 'string' ? { token: v.token } : {}) };
+    }
   } catch {
     // Handled below.
   }
@@ -202,42 +206,7 @@ export function readLock(root: string): WorkerLock | undefined {
 }
 
 function sameLock(a: WorkerLock | undefined, b: WorkerLock): boolean {
-  return a !== undefined && a.pid === b.pid && a.startedAt === b.startedAt;
-}
-
-/**
- * Moves a stale lock out of the way without a window where two workers both
- * think they took it over: the lock is renamed to a name only this process
- * uses, then checked. When what was moved is not the stale lock read before
- * (another worker replaced it in between), it is put back with link(), which
- * never overwrites a lock that appeared since, and the takeover fails.
- * True when the lock file is now gone and this process may try to create one.
- */
-function takeOverStaleLock(file: string, stale: WorkerLock): boolean {
-  const aside = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.stale`;
-  try {
-    renameSync(file, aside);
-  } catch (err) {
-    // Someone else already moved it: the O_EXCL create decides who gets the new lock.
-    return (err as NodeJS.ErrnoException).code === 'ENOENT';
-  }
-  let moved: WorkerLock | undefined;
-  try {
-    moved = readLockAt(aside);
-  } catch {
-    moved = undefined;
-  }
-  if (sameLock(moved, stale)) {
-    rmSync(aside, { force: true });
-    return true;
-  }
-  try {
-    linkSync(aside, file);
-  } catch {
-    // A newer lock is already in place; it wins.
-  }
-  rmSync(aside, { force: true });
-  return false;
+  return a !== undefined && a.pid === b.pid && a.startedAt === b.startedAt && a.token === b.token;
 }
 
 /** A lock holds while its process is alive and it is younger than lockMaxAgeMs. */
@@ -252,11 +221,58 @@ export function lockHeld(
   return lock.pid === -1 || alive(lock.pid);
 }
 
+/** Tokens of the locks this process holds, by lock file. */
+const ownTokens = new Map<string, string>();
+
+/** A takeover mutex older than this was left by a process that died inside a takeover. */
+const TAKEOVER_STALE_MS = 60_000;
+
+/**
+ * Removes a stale lock so this process may try to create one. Only one
+ * process at a time may do this: it must first create `worker.lock.takeover`
+ * (O_EXCL). Inside, the lock is read again and removed only when it is still
+ * exactly the stale lock read before (same pid, start time and token). A
+ * worker that took the lock in the meantime is never removed, and a normal
+ * start cannot slip in while the stale file is still there. True when the
+ * lock file is gone.
+ */
+function takeOverStaleLock(file: string, stale: WorkerLock): boolean {
+  const mutex = `${file}.takeover`;
+  try {
+    if (Date.now() - statSync(mutex).mtimeMs > TAKEOVER_STALE_MS) rmSync(mutex, { force: true });
+  } catch {
+    // No mutex: the usual case.
+  }
+  let fd: number;
+  try {
+    fd = openSync(mutex, 'wx', 0o644);
+  } catch {
+    // Another process is taking over right now; it decides.
+    return false;
+  }
+  closeSync(fd);
+  try {
+    let current: WorkerLock | undefined;
+    try {
+      current = readLockAt(file);
+    } catch {
+      return false;
+    }
+    if (current === undefined) return true;
+    if (!sameLock(current, stale)) return false;
+    rmSync(file, { force: true });
+    return true;
+  } finally {
+    rmSync(mutex, { force: true });
+  }
+}
+
 /**
  * Takes the worker lock (created with O_EXCL, so two workers never both get
  * it). A lock left by a dead process, or older than maxAgeMs, is taken over
- * first with takeOverStaleLock, so two workers that both saw the same stale
- * lock cannot both end up running.
+ * first with takeOverStaleLock. The new lock carries a random token, and is
+ * read back after writing: a process that does not find its own token there
+ * does not hold the lock.
  */
 export function acquireLock(
   root: string,
@@ -276,17 +292,35 @@ export function acquireLock(
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
     throw err;
   }
+  const token = randomBytes(12).toString('hex');
   try {
-    writeSync(fd, JSON.stringify({ pid: opts.pid ?? process.pid, startedAt: now }));
+    writeSync(fd, JSON.stringify({ pid: opts.pid ?? process.pid, startedAt: now, token }));
   } finally {
     closeSync(fd);
   }
+  if (readLock(root)?.token !== token) return false;
+  ownTokens.set(file, token);
   return true;
 }
 
+/** True when this process holds the lock (its token is in the lock file). */
+export function ownsLock(root: string): boolean {
+  try {
+    const file = storeFile(root, WORKER_LOCK_FILE);
+    const token = ownTokens.get(file);
+    return token !== undefined && readLockAt(file)?.token === token;
+  } catch {
+    return false;
+  }
+}
+
+/** Removes the lock only when this process holds it; a lock another worker took is left alone. */
 export function releaseLock(root: string): void {
   try {
-    rmSync(storeFile(root, WORKER_LOCK_FILE), { force: true });
+    const file = storeFile(root, WORKER_LOCK_FILE);
+    const token = ownTokens.get(file);
+    ownTokens.delete(file);
+    if (token !== undefined && readLockAt(file)?.token === token) rmSync(file, { force: true });
   } catch {
     // A symlinked lock is left alone.
   }
@@ -454,18 +488,26 @@ export async function runWorker(root: string, opts: WorkerRunOptions): Promise<W
       if (todo === 0) return skip('nothing stale');
       const backend = opts.backend();
       const runsPerCall = Math.max(1, backend.samples ?? 1);
-      // Worst case one node per call, so the node limit alone keeps the run inside the budget.
-      const affordable = Math.floor((limits.dailyCalls - state.callsToday) / runsPerCall);
+      // Backend calls one node can cost (one option order): a batching backend asks all of a
+      // node's questions in one call, any other backend makes one call per question.
+      const callsPerNode = backend.capabilities.batch ? 1 : Math.max(1, qids.length);
+      const runsPerNode = callsPerNode * runsPerCall;
+      // Worst case every node in its own group, so the node limit keeps the run inside the budget.
+      const affordable = Math.floor((limits.dailyCalls - state.callsToday) / runsPerNode);
       const limit = Math.min(limits.maxNodesPerRun, affordable, todo);
       if (limit <= 0) return skip('daily call budget used', true);
+      // Another worker took the lock over (this run looked stale to it): leave the model calls to it.
+      if (!ownsLock(root)) return { ran: false, reason: 'lost the worker lock', state: readWorkerState(root, now()) };
       // Charge the worst case up front; settled below. A killed run keeps the charge.
-      charged = limit * runsPerCall;
+      charged = limit * runsPerNode;
       state = readWorkerState(root, now());
       state.callsToday += charged;
       writeWorkerState(root, state);
 
       const r = await tagPass(root, backend, { store, limit, concurrency: 2, decide: { permutations: 1, signal: abort.signal } });
-      const calls = r.calls + r.failed.length;
+      // A failed group spent up to one call per node (batching) or per node and question.
+      const failedCalls = r.failed.reduce((n, f) => n + (backend.capabilities.batch ? 1 : f.nodeIds.length * callsPerNode), 0);
+      const calls = r.calls + failedCalls;
       const summary: WorkerRunSummary = {
         asked: r.asked,
         tags: r.tags,
