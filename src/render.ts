@@ -1,5 +1,6 @@
 import type { AskResult } from './ask.js';
 import { winningOption } from './engine/answer.js';
+import { safeSpan } from './agents-md/render.js';
 import { formatDelta } from './explain/summary.js';
 import { spanLabel } from './scope.js';
 import type { Answer, ExplainBlock } from './types.js';
@@ -40,7 +41,7 @@ export function explainLines(ex: ExplainBlock): string[] {
   const out: string[] = [];
   if (ex.summary.length) out.push('summary', ...ex.summary.map((l) => `  ${l}`));
   if (ex.highlights.length) {
-    const spans = ex.highlights.map((h) => spanLabel(h.file, h.startLine, h.endLine));
+    const spans = ex.highlights.map((h) => safeSpan(h.file, h.startLine, h.endLine));
     const width = Math.max(...spans.map((s) => s.length));
     out.push('highlights');
     ex.highlights.forEach((h, i) => {

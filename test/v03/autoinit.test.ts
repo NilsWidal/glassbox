@@ -532,6 +532,22 @@ describe('glassbox status', () => {
     expect(renderStatus(off)).toMatch(/auto-init off/);
   });
 
+  it('says why auto-init will not run in a repo without a graph, and writes nothing', async () => {
+    const root = await track(gitFixture());
+    const line = async (env: NodeJS.ProcessEnv) => renderStatus(await status(root, env)).split('\n').find((l) => l.startsWith('init '));
+    expect(await line({})).toBe('init     no graph yet; auto-init starts at the next session');
+    expect(await line({ GLASSBOX_AUTO_INIT: '0' })).toMatch(/auto-init will not run here: auto-init is off; run `glassbox init`/);
+    expect(await line({ HOME: root })).toMatch(/will not run here: the repo root is the home directory or \//);
+    expect(await line({ GLASSBOX_AUTO_INIT_MAX_FILES: '3' })).toMatch(/will not run here: \d+ source files, more than GLASSBOX_AUTO_INIT_MAX_FILES \(3\)/);
+    expect(existsSync(join(root, '.glassbox'))).toBe(false);
+    mkdirSync(join(root, '.glassbox'));
+    writeFileSync(join(root, '.glassbox', 'config.json'), JSON.stringify({ autoInit: false }));
+    expect(await line({})).toMatch(/will not run here: auto-init is off/);
+    execFileSync('git', ['add', '-f', '.glassbox/config.json'], { cwd: root });
+    expect(await line({})).toMatch(/will not run here: \.glassbox came with the repo \(git tracks it\)/);
+    expect(readAutoInitState(root)).toBeUndefined();
+  });
+
   it('shows a skipped auto-init and why', async () => {
     const root = await track(gitFixture());
     await cli(root, ['init', '--structure-only', '--auto', '--quiet'], { env: { GLASSBOX_AUTO_INIT_MAX_FILES: '1' } });

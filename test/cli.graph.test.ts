@@ -111,11 +111,11 @@ describe('cli: graph commands on a copy of the sample repo', () => {
   it('graph shows tags and neighbours, by id or unique name', async () => {
     const r = await run(['graph', 'verifySession']);
     expect(r.code).toBe(0);
-    expect(r.out).toMatch(/^src\/auth\/session\.ts#verifySession {2}\(function, src\/auth\/session\.ts:38-46\)/);
+    expect(r.out).toMatch(/^`src\/auth\/session\.ts#verifySession` {2}\(function, src\/auth\/session\.ts:38-46\)/);
     expect(r.out).toContain('  handles_auth=yes 0.90');
-    expect(r.out).toMatch(/\nin\n( {2}.*\n)* {2}calls {4}src\/auth\/middleware\.ts#requireAuth/);
+    expect(r.out).toMatch(/\nin\n( {2}.*\n)* {2}calls {4}`src\/auth\/middleware\.ts#requireAuth`/);
     // A method resolves by its bare name when that is unique.
-    expect((await run(['graph', 'get'])).out).toMatch(/^src\/auth\/session\.ts#SessionStore\.get /);
+    expect((await run(['graph', 'get'])).out).toMatch(/^`src\/auth\/session\.ts#SessionStore\.get` /);
     const none = await run(['graph', 'noSuchThing']);
     expect(none.code).toBe(1);
     expect(none.err).toContain('no node "noSuchThing"');

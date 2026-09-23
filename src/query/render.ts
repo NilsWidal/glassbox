@@ -1,5 +1,5 @@
+import { safeIdText, safeName, safeNodeId, safePath, safeSpan } from '../agents-md/render.js';
 import { answerLabel, answerP, callsText, explainLines } from '../render.js';
-import { spanLabel } from '../scope.js';
 import type { DecisionRecord, GraphEdge } from '../types.js';
 import type { StoredNode } from '../memory/store.js';
 import type { DecideQueryResult } from './decide.js';
@@ -22,7 +22,7 @@ export function renderWhere(r: WhereResult): string {
     out.push('  no node matched these words; try other words for the concept, or run `glassbox index`');
   } else {
     out.push(
-      ...pad(r.hits.map((h) => [`p=${h.p.toFixed(2)}`, spanLabel(h.file, h.startLine, h.endLine), `${h.name} (${h.kind})`])),
+      ...pad(r.hits.map((h) => [`p=${h.p.toFixed(2)}`, safeSpan(h.file, h.startLine, h.endLine), `${safeName(h.name)} (${h.kind})`])),
     );
   }
   out.push(`cost  ${callsText(r.calls, r.samples)}, ${r.asked}/${r.matched} candidates asked, ${secs(r.latencyMs)}`);
@@ -32,9 +32,9 @@ export function renderWhere(r: WhereResult): string {
 export function renderTriage(r: TriageResult): string {
   const o = r.overall;
   const out = [`RISK ${r.level}  p=${answerP(o).toFixed(2)}  conf=${o.confidence.toFixed(2)}  ${o.band}   score ${o.score.toFixed(2)}/2`];
-  out.push('hunks', ...pad(r.hunks.map((h) => [spanLabel(h.file, h.startLine, h.endLine), h.level, `p=${h.p.toFixed(2)}`, h.nodes.join(', ')])));
+  out.push('hunks', ...pad(r.hunks.map((h) => [safeSpan(h.file, h.startLine, h.endLine), h.level, `p=${h.p.toFixed(2)}`, h.nodes.map(safeIdText).join(', ')])));
   if (r.affected.length) {
-    out.push('affected (one hop)', ...pad(r.affected.map((a) => [`${a.file}:${a.line}`, a.name, `${a.edge} ${a.via}`])));
+    out.push('affected (one hop)', ...pad(r.affected.map((a) => [`${safePath(a.file)}:${Math.trunc(a.line)}`, safeName(a.name), `${a.edge} ${safeIdText(a.via)}`])));
   }
   out.push(...explainLines(r.explain));
   const explainCost = r.calls.explain ? ` + ${r.calls.explain} explain` : '';
@@ -50,7 +50,7 @@ export function renderDecide(r: DecideQueryResult): string {
     `options  ${Object.entries(r.probabilities).map(([k, p]) => `${k} ${p.toFixed(2)}`).join('   ')}`,
     'advice only: the choice stays with you',
   ];
-  if (r.context.length) out.push(`context  ${r.context.join(', ')}`);
+  if (r.context.length) out.push(`context  ${r.context.map(safeIdText).join(', ')}`);
   out.push(`cost  ${callsText(r.calls, r.samples)}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
   if (r.record.id) out.push(`id    ${r.record.id}`);
   return out.join('\n');
@@ -78,12 +78,13 @@ export interface GraphView {
 
 export function renderGraph(v: GraphView): string {
   const n = v.node;
-  const out = [`${n.id}  (${n.kind}, ${spanLabel(n.file, n.startLine, n.endLine)}${n.stale ? ', stale' : ''})`];
-  out.push('tags', ...(v.tags.length ? v.tags.map((t) => `  ${t}`) : ['  none yet (run `glassbox index`)']));
+  const out = [`${safeNodeId(n.id)}  (${n.kind}, ${safeSpan(n.file, n.startLine, n.endLine)}${n.stale ? ', stale' : ''})`];
+  // Tag labels can hold repo text (area answers are directory names): each word goes through the same charset.
+  out.push('tags', ...(v.tags.length ? v.tags.map((t) => `  ${t.split(' ').map((w) => w.split('=').map(safeName).join('=')).join(' ')}`) : ['  none yet (run `glassbox index`)']));
   const edges = (title: string, list: GraphEdge[], pick: (e: GraphEdge) => string) => {
     if (list.length) out.push(title, ...list.map((e) => `  ${e.kind.padEnd(8)} ${pick(e)}`));
   };
-  edges('out', v.out, (e) => e.to);
-  edges('in', v.in, (e) => e.from);
+  edges('out', v.out, (e) => safeNodeId(e.to));
+  edges('in', v.in, (e) => safeNodeId(e.from));
   return out.join('\n');
 }

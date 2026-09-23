@@ -476,8 +476,8 @@ describe('status without a graph', () => {
       expect(s.graph).toBeUndefined();
       const text = renderStatus(s);
       expect(text).toContain('graph    none yet');
-      expect(text).toContain('init     no graph yet; auto-init starts at the next session in a git repo');
-      expect(s.autoInit).toEqual({ enabled: true, state: 'none', structureOnly: false });
+      expect(text).toContain('init     no graph yet; auto-init will not run here: not inside a git work tree');
+      expect(s.autoInit).toEqual({ enabled: true, state: 'none', structureOnly: false, detail: 'not inside a git work tree' });
       expect(text).toContain('mode     fast (from env)');
       expect(text).toContain('ambient on');
       expect(existsSync(join(dir, '.glassbox'))).toBe(false);

@@ -4,7 +4,7 @@ import { blockLineRange } from './agents-md/sync.js';
 import { conciseRulesEnabled } from './style/concise.js';
 import { resolveMode, type ResolvedMode } from './modes.js';
 import { featureEnabled, loadProjectConfig, type ProjectConfig } from './project-config.js';
-import { autoInitEnabled, autoInitRunning, readAutoInitState } from './autoinit/index.js';
+import { autoInitEnabled, autoInitRunning, checkAutoInit, countSourceFiles, readAutoInitState } from './autoinit/index.js';
 import { lockHeld, readLock, readWorkerState, workerEnabled, workerLimits, type WorkerLimits, type WorkerLock, type WorkerState } from './worker/index.js';
 
 const STORE_DIR = '.glassbox';
@@ -166,7 +166,9 @@ function autoInitStatus(root: string, env: NodeJS.ProcessEnv, config: ProjectCon
   }
   if (st?.error) return { enabled, state: 'failed', structureOnly, ...(st.finishedAt !== undefined ? { at: st.finishedAt } : {}), detail: st.error };
   if (st?.skipped) return { enabled, state: 'skipped', structureOnly, ...(st.finishedAt !== undefined ? { at: st.finishedAt } : {}), detail: st.skipped };
-  return { enabled, state: 'none', structureOnly };
+  // Why the next session would not start it (the same checks the hook runs, without writing anything).
+  const check = checkAutoInit(root, env, now, countSourceFiles, { record: false });
+  return { enabled, state: 'none', structureOnly, ...(check.action === 'none' ? { detail: check.reason } : {}) };
 }
 
 function autoInitLine(a: AutoInitStatus): string {
@@ -184,7 +186,9 @@ function autoInitLine(a: AutoInitStatus): string {
     case 'skipped':
       return `init     last auto-init skipped${when}: ${a.detail}; ${onOff}`;
     default:
-      return `init     no graph yet; ${a.enabled ? 'auto-init starts at the next session in a git repo' : 'auto-init off, run `glassbox init`'}`;
+      return a.detail
+        ? `init     no graph yet; auto-init will not run here: ${a.detail}; run \`glassbox init\` (or /glassbox:init) instead`
+        : 'init     no graph yet; auto-init starts at the next session';
   }
 }
 

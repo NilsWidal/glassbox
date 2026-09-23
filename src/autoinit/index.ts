@@ -197,16 +197,18 @@ export function checkAutoInit(
   env: NodeJS.ProcessEnv,
   now = Date.now(),
   count: (root: string) => number | undefined = countSourceFiles,
+  opts: { record?: boolean } = {},
 ): AutoInitCheck {
   if (env.GLASSBOX_NESTED === '1') return { action: 'none', reason: 'nested glassbox call' };
   if (envFlag(env.GLASSBOX_AUTO_INIT) === false) return { action: 'none', reason: 'auto-init is off' };
   const root = gitWorkTreeRoot(start);
   if (!root) return { action: 'none', reason: 'not inside a git work tree' };
   if (forbiddenRoot(root, env)) return { action: 'none', reason: 'the repo root is the home directory or /', root };
+  const storeExists = existsSync(join(root, STORE_DIR));
+  // Checked before the switch: a store that came with the clone is never auto-inited, whatever its config says.
+  if (storeExists && storeTrackedByGit(root)) return { action: 'none', reason: '.glassbox came with the repo (git tracks it)', root };
   const config = loadProjectConfigSafe(root);
   if (!autoInitEnabled(env, config)) return { action: 'none', reason: 'auto-init is off', root };
-  const storeExists = existsSync(join(root, STORE_DIR));
-  if (storeExists && storeTrackedByGit(root)) return { action: 'none', reason: '.glassbox came with the repo (git tracks it)', root };
   if (storeExists) {
     const running = autoInitRunning(root, now);
     if (running) return { action: 'indexing', root, since: running.since };
@@ -223,8 +225,10 @@ export function checkAutoInit(
     // Recorded, so the retry back-off applies and later sessions do not pay for a slow count again.
     const reason = `could not count the source files within ${COUNT_TIMEOUT_MS / 1000} s`;
     try {
-      ensureStoreDirSync(root, STORE_DIR);
-      writeAutoInitState(root, { finishedAt: now, skipped: reason });
+      if (opts.record !== false) {
+        ensureStoreDirSync(root, STORE_DIR);
+        writeAutoInitState(root, { finishedAt: now, skipped: reason });
+      }
     } catch {
       // Best effort: without the record the next session simply counts again.
     }

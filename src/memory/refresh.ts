@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import { safePath } from '../agents-md/render.js';
 import { syncAgentsMd } from '../agents-md/sync.js';
 import type { SyncAgentsMdResult } from '../agents-md/types.js';
 import type { Backend } from '../types.js';
@@ -102,7 +103,7 @@ export function renderRefresh(r: RefreshResult): string {
   const out: string[] = [];
   if (r.mode === 'files') {
     out.push(`stale  ${r.stale.length} node${r.stale.length === 1 ? '' : 's'} marked (re-tagged on the next \`glassbox index\`)`);
-    if (r.unknownFiles?.length) out.push(`unknown  ${r.unknownFiles.join(', ')} (picked up by the next full refresh)`);
+    if (r.unknownFiles?.length) out.push(`unknown  ${r.unknownFiles.map(safePath).join(', ')} (picked up by the next full refresh)`);
   } else if (r.sync) {
     const s = r.sync;
     out.push(`graph  +${s.added.length} ~${s.changed.length} -${s.removed.length}, ${s.stale.length} stale`);

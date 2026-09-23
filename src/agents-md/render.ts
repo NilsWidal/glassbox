@@ -223,7 +223,32 @@ export function renderCodeMap(summary: AgentsMdSummary, opts: CodeMapOptions = {
  * format, so a file name cannot carry markdown or instructions verbatim.
  */
 export function safeNodeId(id: string): string {
+  return `\`${safeIdText(id)}\``;
+}
+
+/**
+ * Display helpers for text that reaches an agent (tool and CLI output): the
+ * same charset and segment cuts as the code map and the AGENTS.md block, so a
+ * repo-derived path or name cannot carry spaces, markdown, backticks or HTML
+ * comments. Without the code format quotes, for tables; safeNodeId adds them.
+ */
+export function safePath(file: string): string {
+  return pathToken(file);
+}
+
+export function safeName(name: string): string {
+  return token(name, 60);
+}
+
+/** A node id (`path#name`) with the path and the name sanitized. */
+export function safeIdText(id: string): string {
   const hash = id.indexOf('#');
-  const shown = hash < 0 ? pathToken(id) : `${pathToken(id.slice(0, hash))}#${token(id.slice(hash + 1), 60)}`;
-  return `\`${shown}\``;
+  return hash < 0 ? pathToken(id) : `${pathToken(id.slice(0, hash))}#${token(id.slice(hash + 1), 60)}`;
+}
+
+/** `file:start-end` with the path sanitized. */
+export function safeSpan(file: string, startLine: number, endLine: number): string {
+  const s = Math.trunc(startLine);
+  const e = Math.trunc(endLine);
+  return s === e ? `${pathToken(file)}:${s}` : `${pathToken(file)}:${s}-${e}`;
 }

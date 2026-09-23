@@ -3793,7 +3793,11 @@ __export(render_exports, {
   USAGE: () => USAGE,
   renderBlock: () => renderBlock,
   renderCodeMap: () => renderCodeMap,
+  safeIdText: () => safeIdText,
+  safeName: () => safeName,
   safeNodeId: () => safeNodeId,
+  safePath: () => safePath,
+  safeSpan: () => safeSpan,
   withoutStamp: () => withoutStamp
 });
 function clean(text2, max = MAX_TEXT) {
@@ -3907,9 +3911,22 @@ function renderCodeMap(summary, opts = {}) {
   return text2.length > max ? `${text2.slice(0, max - 3)}...` : text2;
 }
 function safeNodeId(id) {
+  return `\`${safeIdText(id)}\``;
+}
+function safePath(file2) {
+  return pathToken(file2);
+}
+function safeName(name2) {
+  return token(name2, 60);
+}
+function safeIdText(id) {
   const hash2 = id.indexOf("#");
-  const shown = hash2 < 0 ? pathToken(id) : `${pathToken(id.slice(0, hash2))}#${token(id.slice(hash2 + 1), 60)}`;
-  return `\`${shown}\``;
+  return hash2 < 0 ? pathToken(id) : `${pathToken(id.slice(0, hash2))}#${token(id.slice(hash2 + 1), 60)}`;
+}
+function safeSpan(file2, startLine, endLine) {
+  const s = Math.trunc(startLine);
+  const e = Math.trunc(endLine);
+  return s === e ? `${pathToken(file2)}:${s}` : `${pathToken(file2)}:${s}-${e}`;
 }
 var START_MARKER, END_MARKER, DEFAULT_MAX_LINES, MORE_HINT, STAMP_PREFIX, DATA_NOTE, MAX_ENTRY_POINTS, MAX_TAGS, MAX_TEXT, USAGE, MAX_PATH_SEGMENT, CODE_MAP_MAX_CHARS, CODE_MAP_USAGE;
 var init_render = __esm({
@@ -11079,10 +11096,10 @@ function formatDelta(d) {
 }
 function commentFor(h, withSpan = true) {
   if (h.comment) return h.comment;
-  return `Δp ${formatDelta(h.deltaP)}${withSpan ? ` at ${spanLabel(h.file, h.startLine, h.endLine)}` : ""}`;
+  return `Δp ${formatDelta(h.deltaP)}${withSpan ? ` at ${safeSpan(h.file, h.startLine, h.endLine)}` : ""}`;
 }
 function display(n) {
-  return n.kind === "class" ? n.name : `${n.name}()`;
+  return n.kind === "class" ? safeName(n.name) : `${safeName(n.name)}()`;
 }
 function buildSummary(input2) {
   const nodes = new Map((input2.nodes ?? []).map((n) => [n.id, n]));
@@ -11142,7 +11159,7 @@ function buildSummary(input2) {
   const roots = order([...inPath].filter((id) => !hasParent.has(id)));
   for (const r of roots) walk([r]);
   for (const id of order(byNode.keys())) if (!visited.has(id)) walk([id]);
-  for (const h of loose) rows.push({ text: spanLabel(h.file, h.startLine, h.endLine), comment: commentFor(h, false) });
+  for (const h of loose) rows.push({ text: safeSpan(h.file, h.startLine, h.endLine), comment: commentFor(h, false) });
   const width = Math.max(0, ...rows.filter((r) => r.comment).map((r) => r.text.length));
   const lines = rows.map((r) => r.comment ? `${r.text.padEnd(width)}   # ${r.comment}` : r.text);
   const yes = input2.reasonThreshold ?? 0.5;
@@ -11159,7 +11176,7 @@ var init_summary = __esm({
   "src/explain/summary.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
-    init_scope();
+    init_render();
     ARROW = " -> ";
   }
 });
@@ -11195,7 +11212,7 @@ function explainLines(ex) {
   const out2 = [];
   if (ex.summary.length) out2.push("summary", ...ex.summary.map((l) => `  ${l}`));
   if (ex.highlights.length) {
-    const spans = ex.highlights.map((h) => spanLabel(h.file, h.startLine, h.endLine));
+    const spans = ex.highlights.map((h) => safeSpan(h.file, h.startLine, h.endLine));
     const width = Math.max(...spans.map((s) => s.length));
     out2.push("highlights");
     ex.highlights.forEach((h, i2) => {
@@ -11261,6 +11278,7 @@ var init_render2 = __esm({
     "use strict";
     init_define_GLASSBOX_BUNDLE();
     init_answer();
+    init_render();
     init_summary();
     init_scope();
   }
@@ -13279,7 +13297,7 @@ function renderWhere(r) {
     out2.push("  no node matched these words; try other words for the concept, or run `glassbox index`");
   } else {
     out2.push(
-      ...pad(r.hits.map((h) => [`p=${h.p.toFixed(2)}`, spanLabel(h.file, h.startLine, h.endLine), `${h.name} (${h.kind})`]))
+      ...pad(r.hits.map((h) => [`p=${h.p.toFixed(2)}`, safeSpan(h.file, h.startLine, h.endLine), `${safeName(h.name)} (${h.kind})`]))
     );
   }
   out2.push(`cost  ${callsText(r.calls, r.samples)}, ${r.asked}/${r.matched} candidates asked, ${secs(r.latencyMs)}`);
@@ -13288,9 +13306,9 @@ function renderWhere(r) {
 function renderTriage(r) {
   const o = r.overall;
   const out2 = [`RISK ${r.level}  p=${answerP(o).toFixed(2)}  conf=${o.confidence.toFixed(2)}  ${o.band}   score ${o.score.toFixed(2)}/2`];
-  out2.push("hunks", ...pad(r.hunks.map((h) => [spanLabel(h.file, h.startLine, h.endLine), h.level, `p=${h.p.toFixed(2)}`, h.nodes.join(", ")])));
+  out2.push("hunks", ...pad(r.hunks.map((h) => [safeSpan(h.file, h.startLine, h.endLine), h.level, `p=${h.p.toFixed(2)}`, h.nodes.map(safeIdText).join(", ")])));
   if (r.affected.length) {
-    out2.push("affected (one hop)", ...pad(r.affected.map((a) => [`${a.file}:${a.line}`, a.name, `${a.edge} ${a.via}`])));
+    out2.push("affected (one hop)", ...pad(r.affected.map((a) => [`${safePath(a.file)}:${Math.trunc(a.line)}`, safeName(a.name), `${a.edge} ${safeIdText(a.via)}`])));
   }
   out2.push(...explainLines(r.explain));
   const explainCost = r.calls.explain ? ` + ${r.calls.explain} explain` : "";
@@ -13305,7 +13323,7 @@ function renderDecide(r) {
     `options  ${Object.entries(r.probabilities).map(([k, p]) => `${k} ${p.toFixed(2)}`).join("   ")}`,
     "advice only: the choice stays with you"
   ];
-  if (r.context.length) out2.push(`context  ${r.context.join(", ")}`);
+  if (r.context.length) out2.push(`context  ${r.context.map(safeIdText).join(", ")}`);
   out2.push(`cost  ${callsText(r.calls, r.samples)}, ${secs(r.latencyMs)}, ${r.backend}${r.model ? ` (${r.model})` : ""}`);
   if (r.record.id) out2.push(`id    ${r.record.id}`);
   return out2.join("\n");
@@ -13323,21 +13341,21 @@ function renderExplained(r) {
 }
 function renderGraph(v) {
   const n = v.node;
-  const out2 = [`${n.id}  (${n.kind}, ${spanLabel(n.file, n.startLine, n.endLine)}${n.stale ? ", stale" : ""})`];
-  out2.push("tags", ...v.tags.length ? v.tags.map((t) => `  ${t}`) : ["  none yet (run `glassbox index`)"]);
+  const out2 = [`${safeNodeId(n.id)}  (${n.kind}, ${safeSpan(n.file, n.startLine, n.endLine)}${n.stale ? ", stale" : ""})`];
+  out2.push("tags", ...v.tags.length ? v.tags.map((t) => `  ${t.split(" ").map((w) => w.split("=").map(safeName).join("=")).join(" ")}`) : ["  none yet (run `glassbox index`)"]);
   const edges = (title, list, pick3) => {
     if (list.length) out2.push(title, ...list.map((e) => `  ${e.kind.padEnd(8)} ${pick3(e)}`));
   };
-  edges("out", v.out, (e) => e.to);
-  edges("in", v.in, (e) => e.from);
+  edges("out", v.out, (e) => safeNodeId(e.to));
+  edges("in", v.in, (e) => safeNodeId(e.from));
   return out2.join("\n");
 }
 var init_render3 = __esm({
   "src/query/render.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
+    init_render();
     init_render2();
-    init_scope();
   }
 });
 
@@ -14426,16 +14444,16 @@ function countSourceFiles(root2, timeout = COUNT_TIMEOUT_MS) {
   for (const f of out2.split("\0")) if (f && isSourcePath(f)) seen.add(f);
   return seen.size;
 }
-function checkAutoInit(start2, env, now = Date.now(), count = countSourceFiles) {
+function checkAutoInit(start2, env, now = Date.now(), count = countSourceFiles, opts = {}) {
   if (env.GLASSBOX_NESTED === "1") return { action: "none", reason: "nested glassbox call" };
   if (envFlag(env.GLASSBOX_AUTO_INIT) === false) return { action: "none", reason: "auto-init is off" };
   const root2 = gitWorkTreeRoot(start2);
   if (!root2) return { action: "none", reason: "not inside a git work tree" };
   if (forbiddenRoot(root2, env)) return { action: "none", reason: "the repo root is the home directory or /", root: root2 };
-  const config2 = loadProjectConfigSafe(root2);
-  if (!autoInitEnabled(env, config2)) return { action: "none", reason: "auto-init is off", root: root2 };
   const storeExists = existsSync5(join22(root2, STORE_DIR6));
   if (storeExists && storeTrackedByGit(root2)) return { action: "none", reason: ".glassbox came with the repo (git tracks it)", root: root2 };
+  const config2 = loadProjectConfigSafe(root2);
+  if (!autoInitEnabled(env, config2)) return { action: "none", reason: "auto-init is off", root: root2 };
   if (storeExists) {
     const running = autoInitRunning(root2, now);
     if (running) return { action: "indexing", root: root2, since: running.since };
@@ -14451,8 +14469,10 @@ function checkAutoInit(start2, env, now = Date.now(), count = countSourceFiles) 
   if (files === void 0) {
     const reason = `could not count the source files within ${COUNT_TIMEOUT_MS / 1e3} s`;
     try {
-      ensureStoreDirSync(root2, STORE_DIR6);
-      writeAutoInitState(root2, { finishedAt: now, skipped: reason });
+      if (opts.record !== false) {
+        ensureStoreDirSync(root2, STORE_DIR6);
+        writeAutoInitState(root2, { finishedAt: now, skipped: reason });
+      }
     } catch {
     }
     return { action: "none", reason, root: root2 };
@@ -14668,7 +14688,7 @@ function renderRefresh(r) {
   const out2 = [];
   if (r.mode === "files") {
     out2.push(`stale  ${r.stale.length} node${r.stale.length === 1 ? "" : "s"} marked (re-tagged on the next \`glassbox index\`)`);
-    if (r.unknownFiles?.length) out2.push(`unknown  ${r.unknownFiles.join(", ")} (picked up by the next full refresh)`);
+    if (r.unknownFiles?.length) out2.push(`unknown  ${r.unknownFiles.map(safePath).join(", ")} (picked up by the next full refresh)`);
   } else if (r.sync) {
     const s = r.sync;
     out2.push(`graph  +${s.added.length} ~${s.changed.length} -${s.removed.length}, ${s.stale.length} stale`);
@@ -14682,6 +14702,7 @@ var init_refresh = __esm({
   "src/memory/refresh.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
+    init_render();
     init_sync();
     init_source();
     init_ask();
@@ -59130,7 +59151,8 @@ function autoInitStatus(root2, env, config2, graph, now) {
   }
   if (st?.error) return { enabled, state: "failed", structureOnly, ...st.finishedAt !== void 0 ? { at: st.finishedAt } : {}, detail: st.error };
   if (st?.skipped) return { enabled, state: "skipped", structureOnly, ...st.finishedAt !== void 0 ? { at: st.finishedAt } : {}, detail: st.skipped };
-  return { enabled, state: "none", structureOnly };
+  const check2 = checkAutoInit(root2, env, now, countSourceFiles, { record: false });
+  return { enabled, state: "none", structureOnly, ...check2.action === "none" ? { detail: check2.reason } : {} };
 }
 function autoInitLine(a) {
   const onOff = `auto-init ${a.enabled ? "on" : "off"}`;
@@ -59147,7 +59169,7 @@ function autoInitLine(a) {
     case "skipped":
       return `init     last auto-init skipped${when}: ${a.detail}; ${onOff}`;
     default:
-      return `init     no graph yet; ${a.enabled ? "auto-init starts at the next session in a git repo" : "auto-init off, run `glassbox init`"}`;
+      return a.detail ? `init     no graph yet; auto-init will not run here: ${a.detail}; run \`glassbox init\` (or /glassbox:init) instead` : "init     no graph yet; auto-init starts at the next session";
   }
 }
 function time3(ms) {

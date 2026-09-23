@@ -75,7 +75,10 @@ describe('plugin manifests', () => {
   it('hooks.json says SessionStart acts in any git repo (auto-init), the others only with a graph', async () => {
     const h = await readJson<{ description: string }>('hooks/hooks.json');
     expect(h.description).toMatch(/auto-init/);
-    expect(h.description).toMatch(/any git repo without a glassbox graph/);
+    expect(h.description).toMatch(/in a git repo without a glassbox graph/);
+    for (const exception of [/home directory and \//, /more than 5,000 source files/, /\.glassbox folder that git tracks/, /auto_init, GLASSBOX_AUTO_INIT or \.glassbox\/config\.json turn it off/]) {
+      expect(h.description).toMatch(exception);
+    }
     expect(h.description).not.toMatch(/All of them do nothing in a repo without a glassbox graph/);
   });
 

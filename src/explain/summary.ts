@@ -1,4 +1,5 @@
-import { spanLabel, type Chunk } from '../scope.js';
+import { safeName, safeSpan } from '../agents-md/render.js';
+import type { Chunk } from '../scope.js';
 import type { GraphEdge, GraphNode, Highlight, ReasonCode } from '../types.js';
 
 export interface SummaryInput {
@@ -26,11 +27,11 @@ export function formatDelta(d: number): string {
 /** A highlight's comment, or its measured effect when it has none. Never anything else. */
 function commentFor(h: Highlight, withSpan = true): string {
   if (h.comment) return h.comment;
-  return `\u0394p ${formatDelta(h.deltaP)}${withSpan ? ` at ${spanLabel(h.file, h.startLine, h.endLine)}` : ''}`;
+  return `\u0394p ${formatDelta(h.deltaP)}${withSpan ? ` at ${safeSpan(h.file, h.startLine, h.endLine)}` : ''}`;
 }
 
 function display(n: GraphNode): string {
-  return n.kind === 'class' ? n.name : `${n.name}()`;
+  return n.kind === 'class' ? safeName(n.name) : `${safeName(n.name)}()`;
 }
 
 /**
@@ -110,7 +111,7 @@ export function buildSummary(input: SummaryInput): string[] {
   // Cycles leave nodes without a root; start from any highlighted node not yet shown.
   for (const id of order(byNode.keys())) if (!visited.has(id)) walk([id]);
 
-  for (const h of loose) rows.push({ text: spanLabel(h.file, h.startLine, h.endLine), comment: commentFor(h, false) });
+  for (const h of loose) rows.push({ text: safeSpan(h.file, h.startLine, h.endLine), comment: commentFor(h, false) });
 
   const width = Math.max(0, ...rows.filter((r) => r.comment).map((r) => r.text.length));
   const lines = rows.map((r) => (r.comment ? `${r.text.padEnd(width)}   # ${r.comment}` : r.text));
