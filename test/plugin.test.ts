@@ -25,6 +25,7 @@ describe('plugin manifests', () => {
     expect(p.version).toBe(pkg.version);
     expect(p.userConfig.backend!.default).toBe('auto');
     expect(p.userConfig.enable_hooks!.default).toBe(false);
+    expect(p.userConfig.mode!.default).toBe('balanced');
     for (const key of ['anthropic_api_key', 'openai_api_key']) {
       expect(p.userConfig[key]!.sensitive).toBe(true);
       expect(p.userConfig[key]!.required).toBe(false);

@@ -23,6 +23,17 @@ import { loadCalibrators } from '../calibrate/store.js';
 import { packageVersion } from '../util/build.js';
 import { workingDiff } from '../util/git.js';
 import { defaultRoot, withPluginOptions } from './env.js';
+import {
+  MODES,
+  modeDecideOptions,
+  modeReport,
+  resolveMode,
+  runWithMode,
+  whereBand,
+  withModeJson,
+  withModeText,
+  type ModeSettings,
+} from '../modes.js';
 
 export interface GlassboxMcpOptions {
   /**
@@ -95,6 +106,13 @@ const budgetArg = (what: string) => z.number().int().min(0).max(MAX_BUDGET).opti
 const READ_ONLY = { readOnlyHint: true } as const;
 
 const format = z.enum(['text', 'json']).optional().describe('text (default, compact) or json (full result).');
+const mode = z
+  .enum(MODES)
+  .optional()
+  .describe(
+    'fast (1 sample, 1 option order, no evidence), balanced (default), explained (adds evidence and a why), strict (more samples, ' +
+      'evidence, higher bands) or auto (fast, then explained when the band is not act). Default: GLASSBOX_MODE or .glassbox/config.json.',
+  );
 const backendArgs = {
   backend: z
     .enum(['auto', 'claude-cli', 'codex-cli', 'anthropic', 'openai-compat'])
@@ -131,11 +149,12 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
   const cwd = opts.cwd ?? process.cwd();
   const baseRoot = resolve(cwd, opts.root ?? defaultRoot(env, cwd));
   const rootOf = makeRootResolver(baseRoot, env);
-  const backendOf = (a: { backend?: string | undefined; model?: string | undefined }): Backend =>
+  const backendOf = (a: { backend?: string | undefined; model?: string | undefined }, s: Readonly<ModeSettings> = {}): Backend =>
     createBackend({
       env,
       ...(a.backend ? { backend: a.backend as NonNullable<BackendConfig['backend']> } : {}),
       ...(a.model ? { model: a.model } : {}),
+      ...(s.samples !== undefined ? { samples: s.samples } : {}),
       ...opts.backendConfig,
     });
 
@@ -183,6 +202,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         budget: budgetArg(`Most backend calls the explanation may spend (default 24, at most ${MAX_BUDGET}).`),
         why: z.boolean().optional().describe('true: always add a one-line why; false: never. Default: only below the act band.'),
         reasons: z.array(z.string()).optional().describe('Reason codes to check: "code" or "code=question".'),
+        mode,
         root,
         format,
         ...backendArgs,
@@ -196,17 +216,33 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         if (a.diff !== undefined) scope.diff = a.diff;
         if (a.nodes?.length) scope.nodes = a.nodes;
         if (!scope.paths && !scope.nodes && scope.diff === undefined) scope.paths = ['.'];
-        const backend = backendOf(a);
         const dir = rootOf(a.root);
-        const r = await ask(scope, makeQuestion(a.question, a.type ?? 'yesno', a.options ?? []), {
-          backend,
-          root: dir,
-          ...(await calibrated(dir, backend)),
-          explain: a.explain ? (a.budget !== undefined ? { budget: a.budget } : true) : false,
-          ...(a.why !== undefined ? { why: a.why } : {}),
-          ...(a.reasons?.length ? { reasons: parseReasons(a.reasons) } : {}),
-        });
-        return text(a.format === 'json' ? renderJson(r) : renderPretty(r));
+        const resolved = resolveMode({ explicit: a.mode, env, root: dir });
+        const question = makeQuestion(a.question, a.type ?? 'yesno', a.options ?? []);
+        const run = await runWithMode(
+          resolved.mode,
+          async (_m, s) => {
+            const backend = backendOf(a, s);
+            const explainOn = a.explain ?? s.explain ?? false;
+            const why = a.why ?? s.why;
+            const decide = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
+            return ask(scope, question, {
+              backend,
+              root: dir,
+              ...(decide ? { decide } : {}),
+              explain: explainOn ? (a.budget !== undefined ? { budget: a.budget } : true) : false,
+              ...(why !== undefined ? { why } : {}),
+              ...(a.reasons?.length ? { reasons: parseReasons(a.reasons) } : {}),
+            });
+          },
+          (r) => r.answer.band,
+        );
+        const report = modeReport(resolved, run);
+        return text(
+          a.format === 'json'
+            ? JSON.stringify(withModeJson(JSON.parse(renderJson(run.result)) as object, report), null, 2)
+            : withModeText(renderPretty(run.result), report),
+        );
       }),
   );
 
@@ -227,6 +263,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
           .max(MAX_TOP)
           .optional()
           .describe(`Prefiltered nodes the model checks (default 8, at most ${MAX_TOP}).`),
+        mode,
         root,
         format,
         ...backendArgs,
@@ -236,19 +273,27 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
     (a) =>
       run(async () => {
         const dir = rootOf(a.root);
-        const backend = backendOf(a);
-        const cal = await calibrated(dir, backend);
-        const r = await withGraph(dir, (store) =>
-          where(a.concept, {
-            store,
-            root: dir,
-            backend,
-            ...cal,
-            ...(a.top !== undefined ? { top: a.top } : {}),
-            ...(a.candidates !== undefined ? { candidates: a.candidates } : {}),
-          }),
+        const resolved = resolveMode({ explicit: a.mode, env, root: dir });
+        const run = await withGraph(dir, (store) =>
+          runWithMode(
+            resolved.mode,
+            async (_m, s) => {
+              const backend = backendOf(a, s);
+              const decide = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
+              return where(a.concept, {
+                store,
+                root: dir,
+                backend,
+                ...(decide ? { decide } : {}),
+                ...(a.top !== undefined ? { top: a.top } : {}),
+                ...(a.candidates !== undefined ? { candidates: a.candidates } : {}),
+              });
+            },
+            (r) => whereBand(r.hits[0]?.p),
+          ),
         );
-        return a.format === 'json' ? json(r) : text(renderWhere(r));
+        const report = modeReport(resolved, run);
+        return a.format === 'json' ? json(withModeJson(run.result, report)) : text(withModeText(renderWhere(run.result), report));
       }),
   );
 
@@ -264,6 +309,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         diff: z.string().optional().describe('Unified diff text. Default: git diff HEAD in the root.'),
         explain: z.boolean().optional().describe('Hide-and-re-ask evidence on the overall risk (default true).'),
         budget: budgetArg(`Most backend calls the evidence may spend (default 12, at most ${MAX_BUDGET}).`),
+        mode,
         root,
         format,
         ...backendArgs,
@@ -273,22 +319,32 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
     (a) =>
       run(async () => {
         const dir = rootOf(a.root);
+        const resolved = resolveMode({ explicit: a.mode, env, root: dir });
         const diff = a.diff ?? (await workingDiff(dir));
         if (!diff.trim()) return text('no changes to triage');
-        const backend = backendOf(a);
-        const cal = await calibrated(dir, backend);
-        const r = await withGraph(dir, (store) =>
-          triage(diff, {
-            store,
-            root: dir,
-            backend,
-            ...cal,
-            explain: a.explain === false ? false : a.budget !== undefined ? { budget: a.budget } : true,
-          }),
+        const run = await withGraph(dir, (store) =>
+          runWithMode(
+            resolved.mode,
+            async (_m, s) => {
+              const backend = backendOf(a, s);
+              const decide = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
+              const explainOn = a.explain ?? s.explain ?? true;
+              return triage(diff, {
+                store,
+                root: dir,
+                backend,
+                ...(decide ? { decide } : {}),
+                explain: explainOn ? (a.budget !== undefined ? { budget: a.budget } : true) : false,
+              });
+            },
+            (r) => r.overall.band,
+          ),
         );
-        if (a.format !== 'json') return text(renderTriage(r));
+        const report = modeReport(resolved, run);
+        const r = run.result;
+        if (a.format !== 'json') return text(withModeText(renderTriage(r), report));
         const { record, hunks, ...rest } = r;
-        return json({ ...rest, id: record.id, hunks: hunks.map(({ answer: _a, ...h }) => h) });
+        return json(withModeJson({ ...rest, id: record.id, hunks: hunks.map(({ answer: _a, ...h }) => h) }, report));
       }),
   );
 
@@ -303,6 +359,7 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
         question: z.string().min(1).describe('The question, e.g. "where should the retry limit live?"'),
         options: z.array(z.string()).min(2).describe('At least two options: "key" or "key=description".'),
         context: z.string().optional().describe('Extra context you already know (constraints, what the user asked).'),
+        mode,
         root,
         format,
         ...backendArgs,
@@ -312,12 +369,23 @@ export function createGlassboxServer(opts: GlassboxMcpOptions = {}): McpServer {
     (a) =>
       run(async () => {
         const dir = rootOf(a.root);
-        const backend = backendOf(a);
-        const cal = await calibrated(dir, backend);
-        const r = await withGraph(dir, (store) => decide(a.question, a.options, a.context, { store, root: dir, backend, ...cal }));
-        if (a.format !== 'json') return text(renderDecide(r));
+        const resolved = resolveMode({ explicit: a.mode, env, root: dir });
+        const run = await withGraph(dir, (store) =>
+          runWithMode(
+            resolved.mode,
+            async (_m, s) => {
+              const backend = backendOf(a, s);
+              const d = modeDecideOptions(s, undefined, (await calibrated(dir, backend)).decide?.calibrators);
+              return decide(a.question, a.options, a.context, { store, root: dir, backend, ...(d ? { decide: d } : {}) });
+            },
+            (r) => r.band,
+          ),
+        );
+        const report = modeReport(resolved, run);
+        const r = run.result;
+        if (a.format !== 'json') return text(withModeText(renderDecide(r), report));
         const { record, ...rest } = r;
-        return json({ ...rest, id: record.id });
+        return json(withModeJson({ ...rest, id: record.id }, report));
       }),
   );
 

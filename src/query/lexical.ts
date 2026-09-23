@@ -40,8 +40,32 @@ export function termsMatch(a: string, b: string): boolean {
   return cp >= Math.max(4, n - 1) || (cp === n && n >= 3 && Math.max(a.length, b.length) - n <= 3);
 }
 
-function anyMatch(term: string, words: Iterable<string>): boolean {
-  for (const w of words) if (termsMatch(term, w)) return true;
+/** Crude English stem: sessions -> session, retries -> retry, charged -> charg. */
+function stem(w: string): string {
+  if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`;
+  for (const suffix of ['ing', 'ed', 'es', 's']) {
+    if (w.length - suffix.length >= 3 && w.endsWith(suffix)) return w.slice(0, -suffix.length);
+  }
+  return w;
+}
+
+/**
+ * Stricter than termsMatch, for context nobody asked for: the same word up to
+ * a plural or tense ending ("sessions" ~ "session", "retries" ~ "retry"), but
+ * not a shared prefix ("chart" is not "charge").
+ */
+export function strictTermsMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) < 3) return false;
+  const sa = stem(a);
+  const sb = stem(b);
+  return sa === sb || sa === b || a === sb;
+}
+
+type Matcher = (a: string, b: string) => boolean;
+
+function anyMatch(term: string, words: Iterable<string>, match: Matcher): boolean {
+  for (const w of words) if (match(term, w)) return true;
   return false;
 }
 
@@ -57,20 +81,20 @@ export interface LexicalInput {
  * path, then the body, plus a boost when a stored tag says yes to a related
  * question or names a matching area. No model calls.
  */
-export function lexicalScore(terms: readonly string[], input: LexicalInput): number {
+export function lexicalScore(terms: readonly string[], input: LexicalInput, match: Matcher = termsMatch): number {
   if (terms.length === 0) return 0;
   const name = new Set(tokenize(input.node.name));
   const path = new Set(tokenize(input.node.file));
   const body = input.text ? new Set(tokenize(input.text)) : new Set<string>();
   let score = 0;
   for (const t of terms) {
-    if (anyMatch(t, name)) score += 3;
-    else if (anyMatch(t, path)) score += 2;
-    if (anyMatch(t, body)) score += 1;
+    if (anyMatch(t, name, match)) score += 3;
+    else if (anyMatch(t, path, match)) score += 2;
+    if (anyMatch(t, body, match)) score += 1;
     for (const tag of input.tags ?? []) {
-      if (tag.questionId === 'area' && termsMatch(t, tag.answer)) score += 2 * tag.p;
+      if (tag.questionId === 'area' && match(t, tag.answer)) score += 2 * tag.p;
       const words = TAG_WORDS[tag.questionId];
-      if (words && tag.answer === 'true' && words.some((w) => termsMatch(t, w))) score += 2 * tag.p;
+      if (words && tag.answer === 'true' && words.some((w) => match(t, w))) score += 2 * tag.p;
     }
   }
   return Math.round(score * 1000) / 1000;

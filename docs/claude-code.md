@@ -37,6 +37,7 @@ Claude Code asks for these when you enable the plugin. You can change them later
 |---|---|---|
 | `backend` | `auto` | `auto` uses the Claude Code CLI (`claude -p`), so no key is needed. `anthropic` and `openai-compat` are optional API backends for CI or headless use. |
 | `model` | empty | Model id for the chosen backend. Empty means the default (`haiku` for `claude-cli`). |
+| `mode` | `balanced` | Default mode for `ask`, `where`, `triage` and `decide`: `fast`, `balanced`, `explained`, `strict` or `auto` (see the README's Modes section). `GLASSBOX_MODE` and `.glassbox/config.json` override it. |
 | `enable_hooks` | off | Turns on the hooks described below. |
 | `anthropic_api_key` | empty | Only for the `anthropic` backend. Stored in your system keychain, not in settings files. |
 | `openai_api_key` | empty | Only for the `openai-compat` backend. Stored in your system keychain. |

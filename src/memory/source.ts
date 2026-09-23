@@ -40,7 +40,9 @@ export interface IndexResult {
 /** Walks and parses the repo, then writes the graph into the store (incremental by content hash). */
 export async function indexRepo(root: string, store: GraphStore, opts: BuildOptions = {}): Promise<IndexResult> {
   const graph = await buildGraph(root, opts);
-  return { graph, sync: store.sync(graph) };
+  const sync = store.sync(graph);
+  store.markIndexed();
+  return { graph, sync };
 }
 
 /** "handles_auth=yes 0.93" style label for one tag. Score levels use `levels` names when given. */

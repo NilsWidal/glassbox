@@ -1,12 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { assertNotSymlinkSync, ensureStoreDirSync } from '../util/safefs.js';
 import type { EdgeKind, GraphEdge, GraphNode, NodeKind, Tag } from '../types.js';
 
 export const STORE_DIR = '.glassbox';
 export const STORE_FILE = 'graph.db';
+/** Sidecar with the time of the last full parse, next to graph.db. */
+export const META_FILE = 'graph.meta.json';
 /** Stored in PRAGMA user_version. Bump it when SCHEMA changes; older stores are then rebuilt. */
 export const SCHEMA_VERSION = 1;
 /** Oldest Node release with node:sqlite available without a flag. */
@@ -20,10 +22,20 @@ type SqliteModule = typeof import('node:sqlite');
  */
 export function loadSqlite(get: (id: string) => unknown = builtin): SqliteModule {
   let mod: unknown;
+  // Node prints "SQLite is an experimental feature" on first load; glassbox
+  // output (and the terminal `glassbox run` hands to the agent) stays clean.
+  const emit = process.emitWarning;
+  process.emitWarning = function (this: unknown, warning: string | Error, ...rest: unknown[]) {
+    const text = typeof warning === 'string' ? warning : warning?.message;
+    if (typeof text === 'string' && text.includes('SQLite is an experimental feature')) return;
+    return (emit as (...a: unknown[]) => void).call(process, warning, ...rest);
+  } as typeof process.emitWarning;
   try {
     mod = get('node:sqlite');
   } catch {
     mod = undefined;
+  } finally {
+    process.emitWarning = emit;
   }
   if (!mod || typeof (mod as Partial<SqliteModule>).DatabaseSync !== 'function') {
     throw new Error(
@@ -176,14 +188,64 @@ export class GraphStore {
   /** Set by open() when an existing store was not trusted and was rebuilt empty: the reason. */
   rebuilt?: string;
 
-  /** `path` may be ':memory:'. Use GraphStore.open(repoRoot) for the standard location. */
-  constructor(readonly path: string) {
+  /**
+   * `path` may be ':memory:'. Use GraphStore.open(repoRoot) for the standard
+   * location. readOnly opens an existing store without creating or changing
+   * anything (the hot-path readers use it) and throws when its schema version
+   * is not this one.
+   */
+  constructor(
+    readonly path: string,
+    opts: { readOnly?: boolean } = {},
+  ) {
     const { DatabaseSync } = loadSqlite();
-    this.db = new DatabaseSync(path);
+    this.db = new DatabaseSync(path, opts.readOnly ? { readOnly: true } : {});
+    // Hooks, the MCP server and the background worker may use the store at once.
+    this.db.exec('PRAGMA busy_timeout = 2000;');
+    const version = () => Number((this.db.prepare('PRAGMA user_version').get() as Row).user_version);
+    if (opts.readOnly) {
+      if (version() !== SCHEMA_VERSION) {
+        this.db.close();
+        throw new Error(`${path} has schema version ${version()}, expected ${SCHEMA_VERSION}`);
+      }
+      return;
+    }
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
     this.db.exec(SCHEMA);
-    const version = Number((this.db.prepare('PRAGMA user_version').get() as Row).user_version);
-    if (version === 0) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    if (version() === 0) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+
+  /**
+   * Opens <repoRoot>/.glassbox/graph.db read-only for a fast lookup, or returns
+   * undefined when there is none. Unlike open(), it never checks git, deletes
+   * or rebuilds anything, so callers must treat what it returns as untrusted
+   * text (a cloned repo may ship its own store).
+   */
+  static openForRead(repoRoot: string): GraphStore | undefined {
+    const dir = join(repoRoot, STORE_DIR);
+    const file = join(dir, STORE_FILE);
+    if (!existsSync(file)) return undefined;
+    for (const f of [dir, file, `${file}-wal`, `${file}-shm`]) assertNotSymlinkSync(f);
+    return new GraphStore(file, { readOnly: true });
+  }
+
+  /** Records that a full parse just finished (see indexedAt). No-op for an in-memory store. */
+  markIndexed(at = Date.now()): void {
+    if (this.path === ':memory:') return;
+    const file = join(dirname(this.path), META_FILE);
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+      assertNotSymlinkSync(file);
+      writeFileSync(tmp, `${JSON.stringify({ indexedAt: at })}\n`, { flag: 'w' });
+      renameSync(tmp, file);
+    } catch {
+      rmSync(tmp, { force: true });
+    }
+  }
+
+  /** Epoch ms of the last full parse, or undefined when unknown. */
+  indexedAt(): number | undefined {
+    return readIndexedAt(dirname(this.path));
   }
 
   /**
@@ -461,6 +523,18 @@ export class GraphStore {
   deleteTags(nodeId: string, questionId?: string): void {
     if (questionId === undefined) this.db.prepare('DELETE FROM tags WHERE node_id = ?').run(nodeId);
     else this.db.prepare('DELETE FROM tags WHERE node_id = ? AND question_id = ?').run(nodeId, questionId);
+  }
+}
+
+/** Epoch ms of the last full parse recorded in <storeDir>/graph.meta.json, or undefined. */
+export function readIndexedAt(storeDir: string): number | undefined {
+  try {
+    const file = join(storeDir, META_FILE);
+    assertNotSymlinkSync(file);
+    const v = (JSON.parse(readFileSync(file, 'utf8')) as { indexedAt?: unknown }).indexedAt;
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  } catch {
+    return undefined;
   }
 }
 

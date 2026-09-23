@@ -35,6 +35,9 @@ Configuration:
 | `GLASSBOX_ROOT` | Repo the MCP server works on (default: the project directory, else the current directory) |
 | `GLASSBOX_ALLOWED_ROOTS` | Extra directories (separated by `:`, or `;` on Windows) that an MCP tool call's `root` may point at. By default a tool call can only use the project directory and folders inside it |
 | `GLASSBOX_HOOKS` | `1` turns the Claude Code plugin hooks on, `0` off |
+| `GLASSBOX_MODE` | `fast`, `balanced` (default), `explained`, `strict` or `auto`; see [Modes](#modes) |
+| `GLASSBOX_AMBIENT`, `GLASSBOX_GATE`, `GLASSBOX_WORKER` | `1` or `0`: turn the ambient context hook, the end-of-turn gate and the background re-tagging worker on or off (see [Ambient mode](#ambient-mode)) |
+| `GLASSBOX_WORKER_DAILY_CALLS`, `GLASSBOX_WORKER_MIN_INTERVAL_SEC`, `GLASSBOX_WORKER_MAX_NODES` | Worker limits: model runs per day (default 100), seconds between runs (default 60), nodes re-tagged per run (default 24) |
 | `GLASSBOX_SAMPLES` | Samples averaged per call on the CLI and Anthropic backends (1 to 16, default 3) |
 | `GLASSBOX_TIMEOUT_MS` | Timeout per model call in milliseconds (default 120000) |
 | `GLASSBOX_CODEX_EFFORT` | Reasoning effort for `codex-cli` (default `low`, since these are quick judgments) |
@@ -90,7 +93,50 @@ This builds the code graph and its tags in `.glassbox/` (which gets its own `.gi
 | `graph` | Shows a node's stored tags and neighbours. |
 | `refresh` | Marks edited files stale, or re-parses changed files. |
 
-The same commands exist on the CLI (`glassbox ask`, `glassbox where`, ...), and `glassbox mcp` starts the server on stdio for any MCP client.
+The same commands exist on the CLI (`glassbox ask`, `glassbox where`, ...), and `glassbox mcp` starts the server on stdio for any MCP client. `ask`, `where`, `triage` and `decide` take a `mode` (MCP) or `--mode` (CLI).
+
+## Modes
+
+A mode sets how much work one call does:
+
+| Mode | What it does |
+|---|---|
+| `fast` | 1 sample, 1 option order, no evidence, no generated why. The cheapest call. |
+| `balanced` | The defaults above (2 option orders, the backend's samples, evidence only when asked). Used when nothing sets a mode. |
+| `explained` | `balanced` plus the hide-and-re-ask evidence and the one-line why. |
+| `strict` | 5 samples, 3 option orders, evidence, and higher bands (`act` at 0.9, `confirm` at 0.7). |
+| `auto` | Runs `fast`; when the answer's band is not `act`, asks again in `explained`. The output says when that happened. |
+
+The first one set wins: the call itself (`mode` in MCP, `--mode` on the CLI), `GLASSBOX_MODE`, `"mode"` in `.glassbox/config.json`, the plugin's `mode` option, else `balanced`. Explicit flags such as `--samples` or `--permutations` still win over the mode's values.
+
+## Ambient mode
+
+These parts run next to the agent instead of being called by it. All of them are off by default, and none adds a model call to the prompt path.
+
+- **`glassbox context --prompt "<text>"`** (or `-` for stdin) prints graph matches for a prompt: `file:line`, node name, stored tags and direct callers, at most about 1,500 characters. It uses only the stored graph: a rule-based check first skips prompts that are not about code, and nothing is printed when there is no graph, when no node clears the match floor, or when most matching files changed after the last parse. On the sample repo it takes about 10 ms in process, and about 50 ms as a separate `node` process.
+- **`glassbox hook prompt|stop|post-edit|session-start`** are the entry points for agent hooks. Each reads the hook's JSON on stdin, always exits 0, and prints nothing on any error, inside a nested glassbox call (`GLASSBOX_NESTED=1`) or in a repo without `.glassbox/`. `prompt` prints the context as `additionalContext` (on with `GLASSBOX_AMBIENT=1` or `"ambient": {"enabled": true}` in `.glassbox/config.json`). `stop` rates the working diff with `triage` in `fast` mode when it changed since the last check, and blocks the end of the turn once if a hunk scores High risk in the `act` band (on with `GLASSBOX_GATE=1` or `"gate": {"enabled": true}`). `post-edit` and `session-start` keep the graph fresh, as the v0.1 hooks did (`GLASSBOX_HOOKS=1`). Wiring these into the plugin's hook config comes in a later release.
+- **Background re-tagging.** After an edit marks nodes stale, a detached worker (`glassbox worker run`) re-parses the changed files and re-tags stale nodes in `fast` mode. It holds a lock file so only one runs, waits at least 60 s between runs, re-tags at most 24 nodes per run, and stops at a daily budget of 100 model runs. Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
+- **`glassbox status`** shows the graph (nodes, stale nodes, tagged share, last parse), the mode and where it came from, which hooks are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
+
+`.glassbox/config.json` is local to your checkout (the folder is git-ignored). Every field is optional:
+
+```json
+{
+  "mode": "auto",
+  "ambient": { "enabled": true, "maxChars": 1500, "minScore": 3, "maxHits": 6 },
+  "gate": { "enabled": true, "mode": "fast", "timeoutMs": 45000 },
+  "worker": { "enabled": true, "dailyCalls": 100, "minIntervalSec": 60, "maxNodesPerRun": 24 }
+}
+```
+
+## Launcher
+
+```sh
+glassbox run claude [claude args...]
+glassbox run --mode auto codex exec "fix the failing test"
+```
+
+`glassbox run` re-parses the graph and rewrites the AGENTS.md block when a file changed since the last parse (no model calls), may start the background worker, sets `GLASSBOX_HOST` (and `GLASSBOX_MODE` when a mode is set), then runs the agent with its arguments passed through untouched, as an argument list without a shell, and returns its exit code. Put glassbox's own options (`--mode`, `--no-refresh`, `--root`) before the agent name; everything after it goes to the agent. `GLASSBOX_CLAUDE_BIN` and `GLASSBOX_CODEX_BIN` pick the binary.
 
 ## How the numbers are made
 

@@ -26,6 +26,13 @@
       "description": "Model id for the chosen backend. Leave empty for the default (haiku for claude-cli).",
       "default": ""
     },
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "How much work each glassbox call does. fast: 1 sample, 1 option order, no evidence. balanced (default): the standard checks. explained: adds evidence and a one-line why. strict: more samples and higher bands. auto: fast first, then explained when the answer is not in the act band. GLASSBOX_MODE and .glassbox/config.json override it.",
+      "options": ["fast", "balanced", "explained", "strict", "auto"],
+      "default": "balanced"
+    },
     "enable_hooks": {
       "type": "boolean",
       "title": "Enable hooks",

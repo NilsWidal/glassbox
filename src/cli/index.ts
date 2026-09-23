@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
+import { Argument, Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import { ask, makeQuestion, type AskOptions } from '../ask.js';
 import { createBackend, type BackendConfig } from '../backends/index.js';
 import { isBackendName } from '../config.js';
@@ -23,8 +23,22 @@ import { renderDecide, renderExplained, renderGraph, renderTriage, renderWhere }
 import { triage } from '../query/triage.js';
 import { where } from '../query/where.js';
 import { syncAgentsMd } from '../agents-md/sync.js';
+import {
+  MODES,
+  modeDecideOptions,
+  modeReport,
+  resolveMode,
+  runWithMode,
+  whereBand,
+  withModeJson,
+  withModeText,
+  type ModeSettings,
+  type ResolvedMode,
+} from '../modes.js';
 import type { AskScope } from '../scope.js';
 import type { Backend, Calibrator, QuestionType } from '../types.js';
+import type { DetachedSpawner } from '../worker/index.js';
+import type { ForegroundSpawner } from '../launcher.js';
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -35,7 +49,14 @@ export interface CliIo {
   cwd: string;
   /** Test hook: extra backend config merged into the one built from flags. */
   backendConfig?: BackendConfig;
+  /** Test hooks: how the worker and `glassbox run` start processes, and the clock. */
+  spawnDetached?: DetachedSpawner;
+  spawnForeground?: ForegroundSpawner;
+  now?: () => number;
 }
+
+/** This file, which `node <entry> worker run` starts again as the background worker. */
+export const CLI_ENTRY = fileURLToPath(import.meta.url);
 
 function version(): string {
   return packageVersion();
@@ -94,6 +115,7 @@ interface AskFlags {
   root?: string;
   log: boolean;
   json?: boolean;
+  mode?: string;
 }
 
 async function runAsk(words: string[], flags: AskFlags, io: CliIo): Promise<number> {
@@ -108,34 +130,51 @@ async function runAsk(words: string[], flags: AskFlags, io: CliIo): Promise<numb
     io.stderr(`glassbox: unknown backend "${flags.backend}"\n`);
     return 2;
   }
-  const backend = createBackend({
-    env: io.env,
-    ...(flags.backend ? { backend: flags.backend as BackendConfig['backend'] & string } : {}),
-    ...(flags.model ? { model: flags.model } : {}),
-    ...(flags.samples !== undefined ? { samples: flags.samples } : {}),
-    ...io.backendConfig,
-  });
-
-  const explain = flags.explain
-    ? {
-        ...(flags.budget !== undefined ? { budget: flags.budget } : {}),
-        ...(flags.topK !== undefined ? { topK: flags.topK } : {}),
-        ...(flags.minDelta !== undefined ? { minDelta: flags.minDelta } : {}),
-      }
-    : false;
-  const opts: AskOptions = {
-    backend,
-    root,
-    explain,
-    log: flags.log,
-    ...(flags.why !== undefined ? { why: flags.why } : {}),
-    ...(flags.reasons?.length ? { reasons: parseReasons(flags.reasons) } : {}),
-    ...permutations(flags, await loadCalibrators(root, backend)),
-    ...(flags.chunkLines !== undefined ? { chunkLines: flags.chunkLines } : {}),
-  };
-  const result = await ask(scope, makeQuestion(words.join(' '), flags.type, flags.options ?? []), opts);
-  io.stdout(`${flags.json ? renderJson(result) : renderPretty(result)}\n`);
+  const resolved = modeOf(flags, io, root);
+  const question = makeQuestion(words.join(' '), flags.type, flags.options ?? []);
+  const run = await runWithMode(
+    resolved.mode,
+    async (_m, s) => {
+      const backend = backendFrom(flags, io, s);
+      const explainOn = flags.explain ?? s.explain ?? false;
+      const explain = explainOn
+        ? {
+            ...(flags.budget !== undefined ? { budget: flags.budget } : {}),
+            ...(flags.topK !== undefined ? { topK: flags.topK } : {}),
+            ...(flags.minDelta !== undefined ? { minDelta: flags.minDelta } : {}),
+          }
+        : false;
+      const why = flags.why ?? s.why;
+      const decide = modeDecideOptions(s, flags.permutations, await loadCalibrators(root, backend));
+      const opts: AskOptions = {
+        backend,
+        root,
+        explain,
+        log: flags.log,
+        ...(why !== undefined ? { why } : {}),
+        ...(flags.reasons?.length ? { reasons: parseReasons(flags.reasons) } : {}),
+        ...(decide ? { decide } : {}),
+        ...(flags.chunkLines !== undefined ? { chunkLines: flags.chunkLines } : {}),
+      };
+      return ask(scope, question, opts);
+    },
+    (r) => r.answer.band,
+  );
+  const report = modeReport(resolved, run);
+  const result = run.result;
+  io.stdout(
+    `${flags.json ? JSON.stringify(withModeJson(JSON.parse(renderJson(result)) as object, report), null, 2) : withModeText(renderPretty(result), report)}\n`,
+  );
   return 0;
+}
+
+/** The mode for a command: --mode, then GLASSBOX_MODE, .glassbox/config.json, the plugin option. */
+function modeOf(flags: { mode?: string }, io: CliIo, root: string): ResolvedMode {
+  try {
+    return resolveMode({ explicit: flags.mode, env: io.env, root });
+  } catch (err) {
+    throw new UsageError(err instanceof Error ? err.message : String(err));
+  }
 }
 
 interface BackendFlags {
@@ -145,16 +184,18 @@ interface BackendFlags {
   permutations?: number;
   root?: string;
   json?: boolean;
+  mode?: string;
 }
 
-/** Builds the backend from flags; throws a usage error for an unknown name. */
-function backendFrom(flags: BackendFlags, io: CliIo): Backend {
+/** Builds the backend from flags (an explicit --samples wins over the mode's); throws a usage error for an unknown name. */
+function backendFrom(flags: BackendFlags, io: CliIo, mode: Readonly<ModeSettings> = {}): Backend {
   if (flags.backend !== undefined && !isBackendName(flags.backend)) throw new UsageError(`unknown backend "${flags.backend}"`);
+  const samples = flags.samples ?? mode.samples;
   return createBackend({
     env: io.env,
     ...(flags.backend ? { backend: flags.backend as BackendConfig['backend'] & string } : {}),
     ...(flags.model ? { model: flags.model } : {}),
-    ...(flags.samples !== undefined ? { samples: flags.samples } : {}),
+    ...(samples !== undefined ? { samples } : {}),
     ...io.backendConfig,
   });
 }
@@ -258,6 +299,12 @@ function findNode(store: GraphStore, ref: string) {
   return { node: matches.length === 1 ? matches[0] : undefined, matches };
 }
 
+const MODE_HELP = `${MODES.join(' | ')} (default GLASSBOX_MODE, .glassbox/config.json, else balanced)`;
+
+function addModeOption(cmd: Command): Command {
+  return cmd.addOption(new Option('--mode <mode>', MODE_HELP).choices([...MODES]));
+}
+
 function addBackendOptions(cmd: Command): Command {
   return cmd
     .option('-b, --backend <name>', 'auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)')
@@ -269,6 +316,7 @@ function addBackendOptions(cmd: Command): Command {
 export function buildProgram(io: CliIo, setCode: (code: number) => void): Command {
   const program = new Command('glassbox')
     .description("Fast typed decisions about code, with reasons. Runs on the host agent's own model.")
+    .enablePositionalOptions()
     .version(version(), '-v, --version')
     .exitOverride()
     .configureOutput({ writeOut: io.stdout, writeErr: io.stderr });
@@ -294,6 +342,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     .option('--samples <k>', 'samples averaged per call on sampling backends', int('samples', 1))
     .option('--permutations <n>', 'option orders averaged per question (default 2)', int('permutations', 1))
     .option('--chunk-lines <n>', 'longest span in lines (default 8)', int('chunk-lines', 1))
+    .addOption(new Option('--mode <mode>', MODE_HELP).choices([...MODES]))
     .option('--root <dir>', 'repo root (default: the current directory)')
     .option('--no-log', 'do not append to .glassbox/decisions.jsonl')
     .option('--json', 'print JSON instead of the readable format')
@@ -328,11 +377,13 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
   indexCmd('init', 'index the code graph, tag it, and write the AGENTS.md block (plus the CLAUDE.md import)', true);
   indexCmd('index', 'index the code graph and tag changed nodes (cached by content hash)', false);
 
-  addBackendOptions(
-    program
-      .command('where')
-      .description('rank the code most likely to implement a concept, e.g. "billing retries"')
-      .argument('<concept...>', 'what to look for'),
+  addModeOption(
+    addBackendOptions(
+      program
+        .command('where')
+        .description('rank the code most likely to implement a concept, e.g. "billing retries"')
+        .argument('<concept...>', 'what to look for'),
+    ),
   )
     .option('--top <n>', 'hits to show (default 5)', int('top', 1))
     .option('--candidates <n>', 'prefiltered nodes the model checks (default 8)', int('candidates', 1))
@@ -340,21 +391,31 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     .option('--json', 'print JSON')
     .action(async (words: string[], flags: BackendFlags & { top?: number; candidates?: number }) => {
       const root = rootOf(flags, io);
-      const backend = backendFrom(flags, io);
+      const resolved = modeOf(flags, io, root);
+      backendFrom(flags, io);
       await withStore(await openIndexed(root, io, flags.json), async (store) => {
-        const r = await where(words.join(' '), {
-          store,
-          root,
-          backend,
-          ...(flags.top !== undefined ? { top: flags.top } : {}),
-          ...(flags.candidates !== undefined ? { candidates: flags.candidates } : {}),
-          ...permutations(flags, await loadCalibrators(root, backend)),
-        });
-        io.stdout(`${flags.json ? JSON.stringify(r, null, 2) : renderWhere(r)}\n`);
+        const run = await runWithMode(
+          resolved.mode,
+          async (_m, s) => {
+            const backend = backendFrom(flags, io, s);
+            const decide = modeDecideOptions(s, flags.permutations, await loadCalibrators(root, backend));
+            return where(words.join(' '), {
+              store,
+              root,
+              backend,
+              ...(flags.top !== undefined ? { top: flags.top } : {}),
+              ...(flags.candidates !== undefined ? { candidates: flags.candidates } : {}),
+              ...(decide ? { decide } : {}),
+            });
+          },
+          (r) => whereBand(r.hits[0]?.p),
+        );
+        const report = modeReport(resolved, run);
+        io.stdout(`${flags.json ? JSON.stringify(withModeJson(run.result, report), null, 2) : withModeText(renderWhere(run.result), report)}\n`);
       });
     });
 
-  addBackendOptions(program.command('triage').description('score the risk of a diff per hunk and show the callers it affects'))
+  addModeOption(addBackendOptions(program.command('triage').description('score the risk of a diff per hunk and show the callers it affects')))
     .option('-d, --diff <file>', 'unified diff file ("-" reads stdin; default: git diff HEAD)')
     .option('--no-explain', 'skip the hide-and-re-ask evidence')
     .option('--budget <calls>', 'most backend calls the evidence may spend (default 12)', int('budget', 0))
@@ -362,36 +423,56 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     .option('--root <dir>', 'repo root (default: the current directory)')
     .option('--no-log', 'do not append to .glassbox/decisions.jsonl')
     .option('--json', 'print JSON')
-    .action(async (flags: BackendFlags & { diff?: string; explain: boolean; budget?: number; chunkLines?: number; log: boolean }) => {
-      const root = rootOf(flags, io);
-      const diff = await readDiff(flags, io, root);
-      if (!diff.trim()) {
-        io.stdout('no changes to triage\n');
-        return;
-      }
-      const backend = backendFrom(flags, io);
-      await withStore(await openIndexed(root, io, flags.json), async (store) => {
-        const r = await triage(diff, {
-          store,
-          root,
-          backend,
-          explain: flags.explain ? (flags.budget !== undefined ? { budget: flags.budget } : true) : false,
-          log: flags.log,
-          ...(flags.chunkLines !== undefined ? { chunkLines: flags.chunkLines } : {}),
-          ...permutations(flags, await loadCalibrators(root, backend)),
+    .action(
+      async (flags: BackendFlags & { diff?: string; explain: boolean; budget?: number; chunkLines?: number; log: boolean }, cmd: Command) => {
+        const root = rootOf(flags, io);
+        const resolved = modeOf(flags, io, root);
+        const diff = await readDiff(flags, io, root);
+        if (!diff.trim()) {
+          io.stdout('no changes to triage\n');
+          return;
+        }
+        backendFrom(flags, io);
+        // --no-explain given on the command line wins over the mode; otherwise the mode decides (default on).
+        const explicitExplain = cmd.getOptionValueSource('explain') === 'cli' ? flags.explain : undefined;
+        await withStore(await openIndexed(root, io, flags.json), async (store) => {
+          const run = await runWithMode(
+            resolved.mode,
+            async (_m, s) => {
+              const backend = backendFrom(flags, io, s);
+              const explainOn = explicitExplain ?? s.explain ?? true;
+              const decide = modeDecideOptions(s, flags.permutations, await loadCalibrators(root, backend));
+              return triage(diff, {
+                store,
+                root,
+                backend,
+                explain: explainOn ? (flags.budget !== undefined ? { budget: flags.budget } : true) : false,
+                log: flags.log,
+                ...(flags.chunkLines !== undefined ? { chunkLines: flags.chunkLines } : {}),
+                ...(decide ? { decide } : {}),
+              });
+            },
+            (r) => r.overall.band,
+          );
+          const r = run.result;
+          const report = modeReport(resolved, run);
+          if (flags.json) {
+            const { record, hunks, ...rest } = r;
+            io.stdout(
+              `${JSON.stringify(withModeJson({ ...rest, id: record.id, hunks: hunks.map(({ answer: _a, ...h }) => h) }, report), null, 2)}\n`,
+            );
+          } else io.stdout(`${withModeText(renderTriage(r), report)}\n`);
         });
-        if (flags.json) {
-          const { record, hunks, ...rest } = r;
-          io.stdout(`${JSON.stringify({ ...rest, id: record.id, hunks: hunks.map(({ answer: _a, ...h }) => h) }, null, 2)}\n`);
-        } else io.stdout(`${renderTriage(r)}\n`);
-      });
-    });
+      },
+    );
 
-  addBackendOptions(
-    program
-      .command('decide')
-      .description('advise on your own "A or B?" question with probabilities, using graph tags as context')
-      .argument('<question...>', 'the question, e.g. "where should the retry limit live?"'),
+  addModeOption(
+    addBackendOptions(
+      program
+        .command('decide')
+        .description('advise on your own "A or B?" question with probabilities, using graph tags as context')
+        .argument('<question...>', 'the question, e.g. "where should the retry limit live?"'),
+    ),
   )
     .requiredOption('-o, --options <items>', 'the options: key or key=description (repeatable or comma-separated)', collect)
     .option('-c, --context <text>', 'extra context for the question')
@@ -400,19 +481,30 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
     .option('--json', 'print JSON')
     .action(async (words: string[], flags: BackendFlags & { options: string[]; context?: string; log: boolean }) => {
       const root = rootOf(flags, io);
-      const backend = backendFrom(flags, io);
+      const resolved = modeOf(flags, io, root);
+      backendFrom(flags, io);
       await withStore(await openIndexed(root, io, flags.json), async (store) => {
-        const r = await decideWithGraph(words.join(' '), flags.options, flags.context, {
-          store,
-          root,
-          backend,
-          log: flags.log,
-          ...permutations(flags, await loadCalibrators(root, backend)),
-        });
+        const run = await runWithMode(
+          resolved.mode,
+          async (_m, s) => {
+            const backend = backendFrom(flags, io, s);
+            const decide = modeDecideOptions(s, flags.permutations, await loadCalibrators(root, backend));
+            return decideWithGraph(words.join(' '), flags.options, flags.context, {
+              store,
+              root,
+              backend,
+              log: flags.log,
+              ...(decide ? { decide } : {}),
+            });
+          },
+          (r) => r.band,
+        );
+        const r = run.result;
+        const report = modeReport(resolved, run);
         if (flags.json) {
           const { record, ...rest } = r;
-          io.stdout(`${JSON.stringify({ ...rest, id: record.id }, null, 2)}\n`);
-        } else io.stdout(`${renderDecide(r)}\n`);
+          io.stdout(`${JSON.stringify(withModeJson({ ...rest, id: record.id }, report), null, 2)}\n`);
+        } else io.stdout(`${withModeText(renderDecide(r), report)}\n`);
       });
     });
 
@@ -587,7 +679,156 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
       );
     });
 
+  program
+    .command('context')
+    .description('graph-only context for a prompt: matching file:line with tags and callers (no model call)')
+    .option('--prompt <text>', 'the prompt ("-" reads stdin)', '-')
+    .option('--max-chars <n>', 'most characters of output (default 1500)', int('max-chars', 100))
+    .option('--min-score <n>', 'lowest match score shown (default 3)', Number)
+    .option('--root <dir>', 'repo root (default: the current directory)')
+    .option('--json', 'print JSON')
+    .action(async (flags: { prompt: string; maxChars?: number; minScore?: number; root?: string; json?: boolean }) => {
+      const { ambientContext } = await import('../ambient/context.js');
+      const prompt = flags.prompt === '-' ? await io.readStdin() : flags.prompt;
+      const r = ambientContext({
+        root: rootOf(flags, io),
+        prompt,
+        ...(flags.maxChars !== undefined ? { maxChars: flags.maxChars } : {}),
+        ...(flags.minScore !== undefined && Number.isFinite(flags.minScore) ? { minScore: flags.minScore } : {}),
+      });
+      if (flags.json) io.stdout(`${JSON.stringify(r, null, 2)}\n`);
+      else if (r.text) io.stdout(`${r.text}\n`);
+    });
+
+  program
+    .command('status')
+    .description('show the graph, mode, hook switches and the background worker (calls today, budget, last run)')
+    .option('--root <dir>', 'repo root (default: the current directory)')
+    .option('--json', 'print JSON')
+    .action(async (flags: { root?: string; json?: boolean }) => {
+      const { status, renderStatus } = await import('../status.js');
+      const now = io.now?.() ?? Date.now();
+      const r = await status(rootOf(flags, io), io.env, now);
+      io.stdout(`${flags.json ? JSON.stringify(r, null, 2) : renderStatus(r, now)}\n`);
+    });
+
+  const worker = program.command('worker').description('the background re-tagging worker');
+  addBackendOptions(worker.command('run').description('re-parse changed files and re-tag stale nodes in fast mode, within the daily budget'))
+    .option('--force', 'ignore the minimum interval between runs (the daily budget still applies)')
+    .option('--root <dir>', 'repo root (default: the current directory)')
+    .option('-q, --quiet', 'print nothing')
+    .option('--json', 'print JSON')
+    .action(async (flags: BackendFlags & { force?: boolean; quiet?: boolean }) => {
+      const { runWorker } = await import('../worker/index.js');
+      const { withPluginOptions } = await import('../mcp/env.js');
+      const env = withPluginOptions(io.env);
+      const now = io.now;
+      const r = await runWorker(rootOf(flags, io), {
+        env,
+        backend: () => backendFrom(flags, { ...io, env }, { samples: 1 }),
+        ...(now ? { now } : {}),
+        ...(flags.force ? { ignoreInterval: true } : {}),
+      });
+      if (flags.json) io.stdout(`${JSON.stringify(r, null, 2)}\n`);
+      else if (!flags.quiet) {
+        io.stdout(
+          r.ran && r.summary
+            ? `worker  ${r.summary.asked} nodes asked, ${r.summary.tags} tags, ${r.summary.modelRuns} model runs, ${r.summary.failed} failed` +
+                `${r.summary.deferred ? `, ${r.summary.deferred} left` : ''}; today ${r.state.callsToday} model runs\n`
+            : `worker  nothing done: ${r.reason ?? 'unknown'}\n`,
+        );
+      }
+    });
+
+  program
+    .command('hook')
+    .description('entry point for agent hooks: reads the hook JSON on stdin; always exits 0 and prints nothing on error')
+    .addArgument(new Argument('<event>', 'hook event').choices(['prompt', 'stop', 'post-edit', 'session-start']))
+    .addOption(new Option('--host <host>', 'the agent running the hook').choices(['claude-code', 'codex']))
+    .option('--root <dir>', 'repo root (default: CLAUDE_PROJECT_DIR, the hook input cwd, or the current directory)')
+    .action(async (event: string, flags: { host?: string; root?: string }) => {
+      setCode(0);
+      // GLASSBOX_NESTED: this is glassbox's own model call; do nothing before even reading stdin.
+      if (io.env.GLASSBOX_NESTED === '1') return;
+      try {
+        const hooks = await import('../hooks/index.js');
+        const text = await readStdinCapped(io, HOOK_STDIN_MS, hooks.MAX_HOOK_INPUT);
+        const input = hooks.parseHookInput(text);
+        const { withPluginOptions } = await import('../mcp/env.js');
+        const ctx: import('../hooks/index.js').HookContext = {
+          env: io.env,
+          cwd: io.cwd,
+          entry: CLI_ENTRY,
+          ...(flags.root ? { root: flags.root } : {}),
+          ...(flags.host ? { host: flags.host } : {}),
+          ...(io.spawnDetached ? { spawner: io.spawnDetached } : {}),
+          ...(io.now ? { now: io.now } : {}),
+          backend: ({ samples, env }) =>
+            createBackend({ env: withPluginOptions(env), ...(samples !== undefined ? { samples } : {}), ...io.backendConfig }),
+        };
+        let out = '';
+        if (event === 'prompt') out = hooks.promptHook(input, ctx);
+        else if (event === 'stop') out = await hooks.stopHook(input, ctx);
+        else if (event === 'post-edit') out = await hooks.postEditHook(input, ctx);
+        else out = await hooks.sessionStartHook(input, ctx);
+        if (out) io.stdout(`${out}\n`);
+      } catch {
+        // Fail open: the agent carries on as if the hook were not there.
+      }
+    });
+
+  program
+    .command('run')
+    .description('refresh the graph and AGENTS.md if files changed, then run claude or codex with its args passed through untouched')
+    .addArgument(new Argument('<agent>', 'the agent to run').choices(['claude', 'codex']))
+    .argument('[args...]', 'arguments for the agent (put glassbox options before the agent name)')
+    .addOption(new Option('--mode <mode>', `set GLASSBOX_MODE for the session: ${MODES.join(' | ')}`).choices([...MODES]))
+    .option('--no-refresh', 'do not refresh the graph or AGENTS.md first')
+    .option('--root <dir>', 'repo root (default: the current directory)')
+    .passThroughOptions()
+    .allowUnknownOption()
+    .helpOption(false)
+    .action(async (agent: string, args: string[], flags: { mode?: string; refresh: boolean; root?: string }) => {
+      const { launch, isAgent } = await import('../launcher.js');
+      if (!isAgent(agent)) throw new UsageError(`unknown agent "${agent}"`);
+      const root = rootOf(flags, io);
+      if (flags.mode === undefined) modeOf({}, io, root);
+      setCode(
+        await launch({
+          agent,
+          args,
+          root,
+          cwd: io.cwd,
+          env: io.env,
+          ...(flags.mode ? { mode: flags.mode } : {}),
+          refresh: flags.refresh,
+          entry: CLI_ENTRY,
+          log: (line) => io.stderr(`${line}\n`),
+          ...(io.spawnForeground ? { spawner: io.spawnForeground } : {}),
+          ...(io.spawnDetached ? { workerSpawner: io.spawnDetached } : {}),
+        }),
+      );
+    });
+
   return program;
+}
+
+const HOOK_STDIN_MS = 2000;
+
+/** Reads stdin, giving up (empty input) after `ms` or past `max` characters. */
+async function readStdinCapped(io: CliIo, ms: number, max: number): Promise<string> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const text = await Promise.race([
+      io.readStdin(),
+      new Promise<string>((done) => {
+        timer = setTimeout(() => done(''), ms);
+      }),
+    ]);
+    return text.length > max ? '' : text;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Runs the CLI and returns the exit code (never calls process.exit). */
@@ -624,8 +865,13 @@ function isEntry(): boolean {
 }
 
 if (isEntry()) {
-  main(process.argv.slice(2)).then(
-    (code) => (process.exitCode = code),
+  const argv = process.argv.slice(2);
+  main(argv).then(
+    (code) => {
+      process.exitCode = code;
+      // A hook run by hand on a terminal would otherwise wait for stdin to close.
+      if (argv[0] === 'hook') process.stdin.destroy();
+    },
     (err: unknown) => {
       process.stderr.write(`glassbox: ${err instanceof Error ? err.message : String(err)}\n`);
       process.exitCode = 1;

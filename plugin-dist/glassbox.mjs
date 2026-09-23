@@ -3535,9 +3535,9 @@ async function writeInside(root2, path, content) {
     (s) => s.mode & 4095,
     () => void 0
   );
-  const mode = existing ?? 420;
+  const mode2 = existing ?? 420;
   const tmp = join(dirname(path), `.${process.pid}.${Date.now()}.glassbox.tmp`);
-  const fh = await open(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
+  const fh = await open(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode2);
   try {
     await fh.writeFile(content, "utf8");
     if (existing !== void 0) await fh.chmod(existing);
@@ -4099,7 +4099,7 @@ var init_process = __esm({
       }
       stderr;
     };
-    runProcess = (cmd, args2, opts = {}) => new Promise((resolve5, reject) => {
+    runProcess = (cmd, args2, opts = {}) => new Promise((resolve6, reject) => {
       if (opts.signal?.aborted) return reject(opts.signal.reason ?? new Error("aborted"));
       const child = spawn(cmd, [...args2], {
         cwd: opts.cwd,
@@ -4131,7 +4131,7 @@ var init_process = __esm({
       child.on("error", (e) => finish(() => reject(e)));
       child.on(
         "close",
-        (code) => finish(() => resolve5({ code, stdout: Buffer.concat(out2).toString("utf8"), stderr: Buffer.concat(err2).toString("utf8") }))
+        (code) => finish(() => resolve6({ code, stdout: Buffer.concat(out2).toString("utf8"), stderr: Buffer.concat(err2).toString("utf8") }))
       );
       child.stdin.on("error", () => {
       });
@@ -4530,9 +4530,9 @@ var init_openai_compat = __esm({
     init_sampling();
     MAX_GROUP = 20;
     HttpError = class extends Error {
-      constructor(status, body2) {
-        super(`openai-compat: HTTP ${status}: ${body2.slice(0, 300)}`);
-        this.status = status;
+      constructor(status2, body2) {
+        super(`openai-compat: HTTP ${status2}: ${body2.slice(0, 300)}`);
+        this.status = status2;
         this.name = "HttpError";
       }
       status;
@@ -7063,8 +7063,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve5, reject) => {
-          readyPromiseResolve = resolve5;
+        var readyPromise = new Promise((resolve6, reject) => {
+          readyPromiseResolve = resolve6;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -7082,7 +7082,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleOverrides = Object.assign({}, Module);
         var arguments_ = [];
         var thisProgram = "./this.program";
-        var quit_ = /* @__PURE__ */ __name((status, toThrow) => {
+        var quit_ = /* @__PURE__ */ __name((status2, toThrow) => {
           throw toThrow;
         }, "quit_");
         var scriptDirectory = "";
@@ -7114,8 +7114,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             thisProgram = process.argv[1].replace(/\\/g, "/");
           }
           arguments_ = process.argv.slice(2);
-          quit_ = /* @__PURE__ */ __name((status, toThrow) => {
-            process.exitCode = status;
+          quit_ = /* @__PURE__ */ __name((status2, toThrow) => {
+            process.exitCode = status2;
             throw toThrow;
           }, "quit_");
         } else if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
@@ -7147,13 +7147,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve5, reject) => {
+                return new Promise((resolve6, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve5(xhr.response);
+                      resolve6(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -7377,10 +7377,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve5, reject) => {
+            return new Promise((resolve6, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve5(mod.exports);
+                resolve6(mod.exports);
               });
             });
           }
@@ -7401,9 +7401,9 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             __name(this, "ExitStatus");
           }
           name = "ExitStatus";
-          constructor(status) {
-            this.message = `Program terminated with exit(${status})`;
-            this.status = status;
+          constructor(status2) {
+            this.message = `Program terminated with exit(${status2})`;
+            this.status = status2;
           }
         }
         var GOT = {};
@@ -8375,9 +8375,9 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           quit_(code, new ExitStatus(code));
         }, "_proc_exit");
         _proc_exit.sig = "vi";
-        var exitJS = /* @__PURE__ */ __name((status, implicit) => {
-          EXITSTATUS = status;
-          _proc_exit(status);
+        var exitJS = /* @__PURE__ */ __name((status2, implicit) => {
+          EXITSTATUS = status2;
+          _proc_exit(status2);
         }, "exitJS");
         var handleException = /* @__PURE__ */ __name((e) => {
           if (e instanceof ExitStatus || e == "unwind") {
@@ -9915,11 +9915,11 @@ var require_ignore = __commonJS({
         }
         return this._make(MODE_CHECK_IGNORE, key);
       }
-      _make(mode, key) {
+      _make(mode2, key) {
         const str = pinWildcards(this.regexPrefix.replace(
           REGEX_REPLACE_TRAILING_WILDCARD,
           // It does not need to bind pattern
-          TRAILING_WILD_CARD_REPLACERS[mode]
+          TRAILING_WILD_CARD_REPLACERS[mode2]
         ));
         const regex = this.ignoreCase ? new RegExp(str, "i") : new RegExp(str);
         return define(this, key, regex);
@@ -9988,7 +9988,7 @@ var require_ignore = __commonJS({
       //   path matching.
       // - check `string` either `MODE_IGNORE` or `MODE_CHECK_IGNORE`
       // @returns {TestResult} true if a file is ignored
-      test(path, checkUnignored, mode) {
+      test(path, checkUnignored, mode2) {
         let ignored2 = false;
         let unignored = false;
         let matchedRule;
@@ -10000,7 +10000,7 @@ var require_ignore = __commonJS({
           const rule = rules[index];
           const { negative } = rule;
           const skip = unignored === negative && ignored2 !== unignored || negative && !ignored2 && !unignored && !checkUnignored;
-          if (!skip && rule[mode].test(
+          if (!skip && rule[mode2].test(
             shortcut && rule._basenameOnly ? basename2 : path
           )) {
             ignored2 = !negative;
@@ -10552,7 +10552,7 @@ async function occlude(chunks, question, option, backend, opts = {}) {
     }
   });
   const trials = results.filter((t) => t !== void 0);
-  const done = new Set(trials.map((t) => t.chunkId));
+  const done2 = new Set(trials.map((t) => t.chunkId));
   const minDelta = opts.minDelta ?? DEFAULT_MIN_DELTA;
   const byId = new Map(chunks.map((c) => [c.id, c]));
   const highlights = trials.filter((t) => Math.abs(t.deltaP) >= minDelta).sort((a, b) => Math.abs(b.deltaP) - Math.abs(a.deltaP)).slice(0, opts.maxHighlights ?? DEFAULT_MAX_HIGHLIGHTS).map((t) => {
@@ -10563,7 +10563,7 @@ async function occlude(chunks, question, option, backend, opts = {}) {
     highlights,
     trials,
     candidates: candidates.map((c) => c.id),
-    untested: candidates.filter((c) => !done.has(c.id)).map((c) => c.id),
+    untested: candidates.filter((c) => !done2.has(c.id)).map((c) => c.id),
     baselineP: full,
     calls
   };
@@ -10984,14 +10984,14 @@ function resolveEdges(extracts) {
   };
   for (const x of extracts) {
     const isPy = x.lang === "python";
-    const resolve5 = (spec) => isPy ? resolvePy(x.file, spec, files, pyFiles) : resolveTs(x.file, spec, files);
+    const resolve6 = (spec) => isPy ? resolvePy(x.file, spec, files, pyFiles) : resolveTs(x.file, spec, files);
     const bindings = /* @__PURE__ */ new Map();
     for (const imp of x.imports) {
-      const target = resolve5(imp.spec);
+      const target = resolve6(imp.spec);
       if (target) push(importEdges, { from: x.file, to: target, kind: "imports" });
       if (target && imp.namespace) bindings.set(imp.namespace, { file: target, namespace: true });
       for (const b of imp.names) {
-        const sub = isPy ? resolve5(imp.spec.endsWith(".") ? imp.spec + b.imported : `${imp.spec}.${b.imported}`) : null;
+        const sub = isPy ? resolve6(imp.spec.endsWith(".") ? imp.spec + b.imported : `${imp.spec}.${b.imported}`) : null;
         if (target && topLevel.get(target)?.has(b.imported)) {
           bindings.set(b.local, { file: target, imported: b.imported });
         } else if (sub) {
@@ -11705,10 +11705,10 @@ function uniqueTags(tags) {
   return [...new Set(tags.map((t) => token(t, 40)).filter((t) => t.length > 0))].sort();
 }
 function tagsSection(tags) {
-  const uniq = uniqueTags(tags);
-  if (uniq.length === 0) return ["### Tags", "none yet (run `glassbox index`)"];
-  const shown = uniq.slice(0, MAX_TAGS).map((t) => `\`${t}\``);
-  const extra = uniq.length - MAX_TAGS;
+  const uniq2 = uniqueTags(tags);
+  if (uniq2.length === 0) return ["### Tags", "none yet (run `glassbox index`)"];
+  const shown = uniq2.slice(0, MAX_TAGS).map((t) => `\`${t}\``);
+  const extra = uniq2.length - MAX_TAGS;
   return ["### Tags", shown.join(", ") + (extra > 0 ? ` ${more(extra)}` : "")];
 }
 function assemble(s, areaLimit, riskyLimit) {
@@ -11882,6 +11882,13 @@ var init_sync = __esm({
 });
 
 // src/util/git.ts
+var git_exports = {};
+__export(git_exports, {
+  dropBlockLines: () => dropBlockLines,
+  splitDiff: () => splitDiff,
+  withoutGlassboxChanges: () => withoutGlassboxChanges,
+  workingDiff: () => workingDiff
+});
 import { execFile } from "node:child_process";
 import { readFile as readFile9 } from "node:fs/promises";
 import { join as join13 } from "node:path";
@@ -12032,11 +12039,19 @@ var init_git = __esm({
 });
 
 // src/memory/source.ts
+var source_exports = {};
+__export(source_exports, {
+  SourceCache: () => SourceCache,
+  indexRepo: () => indexRepo,
+  tagLabel: () => tagLabel
+});
 import { readFile as readFile10 } from "node:fs/promises";
 import { join as join14 } from "node:path";
 async function indexRepo(root2, store, opts = {}) {
   const graph = await buildGraph(root2, opts);
-  return { graph, sync: store.sync(graph) };
+  const sync = store.sync(graph);
+  store.markIndexed();
+  return { graph, sync };
 }
 function tagLabel(tag, levels) {
   const answer = tag.answer === "true" ? "yes" : tag.answer === "false" ? "no" : levels?.[Number(tag.answer)] ?? tag.answer;
@@ -12078,6 +12093,22 @@ var init_source = __esm({
 });
 
 // src/memory/tags.ts
+var tags_exports = {};
+__export(tags_exports, {
+  DEFAULT_GROUP_SIZE: () => DEFAULT_GROUP_SIZE,
+  DEFAULT_NODE_LINES: () => DEFAULT_NODE_LINES,
+  DEFAULT_TAG_CONCURRENCY: () => DEFAULT_TAG_CONCURRENCY,
+  OTHER_AREA: () => OTHER_AREA,
+  RISK_LEVELS: () => RISK_LEVELS,
+  SMALL_FILE_LINES: () => SMALL_FILE_LINES,
+  areaOf: () => areaOf,
+  defaultTagQuestions: () => defaultTagQuestions,
+  inferAreas: () => inferAreas,
+  isTagTarget: () => isTagTarget,
+  nodeTagLabels: () => nodeTagLabels,
+  tagPass: () => tagPass,
+  tagsFresh: () => tagsFresh
+});
 function areaOf(file2) {
   for (const dir of file2.split("/").slice(0, -1)) {
     const d = dir.toLowerCase().replace(/[^a-z0-9_-]/g, "");
@@ -12161,7 +12192,7 @@ async function tagPass(root2, backend, opts) {
   const maxLines = opts.maxNodeLines ?? DEFAULT_NODE_LINES;
   const items = (await Promise.all(todo.map(async (node2) => ({ node: node2, text: await src.text(node2, maxLines) ?? "" })))).filter((x) => x.text.trim() !== "");
   const groups = group(items, Math.max(1, opts.groupSize ?? DEFAULT_GROUP_SIZE));
-  let done = 0;
+  let done2 = 0;
   let calls = 0;
   let written = 0;
   const failed = [];
@@ -12196,8 +12227,8 @@ ${x.text}`).join("\n\n");
     } catch (err2) {
       failed.push({ nodeIds: ids, error: err2 instanceof Error ? err2.message : String(err2) });
     }
-    done += g.length;
-    opts.onProgress?.({ done, total: items.length, nodeIds: ids, failed: !ok });
+    done2 += g.length;
+    opts.onProgress?.({ done: done2, total: items.length, nodeIds: ids, failed: !ok });
   });
   return {
     targets: targets.length,
@@ -12326,24 +12357,38 @@ function termsMatch(a, b) {
   while (cp < n && a[cp] === b[cp]) cp++;
   return cp >= Math.max(4, n - 1) || cp === n && n >= 3 && Math.max(a.length, b.length) - n <= 3;
 }
-function anyMatch(term, words) {
-  for (const w of words) if (termsMatch(term, w)) return true;
+function stem(w) {
+  if (w.length > 4 && w.endsWith("ies")) return `${w.slice(0, -3)}y`;
+  for (const suffix of ["ing", "ed", "es", "s"]) {
+    if (w.length - suffix.length >= 3 && w.endsWith(suffix)) return w.slice(0, -suffix.length);
+  }
+  return w;
+}
+function strictTermsMatch(a, b) {
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) < 3) return false;
+  const sa = stem(a);
+  const sb = stem(b);
+  return sa === sb || sa === b || a === sb;
+}
+function anyMatch(term, words, match) {
+  for (const w of words) if (match(term, w)) return true;
   return false;
 }
-function lexicalScore(terms, input2) {
+function lexicalScore(terms, input2, match = termsMatch) {
   if (terms.length === 0) return 0;
   const name2 = new Set(tokenize(input2.node.name));
   const path = new Set(tokenize(input2.node.file));
   const body2 = input2.text ? new Set(tokenize(input2.text)) : /* @__PURE__ */ new Set();
   let score = 0;
   for (const t of terms) {
-    if (anyMatch(t, name2)) score += 3;
-    else if (anyMatch(t, path)) score += 2;
-    if (anyMatch(t, body2)) score += 1;
+    if (anyMatch(t, name2, match)) score += 3;
+    else if (anyMatch(t, path, match)) score += 2;
+    if (anyMatch(t, body2, match)) score += 1;
     for (const tag of input2.tags ?? []) {
-      if (tag.questionId === "area" && termsMatch(t, tag.answer)) score += 2 * tag.p;
+      if (tag.questionId === "area" && match(t, tag.answer)) score += 2 * tag.p;
       const words = TAG_WORDS[tag.questionId];
-      if (words && tag.answer === "true" && words.some((w) => termsMatch(t, w))) score += 2 * tag.p;
+      if (words && tag.answer === "true" && words.some((w) => match(t, w))) score += 2 * tag.p;
     }
   }
   return Math.round(score * 1e3) / 1e3;
@@ -12564,6 +12609,11 @@ var init_decide2 = __esm({
 });
 
 // src/query/triage.ts
+var triage_exports = {};
+__export(triage_exports, {
+  DEFAULT_TRIAGE_BUDGET: () => DEFAULT_TRIAGE_BUDGET,
+  triage: () => triage
+});
 import { join as join16 } from "node:path";
 function riskQuestion(instructions) {
   return { type: "score", instructions, criteria: [...RISK_LEVELS] };
@@ -12915,8 +12965,8 @@ function renderGraph(v) {
   const n = v.node;
   const out2 = [`${n.id}  (${n.kind}, ${spanLabel(n.file, n.startLine, n.endLine)}${n.stale ? ", stale" : ""})`];
   out2.push("tags", ...v.tags.length ? v.tags.map((t) => `  ${t}`) : ["  none yet (run `glassbox index`)"]);
-  const edges = (title, list, pick2) => {
-    if (list.length) out2.push(title, ...list.map((e) => `  ${e.kind.padEnd(8)} ${pick2(e)}`));
+  const edges = (title, list, pick3) => {
+    if (list.length) out2.push(title, ...list.map((e) => `  ${e.kind.padEnd(8)} ${pick3(e)}`));
   };
   edges("out", v.out, (e) => e.to);
   edges("in", v.in, (e) => e.from);
@@ -12931,27 +12981,195 @@ var init_render3 = __esm({
   }
 });
 
+// src/project-config.ts
+import { readFileSync as readFileSync2, realpathSync as realpathSync2 } from "node:fs";
+import { dirname as dirname8, join as join18 } from "node:path";
+function isObj(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function pick(src, spec) {
+  if (!isObj(src)) return void 0;
+  const out2 = {};
+  for (const [key, type] of Object.entries(spec)) {
+    const v = src[key];
+    if (type === "number" ? typeof v === "number" && Number.isFinite(v) && v >= 0 : typeof v === type) out2[key] = v;
+  }
+  return Object.keys(out2).length ? out2 : void 0;
+}
+function parseProjectConfig(value) {
+  if (!isObj(value)) return {};
+  const out2 = {};
+  if (typeof value.mode === "string") out2.mode = value.mode;
+  const ambient = pick(value.ambient, {
+    enabled: "boolean",
+    maxChars: "number",
+    minScore: "number",
+    maxHits: "number"
+  });
+  if (ambient) out2.ambient = ambient;
+  const gate2 = pick(value.gate, { enabled: "boolean", mode: "string", timeoutMs: "number" });
+  if (gate2) out2.gate = gate2;
+  const worker = pick(value.worker, {
+    enabled: "boolean",
+    dailyCalls: "number",
+    minIntervalSec: "number",
+    maxNodesPerRun: "number"
+  });
+  if (worker) out2.worker = worker;
+  return out2;
+}
+function loadProjectConfig(root2) {
+  const file2 = join18(root2, STORE_DIR2, PROJECT_CONFIG_FILE);
+  let text2;
+  try {
+    assertNotSymlinkSync(join18(root2, STORE_DIR2));
+    assertNotSymlinkSync(file2);
+    text2 = readFileSync2(file2, "utf8");
+  } catch (err2) {
+    if (err2.code === "ENOENT") return {};
+    throw err2;
+  }
+  if (!within(realpathSync2(root2), realpathSync2(dirname8(file2)))) throw new Error(`refusing to read ${file2}: it resolves outside ${root2}`);
+  try {
+    return parseProjectConfig(JSON.parse(text2));
+  } catch {
+    throw new Error(`${file2} is not valid JSON`);
+  }
+}
+function loadProjectConfigSafe(root2) {
+  try {
+    return loadProjectConfig(root2);
+  } catch {
+    return {};
+  }
+}
+function envFlag(v) {
+  const t = v?.trim().toLowerCase();
+  if (!t) return void 0;
+  if (["1", "true", "yes", "on"].includes(t)) return true;
+  if (["0", "false", "no", "off"].includes(t)) return false;
+  return void 0;
+}
+function featureEnabled(env, names, project, fallback) {
+  return envFlag(env[names.env]) ?? project ?? envFlag(env[names.plugin]) ?? fallback;
+}
+var STORE_DIR2, PROJECT_CONFIG_FILE;
+var init_project_config = __esm({
+  "src/project-config.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_safefs();
+    STORE_DIR2 = ".glassbox";
+    PROJECT_CONFIG_FILE = "config.json";
+  }
+});
+
+// src/modes.ts
+function isMode(v) {
+  return typeof v === "string" && MODES.includes(v);
+}
+function checked(v, where2) {
+  const t = v.trim();
+  if (!isMode(t)) throw new Error(`unknown mode "${t}" in ${where2}; expected one of ${MODES.join(", ")}`);
+  return t;
+}
+function resolveMode(opts) {
+  if (opts.explicit?.trim()) return { mode: checked(opts.explicit, "the call"), source: "call" };
+  const env = opts.env.GLASSBOX_MODE;
+  if (env?.trim()) return { mode: checked(env, "GLASSBOX_MODE"), source: "env" };
+  if (opts.root) {
+    const project = loadProjectConfig(opts.root).mode;
+    if (project?.trim()) return { mode: checked(project, ".glassbox/config.json"), source: "project" };
+  }
+  const plugin = opts.env.CLAUDE_PLUGIN_OPTION_MODE;
+  if (plugin?.trim()) return { mode: checked(plugin, 'the plugin option "mode"'), source: "plugin" };
+  return { mode: "balanced", source: "default" };
+}
+async function runWithMode(mode2, run2, bandOf) {
+  if (mode2 !== "auto") return { result: await run2(mode2, MODE_SETTINGS[mode2]), used: mode2 };
+  const first = await run2("fast", MODE_SETTINGS.fast);
+  const band = bandOf(first);
+  if (band === void 0 || band === "act") return { result: first, used: "fast" };
+  return { result: await run2("explained", MODE_SETTINGS.explained), used: "explained", escalated: { from: "fast", band } };
+}
+function modeReport(resolved, run2) {
+  return { requested: resolved.mode, source: resolved.source, used: run2.used, ...run2.escalated ? { escalated: run2.escalated } : {} };
+}
+function renderModeLine(r) {
+  if (r.requested === "balanced") return "";
+  if (r.requested !== "auto") return `mode   ${r.used}`;
+  return r.escalated ? `mode   auto: ${r.escalated.from} gave band ${r.escalated.band}, asked again in ${r.used}` : `mode   auto: ${r.used} (band act)`;
+}
+function whereBand(topP, bands) {
+  if (topP === void 0) return void 0;
+  return bandFor(Math.abs(2 * topP - 1), resolveBands(void 0, bands));
+}
+function modeDecideOptions(s, permutations2, calibrators) {
+  const perms = permutations2 ?? s.permutations;
+  const has = calibrators && Object.keys(calibrators).length > 0;
+  if (perms === void 0 && !s.bands && !has) return void 0;
+  return {
+    ...perms !== void 0 ? { permutations: perms } : {},
+    ...s.bands ? { bands: { ...s.bands } } : {},
+    ...has ? { calibrators } : {}
+  };
+}
+function withModeJson(value, report) {
+  return renderModeLine(report) ? { ...value, mode: report } : value;
+}
+function withModeText(text2, report) {
+  const line = renderModeLine(report);
+  return line ? `${text2}
+${line}` : text2;
+}
+var MODES, MODE_SETTINGS;
+var init_modes = __esm({
+  "src/modes.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_bands();
+    init_project_config();
+    MODES = ["fast", "balanced", "explained", "strict", "auto"];
+    MODE_SETTINGS = Object.freeze({
+      fast: { samples: 1, permutations: 1, explain: false, why: false },
+      balanced: {},
+      explained: { explain: true, why: true },
+      strict: { samples: 5, permutations: 3, explain: true, why: true, bands: { act: 0.9, confirm: 0.7 } }
+    });
+  }
+});
+
 // src/memory/store.ts
 var store_exports = {};
 __export(store_exports, {
   GraphStore: () => GraphStore,
+  META_FILE: () => META_FILE,
   MIN_NODE_VERSION: () => MIN_NODE_VERSION,
   SCHEMA_VERSION: () => SCHEMA_VERSION,
-  STORE_DIR: () => STORE_DIR2,
+  STORE_DIR: () => STORE_DIR3,
   STORE_FILE: () => STORE_FILE,
   loadSqlite: () => loadSqlite,
   openStore: () => openStore,
+  readIndexedAt: () => readIndexedAt,
   storeProblem: () => storeProblem
 });
 import { execFileSync } from "node:child_process";
-import { existsSync as existsSync2, rmSync } from "node:fs";
-import { join as join18 } from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync3, renameSync, rmSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname9, join as join19 } from "node:path";
 function loadSqlite(get = builtin) {
   let mod;
+  const emit = process.emitWarning;
+  process.emitWarning = function(warning, ...rest) {
+    const text2 = typeof warning === "string" ? warning : warning?.message;
+    if (typeof text2 === "string" && text2.includes("SQLite is an experimental feature")) return;
+    return emit.call(process, warning, ...rest);
+  };
   try {
     mod = get("node:sqlite");
   } catch {
     mod = void 0;
+  } finally {
+    process.emitWarning = emit;
   }
   if (!mod || typeof mod.DatabaseSync !== "function") {
     throw new Error(
@@ -13026,17 +13244,28 @@ function toTag(r) {
     hash: String(r.hash)
   };
 }
+function readIndexedAt(storeDir) {
+  try {
+    const file2 = join19(storeDir, META_FILE);
+    assertNotSymlinkSync(file2);
+    const v = JSON.parse(readFileSync3(file2, "utf8")).indexedAt;
+    return typeof v === "number" && Number.isFinite(v) ? v : void 0;
+  } catch {
+    return void 0;
+  }
+}
 function openStore(repoRoot) {
   return GraphStore.open(repoRoot);
 }
-var STORE_DIR2, STORE_FILE, SCHEMA_VERSION, MIN_NODE_VERSION, SCHEMA, EXPECTED_COLUMNS, EXPECTED_INDEXES, GraphStore;
+var STORE_DIR3, STORE_FILE, META_FILE, SCHEMA_VERSION, MIN_NODE_VERSION, SCHEMA, EXPECTED_COLUMNS, EXPECTED_INDEXES, GraphStore;
 var init_store2 = __esm({
   "src/memory/store.ts"() {
     "use strict";
     init_define_GLASSBOX_BUNDLE();
     init_safefs();
-    STORE_DIR2 = ".glassbox";
+    STORE_DIR3 = ".glassbox";
     STORE_FILE = "graph.db";
+    META_FILE = "graph.meta.json";
     SCHEMA_VERSION = 1;
     MIN_NODE_VERSION = "22.13";
     SCHEMA = `
@@ -13078,15 +13307,28 @@ CREATE INDEX IF NOT EXISTS tags_question ON tags(question_id);
     };
     EXPECTED_INDEXES = /* @__PURE__ */ new Set(["nodes_file", "edges_to", "tags_question"]);
     GraphStore = class _GraphStore {
-      /** `path` may be ':memory:'. Use GraphStore.open(repoRoot) for the standard location. */
-      constructor(path) {
+      /**
+       * `path` may be ':memory:'. Use GraphStore.open(repoRoot) for the standard
+       * location. readOnly opens an existing store without creating or changing
+       * anything (the hot-path readers use it) and throws when its schema version
+       * is not this one.
+       */
+      constructor(path, opts = {}) {
         this.path = path;
         const { DatabaseSync } = loadSqlite();
-        this.db = new DatabaseSync(path);
+        this.db = new DatabaseSync(path, opts.readOnly ? { readOnly: true } : {});
+        this.db.exec("PRAGMA busy_timeout = 2000;");
+        const version4 = () => Number(this.db.prepare("PRAGMA user_version").get().user_version);
+        if (opts.readOnly) {
+          if (version4() !== SCHEMA_VERSION) {
+            this.db.close();
+            throw new Error(`${path} has schema version ${version4()}, expected ${SCHEMA_VERSION}`);
+          }
+          return;
+        }
         this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
         this.db.exec(SCHEMA);
-        const version4 = Number(this.db.prepare("PRAGMA user_version").get().user_version);
-        if (version4 === 0) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+        if (version4() === 0) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       }
       path;
       db;
@@ -13094,14 +13336,45 @@ CREATE INDEX IF NOT EXISTS tags_question ON tags(question_id);
       /** Set by open() when an existing store was not trusted and was rebuilt empty: the reason. */
       rebuilt;
       /**
+       * Opens <repoRoot>/.glassbox/graph.db read-only for a fast lookup, or returns
+       * undefined when there is none. Unlike open(), it never checks git, deletes
+       * or rebuilds anything, so callers must treat what it returns as untrusted
+       * text (a cloned repo may ship its own store).
+       */
+      static openForRead(repoRoot) {
+        const dir = join19(repoRoot, STORE_DIR3);
+        const file2 = join19(dir, STORE_FILE);
+        if (!existsSync2(file2)) return void 0;
+        for (const f of [dir, file2, `${file2}-wal`, `${file2}-shm`]) assertNotSymlinkSync(f);
+        return new _GraphStore(file2, { readOnly: true });
+      }
+      /** Records that a full parse just finished (see indexedAt). No-op for an in-memory store. */
+      markIndexed(at = Date.now()) {
+        if (this.path === ":memory:") return;
+        const file2 = join19(dirname9(this.path), META_FILE);
+        const tmp = `${file2}.${process.pid}.tmp`;
+        try {
+          assertNotSymlinkSync(file2);
+          writeFileSync2(tmp, `${JSON.stringify({ indexedAt: at })}
+`, { flag: "w" });
+          renameSync(tmp, file2);
+        } catch {
+          rmSync(tmp, { force: true });
+        }
+      }
+      /** Epoch ms of the last full parse, or undefined when unknown. */
+      indexedAt() {
+        return readIndexedAt(dirname9(this.path));
+      }
+      /**
        * Opens <repoRoot>/.glassbox/graph.db. An existing file is checked first: one
        * that git tracks (it came with a clone, so someone else wrote it) or that
        * fails storeProblem() is deleted and rebuilt empty; the graph is a cache
        * and is re-indexed on next use.
        */
       static open(repoRoot) {
-        const dir = ensureStoreDirSync(repoRoot, STORE_DIR2);
-        const file2 = join18(dir, STORE_FILE);
+        const dir = ensureStoreDirSync(repoRoot, STORE_DIR3);
+        const file2 = join19(dir, STORE_FILE);
         const files = [file2, `${file2}-wal`, `${file2}-shm`];
         for (const f of files) assertNotSymlinkSync(f);
         let reason;
@@ -13337,9 +13610,9 @@ __export(refresh_exports, {
   renderRefresh: () => renderRefresh
 });
 import { existsSync as existsSync3 } from "node:fs";
-import { isAbsolute as isAbsolute4, join as join19, relative as relative3, sep as sep2 } from "node:path";
+import { isAbsolute as isAbsolute4, join as join20, relative as relative3, sep as sep2 } from "node:path";
 function hasGraph(root2) {
-  return existsSync3(join19(root2, STORE_DIR, STORE_FILE2));
+  return existsSync3(join20(root2, STORE_DIR, STORE_FILE2));
 }
 function graphPath(root2, file2) {
   const rel = isAbsolute4(file2) ? relative3(root2, file2) : file2;
@@ -13348,12 +13621,12 @@ function graphPath(root2, file2) {
   return posix3;
 }
 async function refresh(root2, opts = {}) {
-  const mode = opts.files ? "files" : "repo";
-  if (!hasGraph(root2)) return { indexed: false, mode, stale: [] };
+  const mode2 = opts.files ? "files" : "repo";
+  if (!hasGraph(root2)) return { indexed: false, mode: mode2, stale: [] };
   const { GraphStore: GraphStore2 } = await Promise.resolve().then(() => (init_store2(), store_exports));
   const store = GraphStore2.open(root2);
   try {
-    const result = { indexed: true, mode, stale: [] };
+    const result = { indexed: true, mode: mode2, stale: [] };
     if (opts.files) {
       const ids = [];
       const unknown2 = [];
@@ -13872,18 +14145,18 @@ var init_parseUtil = __esm({
         if (this.value !== "aborted")
           this.value = "aborted";
       }
-      static mergeArray(status, results) {
+      static mergeArray(status2, results) {
         const arrayValue = [];
         for (const s of results) {
           if (s.status === "aborted")
             return INVALID;
           if (s.status === "dirty")
-            status.dirty();
+            status2.dirty();
           arrayValue.push(s.value);
         }
-        return { status: status.value, value: arrayValue };
+        return { status: status2.value, value: arrayValue };
       }
-      static async mergeObjectAsync(status, pairs) {
+      static async mergeObjectAsync(status2, pairs) {
         const syncPairs = [];
         for (const pair of pairs) {
           const key = await pair.key;
@@ -13893,9 +14166,9 @@ var init_parseUtil = __esm({
             value
           });
         }
-        return _ParseStatus.mergeObjectSync(status, syncPairs);
+        return _ParseStatus.mergeObjectSync(status2, syncPairs);
       }
-      static mergeObjectSync(status, pairs) {
+      static mergeObjectSync(status2, pairs) {
         const finalObject = {};
         for (const pair of pairs) {
           const { key, value } = pair;
@@ -13904,14 +14177,14 @@ var init_parseUtil = __esm({
           if (value.status === "aborted")
             return INVALID;
           if (key.status === "dirty")
-            status.dirty();
+            status2.dirty();
           if (value.status === "dirty")
-            status.dirty();
+            status2.dirty();
           if (key.value !== "__proto__" && (typeof value.value !== "undefined" || pair.alwaysSet)) {
             finalObject[key.value] = value.value;
           }
         }
-        return { status: status.value, value: finalObject };
+        return { status: status2.value, value: finalObject };
       }
     };
     INVALID = Object.freeze({
@@ -14476,7 +14749,7 @@ var init_types = __esm({
           });
           return INVALID;
         }
-        const status = new ParseStatus();
+        const status2 = new ParseStatus();
         let ctx = void 0;
         for (const check2 of this._def.checks) {
           if (check2.kind === "min") {
@@ -14490,7 +14763,7 @@ var init_types = __esm({
                 exact: false,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "max") {
             if (input2.data.length > check2.value) {
@@ -14503,7 +14776,7 @@ var init_types = __esm({
                 exact: false,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "length") {
             const tooBig = input2.data.length > check2.value;
@@ -14529,7 +14802,7 @@ var init_types = __esm({
                   message: check2.message
                 });
               }
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "email") {
             if (!emailRegex.test(input2.data)) {
@@ -14539,7 +14812,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "emoji") {
             if (!emojiRegex) {
@@ -14552,7 +14825,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "uuid") {
             if (!uuidRegex.test(input2.data)) {
@@ -14562,7 +14835,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "nanoid") {
             if (!nanoidRegex.test(input2.data)) {
@@ -14572,7 +14845,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "cuid") {
             if (!cuidRegex.test(input2.data)) {
@@ -14582,7 +14855,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "cuid2") {
             if (!cuid2Regex.test(input2.data)) {
@@ -14592,7 +14865,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "ulid") {
             if (!ulidRegex.test(input2.data)) {
@@ -14602,7 +14875,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "url") {
             try {
@@ -14614,7 +14887,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "regex") {
             check2.regex.lastIndex = 0;
@@ -14626,7 +14899,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "trim") {
             input2.data = input2.data.trim();
@@ -14638,7 +14911,7 @@ var init_types = __esm({
                 validation: { includes: check2.value, position: check2.position },
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "toLowerCase") {
             input2.data = input2.data.toLowerCase();
@@ -14652,7 +14925,7 @@ var init_types = __esm({
                 validation: { startsWith: check2.value },
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "endsWith") {
             if (!input2.data.endsWith(check2.value)) {
@@ -14662,7 +14935,7 @@ var init_types = __esm({
                 validation: { endsWith: check2.value },
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "datetime") {
             const regex = datetimeRegex(check2);
@@ -14673,7 +14946,7 @@ var init_types = __esm({
                 validation: "datetime",
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "date") {
             const regex = dateRegex;
@@ -14684,7 +14957,7 @@ var init_types = __esm({
                 validation: "date",
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "time") {
             const regex = timeRegex(check2);
@@ -14695,7 +14968,7 @@ var init_types = __esm({
                 validation: "time",
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "duration") {
             if (!durationRegex.test(input2.data)) {
@@ -14705,7 +14978,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "ip") {
             if (!isValidIP(input2.data, check2.version)) {
@@ -14715,7 +14988,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "jwt") {
             if (!isValidJWT(input2.data, check2.alg)) {
@@ -14725,7 +14998,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "cidr") {
             if (!isValidCidr(input2.data, check2.version)) {
@@ -14735,7 +15008,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "base64") {
             if (!base64Regex.test(input2.data)) {
@@ -14745,7 +15018,7 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "base64url") {
             if (!base64urlRegex.test(input2.data)) {
@@ -14755,13 +15028,13 @@ var init_types = __esm({
                 code: ZodIssueCode.invalid_string,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else {
             util.assertNever(check2);
           }
         }
-        return { status: status.value, value: input2.data };
+        return { status: status2.value, value: input2.data };
       }
       _regex(regex, validation, message) {
         return this.refinement((data) => regex.test(data), {
@@ -15029,7 +15302,7 @@ var init_types = __esm({
           return INVALID;
         }
         let ctx = void 0;
-        const status = new ParseStatus();
+        const status2 = new ParseStatus();
         for (const check2 of this._def.checks) {
           if (check2.kind === "int") {
             if (!util.isInteger(input2.data)) {
@@ -15040,7 +15313,7 @@ var init_types = __esm({
                 received: "float",
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "min") {
             const tooSmall = check2.inclusive ? input2.data < check2.value : input2.data <= check2.value;
@@ -15054,7 +15327,7 @@ var init_types = __esm({
                 exact: false,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "max") {
             const tooBig = check2.inclusive ? input2.data > check2.value : input2.data >= check2.value;
@@ -15068,7 +15341,7 @@ var init_types = __esm({
                 exact: false,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "multipleOf") {
             if (floatSafeRemainder(input2.data, check2.value) !== 0) {
@@ -15078,7 +15351,7 @@ var init_types = __esm({
                 multipleOf: check2.value,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "finite") {
             if (!Number.isFinite(input2.data)) {
@@ -15087,13 +15360,13 @@ var init_types = __esm({
                 code: ZodIssueCode.not_finite,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else {
             util.assertNever(check2);
           }
         }
-        return { status: status.value, value: input2.data };
+        return { status: status2.value, value: input2.data };
       }
       gte(value, message) {
         return this.setLimit("min", value, true, errorUtil.toString(message));
@@ -15258,7 +15531,7 @@ var init_types = __esm({
           return this._getInvalidInput(input2);
         }
         let ctx = void 0;
-        const status = new ParseStatus();
+        const status2 = new ParseStatus();
         for (const check2 of this._def.checks) {
           if (check2.kind === "min") {
             const tooSmall = check2.inclusive ? input2.data < check2.value : input2.data <= check2.value;
@@ -15271,7 +15544,7 @@ var init_types = __esm({
                 inclusive: check2.inclusive,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "max") {
             const tooBig = check2.inclusive ? input2.data > check2.value : input2.data >= check2.value;
@@ -15284,7 +15557,7 @@ var init_types = __esm({
                 inclusive: check2.inclusive,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "multipleOf") {
             if (input2.data % check2.value !== BigInt(0)) {
@@ -15294,13 +15567,13 @@ var init_types = __esm({
                 multipleOf: check2.value,
                 message: check2.message
               });
-              status.dirty();
+              status2.dirty();
             }
           } else {
             util.assertNever(check2);
           }
         }
-        return { status: status.value, value: input2.data };
+        return { status: status2.value, value: input2.data };
       }
       _getInvalidInput(input2) {
         const ctx = this._getOrReturnCtx(input2);
@@ -15458,7 +15731,7 @@ var init_types = __esm({
           });
           return INVALID;
         }
-        const status = new ParseStatus();
+        const status2 = new ParseStatus();
         let ctx = void 0;
         for (const check2 of this._def.checks) {
           if (check2.kind === "min") {
@@ -15472,7 +15745,7 @@ var init_types = __esm({
                 minimum: check2.value,
                 type: "date"
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (check2.kind === "max") {
             if (input2.data.getTime() > check2.value) {
@@ -15485,14 +15758,14 @@ var init_types = __esm({
                 maximum: check2.value,
                 type: "date"
               });
-              status.dirty();
+              status2.dirty();
             }
           } else {
             util.assertNever(check2);
           }
         }
         return {
-          status: status.value,
+          status: status2.value,
           value: new Date(input2.data.getTime())
         };
       }
@@ -15678,7 +15951,7 @@ var init_types = __esm({
     };
     ZodArray = class _ZodArray extends ZodType {
       _parse(input2) {
-        const { ctx, status } = this._processInputParams(input2);
+        const { ctx, status: status2 } = this._processInputParams(input2);
         const def = this._def;
         if (ctx.parsedType !== ZodParsedType.array) {
           addIssueToContext(ctx, {
@@ -15701,7 +15974,7 @@ var init_types = __esm({
               exact: true,
               message: def.exactLength.message
             });
-            status.dirty();
+            status2.dirty();
           }
         }
         if (def.minLength !== null) {
@@ -15714,7 +15987,7 @@ var init_types = __esm({
               exact: false,
               message: def.minLength.message
             });
-            status.dirty();
+            status2.dirty();
           }
         }
         if (def.maxLength !== null) {
@@ -15727,20 +16000,20 @@ var init_types = __esm({
               exact: false,
               message: def.maxLength.message
             });
-            status.dirty();
+            status2.dirty();
           }
         }
         if (ctx.common.async) {
           return Promise.all([...ctx.data].map((item, i2) => {
             return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i2));
           })).then((result2) => {
-            return ParseStatus.mergeArray(status, result2);
+            return ParseStatus.mergeArray(status2, result2);
           });
         }
         const result = [...ctx.data].map((item, i2) => {
           return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i2));
         });
-        return ParseStatus.mergeArray(status, result);
+        return ParseStatus.mergeArray(status2, result);
       }
       get element() {
         return this._def.type;
@@ -15803,7 +16076,7 @@ var init_types = __esm({
           });
           return INVALID;
         }
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         const { shape, keys: shapeKeys } = this._getCached();
         const extraKeys = [];
         if (!(this._def.catchall instanceof ZodNever && this._def.unknownKeys === "strip")) {
@@ -15838,7 +16111,7 @@ var init_types = __esm({
                 code: ZodIssueCode.unrecognized_keys,
                 keys: extraKeys
               });
-              status.dirty();
+              status2.dirty();
             }
           } else if (unknownKeys === "strip") {
           } else {
@@ -15872,10 +16145,10 @@ var init_types = __esm({
             }
             return syncPairs;
           }).then((syncPairs) => {
-            return ParseStatus.mergeObjectSync(status, syncPairs);
+            return ParseStatus.mergeObjectSync(status2, syncPairs);
           });
         } else {
-          return ParseStatus.mergeObjectSync(status, pairs);
+          return ParseStatus.mergeObjectSync(status2, pairs);
         }
       }
       get shape() {
@@ -16315,7 +16588,7 @@ var init_types = __esm({
     };
     ZodIntersection = class extends ZodType {
       _parse(input2) {
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         const handleParsed = (parsedLeft, parsedRight) => {
           if (isAborted(parsedLeft) || isAborted(parsedRight)) {
             return INVALID;
@@ -16328,9 +16601,9 @@ var init_types = __esm({
             return INVALID;
           }
           if (isDirty(parsedLeft) || isDirty(parsedRight)) {
-            status.dirty();
+            status2.dirty();
           }
-          return { status: status.value, value: merged.data };
+          return { status: status2.value, value: merged.data };
         };
         if (ctx.common.async) {
           return Promise.all([
@@ -16368,7 +16641,7 @@ var init_types = __esm({
     };
     ZodTuple = class _ZodTuple extends ZodType {
       _parse(input2) {
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         if (ctx.parsedType !== ZodParsedType.array) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_type,
@@ -16396,7 +16669,7 @@ var init_types = __esm({
             exact: false,
             type: "array"
           });
-          status.dirty();
+          status2.dirty();
         }
         const items = [...ctx.data].map((item, itemIndex) => {
           const schema = this._def.items[itemIndex] || this._def.rest;
@@ -16406,10 +16679,10 @@ var init_types = __esm({
         }).filter((x) => !!x);
         if (ctx.common.async) {
           return Promise.all(items).then((results) => {
-            return ParseStatus.mergeArray(status, results);
+            return ParseStatus.mergeArray(status2, results);
           });
         } else {
-          return ParseStatus.mergeArray(status, items);
+          return ParseStatus.mergeArray(status2, items);
         }
       }
       get items() {
@@ -16441,7 +16714,7 @@ var init_types = __esm({
         return this._def.valueType;
       }
       _parse(input2) {
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         if (ctx.parsedType !== ZodParsedType.object) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_type,
@@ -16461,9 +16734,9 @@ var init_types = __esm({
           });
         }
         if (ctx.common.async) {
-          return ParseStatus.mergeObjectAsync(status, pairs);
+          return ParseStatus.mergeObjectAsync(status2, pairs);
         } else {
-          return ParseStatus.mergeObjectSync(status, pairs);
+          return ParseStatus.mergeObjectSync(status2, pairs);
         }
       }
       get element() {
@@ -16494,7 +16767,7 @@ var init_types = __esm({
         return this._def.valueType;
       }
       _parse(input2) {
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         if (ctx.parsedType !== ZodParsedType.map) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_type,
@@ -16521,11 +16794,11 @@ var init_types = __esm({
                 return INVALID;
               }
               if (key.status === "dirty" || value.status === "dirty") {
-                status.dirty();
+                status2.dirty();
               }
               finalMap.set(key.value, value.value);
             }
-            return { status: status.value, value: finalMap };
+            return { status: status2.value, value: finalMap };
           });
         } else {
           const finalMap = /* @__PURE__ */ new Map();
@@ -16536,11 +16809,11 @@ var init_types = __esm({
               return INVALID;
             }
             if (key.status === "dirty" || value.status === "dirty") {
-              status.dirty();
+              status2.dirty();
             }
             finalMap.set(key.value, value.value);
           }
-          return { status: status.value, value: finalMap };
+          return { status: status2.value, value: finalMap };
         }
       }
     };
@@ -16554,7 +16827,7 @@ var init_types = __esm({
     };
     ZodSet = class _ZodSet extends ZodType {
       _parse(input2) {
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         if (ctx.parsedType !== ZodParsedType.set) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_type,
@@ -16574,7 +16847,7 @@ var init_types = __esm({
               exact: false,
               message: def.minSize.message
             });
-            status.dirty();
+            status2.dirty();
           }
         }
         if (def.maxSize !== null) {
@@ -16587,7 +16860,7 @@ var init_types = __esm({
               exact: false,
               message: def.maxSize.message
             });
-            status.dirty();
+            status2.dirty();
           }
         }
         const valueType = this._def.valueType;
@@ -16597,10 +16870,10 @@ var init_types = __esm({
             if (element.status === "aborted")
               return INVALID;
             if (element.status === "dirty")
-              status.dirty();
+              status2.dirty();
             parsedSet.add(element.value);
           }
-          return { status: status.value, value: parsedSet };
+          return { status: status2.value, value: parsedSet };
         }
         const elements = [...ctx.data.values()].map((item, i2) => valueType._parse(new ParseInputLazyPath(ctx, item, ctx.path, i2)));
         if (ctx.common.async) {
@@ -16924,15 +17197,15 @@ var init_types = __esm({
         return this._def.schema._def.typeName === ZodFirstPartyTypeKind.ZodEffects ? this._def.schema.sourceType() : this._def.schema;
       }
       _parse(input2) {
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         const effect = this._def.effect || null;
         const checkCtx = {
           addIssue: (arg) => {
             addIssueToContext(ctx, arg);
             if (arg.fatal) {
-              status.abort();
+              status2.abort();
             } else {
-              status.dirty();
+              status2.dirty();
             }
           },
           get path() {
@@ -16944,7 +17217,7 @@ var init_types = __esm({
           const processed = effect.transform(ctx.data, checkCtx);
           if (ctx.common.async) {
             return Promise.resolve(processed).then(async (processed2) => {
-              if (status.value === "aborted")
+              if (status2.value === "aborted")
                 return INVALID;
               const result = await this._def.schema._parseAsync({
                 data: processed2,
@@ -16955,12 +17228,12 @@ var init_types = __esm({
                 return INVALID;
               if (result.status === "dirty")
                 return DIRTY(result.value);
-              if (status.value === "dirty")
+              if (status2.value === "dirty")
                 return DIRTY(result.value);
               return result;
             });
           } else {
-            if (status.value === "aborted")
+            if (status2.value === "aborted")
               return INVALID;
             const result = this._def.schema._parseSync({
               data: processed,
@@ -16971,7 +17244,7 @@ var init_types = __esm({
               return INVALID;
             if (result.status === "dirty")
               return DIRTY(result.value);
-            if (status.value === "dirty")
+            if (status2.value === "dirty")
               return DIRTY(result.value);
             return result;
           }
@@ -16996,17 +17269,17 @@ var init_types = __esm({
             if (inner.status === "aborted")
               return INVALID;
             if (inner.status === "dirty")
-              status.dirty();
+              status2.dirty();
             executeRefinement(inner.value);
-            return { status: status.value, value: inner.value };
+            return { status: status2.value, value: inner.value };
           } else {
             return this._def.schema._parseAsync({ data: ctx.data, path: ctx.path, parent: ctx }).then((inner) => {
               if (inner.status === "aborted")
                 return INVALID;
               if (inner.status === "dirty")
-                status.dirty();
+                status2.dirty();
               return executeRefinement(inner.value).then(() => {
-                return { status: status.value, value: inner.value };
+                return { status: status2.value, value: inner.value };
               });
             });
           }
@@ -17024,13 +17297,13 @@ var init_types = __esm({
             if (result instanceof Promise) {
               throw new Error(`Asynchronous transform encountered during synchronous parse operation. Use .parseAsync instead.`);
             }
-            return { status: status.value, value: result };
+            return { status: status2.value, value: result };
           } else {
             return this._def.schema._parseAsync({ data: ctx.data, path: ctx.path, parent: ctx }).then((base) => {
               if (!isValid(base))
                 return INVALID;
               return Promise.resolve(effect.transform(base.value, checkCtx)).then((result) => ({
-                status: status.value,
+                status: status2.value,
                 value: result
               }));
             });
@@ -17208,7 +17481,7 @@ var init_types = __esm({
     };
     ZodPipeline = class _ZodPipeline extends ZodType {
       _parse(input2) {
-        const { status, ctx } = this._processInputParams(input2);
+        const { status: status2, ctx } = this._processInputParams(input2);
         if (ctx.common.async) {
           const handleAsync = async () => {
             const inResult = await this._def.in._parseAsync({
@@ -17219,7 +17492,7 @@ var init_types = __esm({
             if (inResult.status === "aborted")
               return INVALID;
             if (inResult.status === "dirty") {
-              status.dirty();
+              status2.dirty();
               return DIRTY(inResult.value);
             } else {
               return this._def.out._parseAsync({
@@ -17239,7 +17512,7 @@ var init_types = __esm({
           if (inResult.status === "aborted")
             return INVALID;
           if (inResult.status === "dirty") {
-            status.dirty();
+            status2.dirty();
             return {
               status: "dirty",
               value: inResult.value
@@ -17443,7 +17716,7 @@ __export(util_exports, {
   own: () => own,
   parsedType: () => parsedType,
   partial: () => partial,
-  pick: () => pick,
+  pick: () => pick2,
   prefixIssues: () => prefixIssues,
   primitiveTypes: () => primitiveTypes,
   promiseAllObject: () => promiseAllObject,
@@ -17742,7 +18015,7 @@ function optionalKeys(shape) {
     return shape[k]._zod.optin !== void 0 && shape[k]._zod.optout === "optional";
   });
 }
-function pick(schema, mask) {
+function pick2(schema, mask) {
   const currDef = schema._zod.def;
   const checks = currDef.checks;
   const hasChecks = checks && checks.length > 0;
@@ -21887,7 +22160,7 @@ function isRef(value) {
 function cloneIssues(issues) {
   return issues.map((iss) => iss.path ? { ...iss, path: iss.path.slice() } : { ...iss });
 }
-function isRecursive(inst, stack, resolve5) {
+function isRecursive(inst, stack, resolve6) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -21897,7 +22170,7 @@ function isRecursive(inst, stack, resolve5) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve5);
+      const answer = isRecursive(child, stack, resolve6);
       if (answer > result)
         result = answer;
     }
@@ -21908,7 +22181,7 @@ function isRecursive(inst, stack, resolve5) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve5) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve6) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -21972,7 +22245,7 @@ function isRecursive(inst, stack, resolve5) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve5 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve6 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -39675,8 +39948,8 @@ var init_types2 = __esm({
 });
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
-function isTerminal(status) {
-  return status === "completed" || status === "failed" || status === "cancelled";
+function isTerminal(status2) {
+  return status2 === "completed" || status2 === "failed" || status2 === "cancelled";
 }
 var init_interfaces = __esm({
   "node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js"() {
@@ -41873,7 +42146,7 @@ var init_protocol = __esm({
               return;
             }
             const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-            await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
+            await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
             options?.signal?.throwIfAborted();
           }
         } catch (error62) {
@@ -41890,7 +42163,7 @@ var init_protocol = __esm({
        */
       request(request, resultSchema, options) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const earlyReject = (error62) => {
             reject(error62);
           };
@@ -41968,7 +42241,7 @@ var init_protocol = __esm({
               if (!parseResult.success) {
                 reject(parseResult.error);
               } else {
-                resolve5(parseResult.data);
+                resolve6(parseResult.data);
               }
             } catch (error62) {
               reject(error62);
@@ -42229,12 +42502,12 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           if (signal.aborted) {
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
-          const timeoutId = setTimeout(resolve5, interval);
+          const timeoutId = setTimeout(resolve6, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -42263,8 +42536,8 @@ var init_protocol = __esm({
             }
             return task;
           },
-          storeTaskResult: async (taskId, status, result) => {
-            await taskStore.storeTaskResult(taskId, status, result, sessionId);
+          storeTaskResult: async (taskId, status2, result) => {
+            await taskStore.storeTaskResult(taskId, status2, result, sessionId);
             const task = await taskStore.getTask(taskId, sessionId);
             if (task) {
               const notification = TaskStatusNotificationSchema.parse({
@@ -42280,15 +42553,15 @@ var init_protocol = __esm({
           getTaskResult: (taskId) => {
             return taskStore.getTaskResult(taskId, sessionId);
           },
-          updateTaskStatus: async (taskId, status, statusMessage) => {
+          updateTaskStatus: async (taskId, status2, statusMessage) => {
             const task = await taskStore.getTask(taskId, sessionId);
             if (!task) {
               throw new McpError(ErrorCode.InvalidParams, `Task "${taskId}" not found - it may have been cleaned up`);
             }
             if (isTerminal(task.status)) {
-              throw new McpError(ErrorCode.InvalidParams, `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`);
+              throw new McpError(ErrorCode.InvalidParams, `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status2}". Terminal states (completed, failed, cancelled) cannot transition to other states.`);
             }
-            await taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
+            await taskStore.updateTaskStatus(taskId, status2, statusMessage, sessionId);
             const updatedTask = await taskStore.getTask(taskId, sessionId);
             if (updatedTask) {
               const notification = TaskStatusNotificationSchema.parse({
@@ -43488,11 +43761,11 @@ var require_util = __commonJS({
       return jsPropertySyntax ? (0, codegen_1.getProperty)(dataProp).toString() : "/" + escapeJsonPointer(dataProp);
     }
     exports.getErrorPath = getErrorPath;
-    function checkStrictMode(it, msg, mode = it.opts.strictSchema) {
-      if (!mode)
+    function checkStrictMode(it, msg, mode2 = it.opts.strictSchema) {
+      if (!mode2)
         return;
       msg = `strict mode: ${msg}`;
-      if (mode === true)
+      if (mode2 === true)
         throw new Error(msg);
       it.self.logger.warn(msg);
     }
@@ -45282,7 +45555,7 @@ var require_compile = __commonJS({
       const schOrFunc = root2.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve5.call(this, root2, ref);
+      let _sch = resolve6.call(this, root2, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root2.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -45309,7 +45582,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve5(root2, ref) {
+    function resolve6(root2, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -46142,7 +46415,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve5(baseURI, relativeURI, options) {
+    function resolve6(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -46511,7 +46784,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize3,
-      resolve: resolve5,
+      resolve: resolve6,
       resolveComponent,
       equal,
       serialize,
@@ -49323,7 +49596,7 @@ var require_formats = __commonJS({
     }
     var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
     function getTime(strictTimeZone) {
-      return function time3(str) {
+      return function time4(str) {
         const matches = TIME.exec(str);
         if (!matches)
           return false;
@@ -49369,10 +49642,10 @@ var require_formats = __commonJS({
     }
     var DATE_TIME_SEPARATOR = /t|\s/i;
     function getDateTime(strictTimeZone) {
-      const time3 = getTime(strictTimeZone);
+      const time4 = getTime(strictTimeZone);
       return function date_time(str) {
         const dateTime = str.split(DATE_TIME_SEPARATOR);
-        return dateTime.length === 2 && date5(dateTime[0]) && time3(dateTime[1]);
+        return dateTime.length === 2 && date5(dateTime[0]) && time4(dateTime[1]);
       };
     }
     function compareDateTime(dt1, dt2) {
@@ -50607,11 +50880,11 @@ var require_util2 = __commonJS({
       return jsPropertySyntax ? (0, codegen_1.getProperty)(dataProp).toString() : "/" + escapeJsonPointer(dataProp);
     }
     exports.getErrorPath = getErrorPath;
-    function checkStrictMode(it, msg, mode = it.opts.strictSchema) {
-      if (!mode)
+    function checkStrictMode(it, msg, mode2 = it.opts.strictSchema) {
+      if (!mode2)
         return;
       msg = `strict mode: ${msg}`;
-      if (mode === true)
+      if (mode2 === true)
         throw new Error(msg);
       it.self.logger.warn(msg);
     }
@@ -52365,7 +52638,7 @@ var require_compile2 = __commonJS({
       const schOrFunc = root2.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve5.call(this, root2, ref);
+      let _sch = resolve6.call(this, root2, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root2.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -52392,7 +52665,7 @@ var require_compile2 = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve5(root2, ref) {
+    function resolve6(root2, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -55282,8 +55555,8 @@ var require_dist = __commonJS({
         (0, limit_1.default)(ajv);
       return ajv;
     };
-    formatsPlugin.get = (name2, mode = "full") => {
-      const formats = mode === "fast" ? formats_1.fastFormats : formats_1.fullFormats;
+    formatsPlugin.get = (name2, mode2 = "full") => {
+      const formats = mode2 === "fast" ? formats_1.fastFormats : formats_1.fullFormats;
       const f = formats[name2];
       if (!f)
         throw new Error(`Unknown format "${name2}"`);
@@ -55523,8 +55796,8 @@ var init_server = __esm({
        */
       elicitInputStream(params, options) {
         const clientCapabilities = this._server.getClientCapabilities();
-        const mode = params.mode ?? "form";
-        switch (mode) {
+        const mode2 = params.mode ?? "form";
+        switch (mode2) {
           case "url": {
             if (!clientCapabilities?.elicitation?.url) {
               throw new Error("Client does not support url elicitation.");
@@ -55538,7 +55811,7 @@ var init_server = __esm({
             break;
           }
         }
-        const normalizedParams = mode === "form" && params.mode === void 0 ? { ...params, mode: "form" } : params;
+        const normalizedParams = mode2 === "form" && params.mode === void 0 ? { ...params, mode: "form" } : params;
         return this.requestStream({
           method: "elicitation/create",
           params: normalizedParams
@@ -55929,8 +56202,8 @@ var init_server2 = __esm({
        * @returns The result of the elicitation request.
        */
       async elicitInput(params, options) {
-        const mode = params.mode ?? "form";
-        switch (mode) {
+        const mode2 = params.mode ?? "form";
+        switch (mode2) {
           case "url": {
             if (!this._clientCapabilities?.elicitation?.url) {
               throw new Error("Client does not support url elicitation.");
@@ -56441,7 +56714,7 @@ var init_mcp = __esm({
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5e3;
         while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-          await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
+          await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
           const updatedTask = await extra.taskStore.getTask(taskId);
           if (!updatedTask) {
             throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -57052,12 +57325,12 @@ var init_stdio2 = __esm({
         this.onclose?.();
       }
       send(message) {
-        return new Promise((resolve5) => {
+        return new Promise((resolve6) => {
           const json3 = serializeMessage(message);
           if (this._stdout.write(json3)) {
-            resolve5();
+            resolve6();
           } else {
-            this._stdout.once("drain", resolve5);
+            this._stdout.once("drain", resolve6);
           }
         });
       }
@@ -57066,6 +57339,12 @@ var init_stdio2 = __esm({
 });
 
 // src/mcp/env.ts
+var env_exports = {};
+__export(env_exports, {
+  PLUGIN_OPTION_ENV: () => PLUGIN_OPTION_ENV,
+  defaultRoot: () => defaultRoot,
+  withPluginOptions: () => withPluginOptions
+});
 function withPluginOptions(env) {
   const out2 = { ...env };
   for (const [from, to] of Object.entries(PLUGIN_OPTION_ENV)) {
@@ -57114,14 +57393,14 @@ __export(server_exports, {
   makeRootResolver: () => makeRootResolver,
   runStdioServer: () => runStdioServer
 });
-import { realpathSync as realpathSync2 } from "node:fs";
+import { realpathSync as realpathSync3 } from "node:fs";
 import { delimiter as delimiter2, isAbsolute as isAbsolute5, relative as relative4, resolve as resolve3 } from "node:path";
 function version2() {
   return packageVersion();
 }
 function real(p) {
   try {
-    return realpathSync2(p);
+    return realpathSync3(p);
   } catch {
     return p;
   }
@@ -57161,10 +57440,11 @@ function createGlassboxServer(opts = {}) {
   const cwd = opts.cwd ?? process.cwd();
   const baseRoot = resolve3(cwd, opts.root ?? defaultRoot(env, cwd));
   const rootOf2 = makeRootResolver(baseRoot, env);
-  const backendOf = (a) => createBackend({
+  const backendOf = (a, s = {}) => createBackend({
     env,
     ...a.backend ? { backend: a.backend } : {},
     ...a.model ? { model: a.model } : {},
+    ...s.samples !== void 0 ? { samples: s.samples } : {},
     ...opts.backendConfig
   });
   async function withGraph(dir, fn) {
@@ -57201,6 +57481,7 @@ function createGlassboxServer(opts = {}) {
         budget: budgetArg(`Most backend calls the explanation may spend (default 24, at most ${MAX_BUDGET}).`),
         why: external_exports.boolean().optional().describe("true: always add a one-line why; false: never. Default: only below the act band."),
         reasons: external_exports.array(external_exports.string()).optional().describe('Reason codes to check: "code" or "code=question".'),
+        mode,
         root,
         format,
         ...backendArgs
@@ -57213,17 +57494,31 @@ function createGlassboxServer(opts = {}) {
       if (a.diff !== void 0) scope.diff = a.diff;
       if (a.nodes?.length) scope.nodes = a.nodes;
       if (!scope.paths && !scope.nodes && scope.diff === void 0) scope.paths = ["."];
-      const backend = backendOf(a);
       const dir = rootOf2(a.root);
-      const r = await ask(scope, makeQuestion(a.question, a.type ?? "yesno", a.options ?? []), {
-        backend,
-        root: dir,
-        ...await calibrated(dir, backend),
-        explain: a.explain ? a.budget !== void 0 ? { budget: a.budget } : true : false,
-        ...a.why !== void 0 ? { why: a.why } : {},
-        ...a.reasons?.length ? { reasons: parseReasons(a.reasons) } : {}
-      });
-      return text(a.format === "json" ? renderJson(r) : renderPretty(r));
+      const resolved = resolveMode({ explicit: a.mode, env, root: dir });
+      const question = makeQuestion(a.question, a.type ?? "yesno", a.options ?? []);
+      const run3 = await runWithMode(
+        resolved.mode,
+        async (_m, s) => {
+          const backend = backendOf(a, s);
+          const explainOn = a.explain ?? s.explain ?? false;
+          const why = a.why ?? s.why;
+          const decide3 = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
+          return ask(scope, question, {
+            backend,
+            root: dir,
+            ...decide3 ? { decide: decide3 } : {},
+            explain: explainOn ? a.budget !== void 0 ? { budget: a.budget } : true : false,
+            ...why !== void 0 ? { why } : {},
+            ...a.reasons?.length ? { reasons: parseReasons(a.reasons) } : {}
+          });
+        },
+        (r) => r.answer.band
+      );
+      const report = modeReport(resolved, run3);
+      return text(
+        a.format === "json" ? JSON.stringify(withModeJson(JSON.parse(renderJson(run3.result)), report), null, 2) : withModeText(renderPretty(run3.result), report)
+      );
     })
   );
   server.registerTool(
@@ -57235,6 +57530,7 @@ function createGlassboxServer(opts = {}) {
         concept: external_exports.string().min(1).describe("What to look for."),
         top: external_exports.number().int().min(1).max(MAX_TOP).optional().describe(`Hits to return (default 5, at most ${MAX_TOP}).`),
         candidates: external_exports.number().int().min(1).max(MAX_TOP).optional().describe(`Prefiltered nodes the model checks (default 8, at most ${MAX_TOP}).`),
+        mode,
         root,
         format,
         ...backendArgs
@@ -57243,20 +57539,28 @@ function createGlassboxServer(opts = {}) {
     },
     (a) => run2(async () => {
       const dir = rootOf2(a.root);
-      const backend = backendOf(a);
-      const cal = await calibrated(dir, backend);
-      const r = await withGraph(
+      const resolved = resolveMode({ explicit: a.mode, env, root: dir });
+      const run3 = await withGraph(
         dir,
-        (store) => where(a.concept, {
-          store,
-          root: dir,
-          backend,
-          ...cal,
-          ...a.top !== void 0 ? { top: a.top } : {},
-          ...a.candidates !== void 0 ? { candidates: a.candidates } : {}
-        })
+        (store) => runWithMode(
+          resolved.mode,
+          async (_m, s) => {
+            const backend = backendOf(a, s);
+            const decide3 = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
+            return where(a.concept, {
+              store,
+              root: dir,
+              backend,
+              ...decide3 ? { decide: decide3 } : {},
+              ...a.top !== void 0 ? { top: a.top } : {},
+              ...a.candidates !== void 0 ? { candidates: a.candidates } : {}
+            });
+          },
+          (r) => whereBand(r.hits[0]?.p)
+        )
       );
-      return a.format === "json" ? json2(r) : text(renderWhere(r));
+      const report = modeReport(resolved, run3);
+      return a.format === "json" ? json2(withModeJson(run3.result, report)) : text(withModeText(renderWhere(run3.result), report));
     })
   );
   server.registerTool(
@@ -57268,6 +57572,7 @@ function createGlassboxServer(opts = {}) {
         diff: external_exports.string().optional().describe("Unified diff text. Default: git diff HEAD in the root."),
         explain: external_exports.boolean().optional().describe("Hide-and-re-ask evidence on the overall risk (default true)."),
         budget: budgetArg(`Most backend calls the evidence may spend (default 12, at most ${MAX_BUDGET}).`),
+        mode,
         root,
         format,
         ...backendArgs
@@ -57276,23 +57581,33 @@ function createGlassboxServer(opts = {}) {
     },
     (a) => run2(async () => {
       const dir = rootOf2(a.root);
+      const resolved = resolveMode({ explicit: a.mode, env, root: dir });
       const diff = a.diff ?? await workingDiff(dir);
       if (!diff.trim()) return text("no changes to triage");
-      const backend = backendOf(a);
-      const cal = await calibrated(dir, backend);
-      const r = await withGraph(
+      const run3 = await withGraph(
         dir,
-        (store) => triage(diff, {
-          store,
-          root: dir,
-          backend,
-          ...cal,
-          explain: a.explain === false ? false : a.budget !== void 0 ? { budget: a.budget } : true
-        })
+        (store) => runWithMode(
+          resolved.mode,
+          async (_m, s) => {
+            const backend = backendOf(a, s);
+            const decide3 = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
+            const explainOn = a.explain ?? s.explain ?? true;
+            return triage(diff, {
+              store,
+              root: dir,
+              backend,
+              ...decide3 ? { decide: decide3 } : {},
+              explain: explainOn ? a.budget !== void 0 ? { budget: a.budget } : true : false
+            });
+          },
+          (r2) => r2.overall.band
+        )
       );
-      if (a.format !== "json") return text(renderTriage(r));
+      const report = modeReport(resolved, run3);
+      const r = run3.result;
+      if (a.format !== "json") return text(withModeText(renderTriage(r), report));
       const { record: record2, hunks, ...rest } = r;
-      return json2({ ...rest, id: record2.id, hunks: hunks.map(({ answer: _a3, ...h }) => h) });
+      return json2(withModeJson({ ...rest, id: record2.id, hunks: hunks.map(({ answer: _a3, ...h }) => h) }, report));
     })
   );
   server.registerTool(
@@ -57304,6 +57619,7 @@ function createGlassboxServer(opts = {}) {
         question: external_exports.string().min(1).describe('The question, e.g. "where should the retry limit live?"'),
         options: external_exports.array(external_exports.string()).min(2).describe('At least two options: "key" or "key=description".'),
         context: external_exports.string().optional().describe("Extra context you already know (constraints, what the user asked)."),
+        mode,
         root,
         format,
         ...backendArgs
@@ -57312,12 +57628,24 @@ function createGlassboxServer(opts = {}) {
     },
     (a) => run2(async () => {
       const dir = rootOf2(a.root);
-      const backend = backendOf(a);
-      const cal = await calibrated(dir, backend);
-      const r = await withGraph(dir, (store) => decide2(a.question, a.options, a.context, { store, root: dir, backend, ...cal }));
-      if (a.format !== "json") return text(renderDecide(r));
+      const resolved = resolveMode({ explicit: a.mode, env, root: dir });
+      const run3 = await withGraph(
+        dir,
+        (store) => runWithMode(
+          resolved.mode,
+          async (_m, s) => {
+            const backend = backendOf(a, s);
+            const d = modeDecideOptions(s, void 0, (await calibrated(dir, backend)).decide?.calibrators);
+            return decide2(a.question, a.options, a.context, { store, root: dir, backend, ...d ? { decide: d } : {} });
+          },
+          (r2) => r2.band
+        )
+      );
+      const report = modeReport(resolved, run3);
+      const r = run3.result;
+      if (a.format !== "json") return text(withModeText(renderDecide(r), report));
       const { record: record2, ...rest } = r;
-      return json2({ ...rest, id: record2.id });
+      return json2(withModeJson({ ...rest, id: record2.id }, report));
     })
   );
   server.registerTool(
@@ -57413,15 +57741,15 @@ function createGlassboxServer(opts = {}) {
 }
 async function runStdioServer(opts = {}) {
   const server = createGlassboxServer(opts);
-  const closed = new Promise((done) => {
-    server.server.onclose = () => done();
-    process.stdin.once("end", () => done());
+  const closed = new Promise((done2) => {
+    server.server.onclose = () => done2();
+    process.stdin.once("end", () => done2());
   });
   await server.connect(new StdioServerTransport());
   await closed;
   await server.close();
 }
-var INSTRUCTIONS, root, MAX_BUDGET, MAX_TOP, MAX_LIMIT, budgetArg, READ_ONLY, format, backendArgs;
+var INSTRUCTIONS, root, MAX_BUDGET, MAX_TOP, MAX_LIMIT, budgetArg, READ_ONLY, format, mode, backendArgs;
 var init_server3 = __esm({
   "src/mcp/server.ts"() {
     "use strict";
@@ -57446,6 +57774,7 @@ var init_server3 = __esm({
     init_build();
     init_git();
     init_env();
+    init_modes();
     INSTRUCTIONS = [
       "glassbox answers typed questions about this codebase with a probability (p), a confidence and a band.",
       "Band act: go ahead. confirm: check the highlights first. escalate: do not rely on it; read the code or ask the user.",
@@ -57460,6 +57789,9 @@ var init_server3 = __esm({
     budgetArg = (what) => external_exports.number().int().min(0).max(MAX_BUDGET).optional().describe(what);
     READ_ONLY = { readOnlyHint: true };
     format = external_exports.enum(["text", "json"]).optional().describe("text (default, compact) or json (full result).");
+    mode = external_exports.enum(MODES).optional().describe(
+      "fast (1 sample, 1 option order, no evidence), balanced (default), explained (adds evidence and a why), strict (more samples, evidence, higher bands) or auto (fast, then explained when the band is not act). Default: GLASSBOX_MODE or .glassbox/config.json."
+    );
     backendArgs = {
       backend: external_exports.enum(["auto", "claude-cli", "codex-cli", "anthropic", "openai-compat"]).optional().describe("Override the backend. Default: GLASSBOX_BACKEND or auto (the host agent's own CLI)."),
       model: external_exports.string().regex(MODEL_ID, "a model id: letters, digits and . _ : / @ -").optional().describe("Override the model id. Default: GLASSBOX_MODEL or the backend default.")
@@ -57467,11 +57799,989 @@ var init_server3 = __esm({
   }
 });
 
+// src/ambient/relevance.ts
+function codeRelevance(prompt) {
+  const text2 = prompt.trim();
+  if (text2.length < 4 || CHAT_ONLY.test(text2) || /^\/[\w:-]+(?:\s|$)/.test(text2)) return { code: false, signals: [] };
+  const signals = [];
+  if (FILE_PATH.test(text2)) signals.push("path");
+  if (CAMEL.test(text2) || PASCAL.test(text2)) signals.push("identifier");
+  if (SNAKE.test(text2)) signals.push("snake_case");
+  if (CALL.test(text2)) signals.push("call");
+  if (BACKTICK.test(text2)) signals.push("backticks");
+  if (STACK.test(text2)) signals.push("stack");
+  if (ASKS_ABOUT_CODE.test(text2)) signals.push("question");
+  const words = text2.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  if (words.some((w) => CODE_WORDS.has(w))) signals.push("words");
+  return { code: signals.length > 0, signals };
+}
+var CHAT_ONLY, FILE_PATH, CAMEL, PASCAL, SNAKE, CALL, BACKTICK, STACK, CODE_WORDS, ASKS_ABOUT_CODE;
+var init_relevance = __esm({
+  "src/ambient/relevance.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    CHAT_ONLY = /^(hi|hello|hey|thanks|thank you|thx|ok|okay|k|yes|yep|no|nope|y|n|sure|cool|great|nice|continue|go on|go ahead|proceed|sounds good|lgtm|done|stop)\b[\s.!?]*$/i;
+    FILE_PATH = /\b[\w@.-]+\/[\w@.-]+\/|\b[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|cs|c|cc|cpp|h|hpp|kt|swift|scala|sh|sql|vue|svelte)\b/;
+    CAMEL = /\b[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*\b/;
+    PASCAL = /\b[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*\b/;
+    SNAKE = /\b[a-z][a-z0-9]*_[a-z0-9_]+\b/;
+    CALL = /\b[A-Za-z_$][\w$]*\(\)/;
+    BACKTICK = /`[^`\n]+`|```/;
+    STACK = /\bat [\w$.<>]+ \(|Traceback \(most recent call last\)|\b(?:TypeError|ReferenceError|SyntaxError|ValueError|KeyError|NullPointerException)\b/;
+    CODE_WORDS = new Set(
+      "bug bugs fix fixes fixing refactor refactoring implement implementation function functions method methods class classes module modules test tests testing spec endpoint endpoints api handler handlers middleware route routes router error errors exception exceptions crash crashes regression compile compiler build lint typecheck type types schema migration query queries database db sql auth authentication login session sessions token tokens password config configuration dependency dependencies import imports export exports repo codebase code variable variables rename callers caller call calls return returns interface component components hook hooks deploy script scripts retry retries billing invoice payment parser parse cache logging logger performance leak async await promise".split(" ")
+    );
+    ASKS_ABOUT_CODE = /\b(?:where (?:is|are|does|do)|how does|what calls|who calls|which file|which function)\b/i;
+  }
+});
+
+// src/ambient/context.ts
+var context_exports = {};
+__export(context_exports, {
+  AMBIENT_HEADER: () => AMBIENT_HEADER,
+  DEFAULT_AMBIENT_CHARS: () => DEFAULT_AMBIENT_CHARS,
+  DEFAULT_AMBIENT_HITS: () => DEFAULT_AMBIENT_HITS,
+  DEFAULT_AMBIENT_MIN_SCORE: () => DEFAULT_AMBIENT_MIN_SCORE,
+  ambientContext: () => ambientContext,
+  renderAmbient: () => renderAmbient
+});
+import { statSync } from "node:fs";
+import { join as join21 } from "node:path";
+function safeFile(file2) {
+  return SAFE_FILE.test(file2) && !file2.startsWith("/") && !file2.split("/").includes("..");
+}
+function safeTags(tags) {
+  const out2 = [];
+  for (const t of tags) {
+    if (!SAFE_QID.test(t.questionId) || !SAFE_ANSWER.test(t.answer) || !Number.isFinite(t.p)) continue;
+    if (t.answer === "false") continue;
+    if (t.questionId === "needs_tests" || t.p < TAG_FLOOR) continue;
+    out2.push(tagLabel(t, t.questionId === "risk" ? RISK_LEVELS : void 0));
+  }
+  return out2;
+}
+function mentionedPaths(prompt) {
+  return [...prompt.matchAll(/[\w@.-]+(?:\/[\w@.-]+)+|\b[\w-]+\.[a-z]{1,6}\b/g)].map((m) => m[0].replace(/^\.\//, ""));
+}
+function mtimeMs(file2) {
+  try {
+    return statSync(file2).mtimeMs;
+  } catch {
+    return void 0;
+  }
+}
+function done(started, relevance, skipped, staleFiles = 0) {
+  return { text: "", hits: [], relevance, skipped, staleFiles, latencyMs: Math.round(performance.now() - started) };
+}
+function ambientContext(opts) {
+  const started = performance.now();
+  const relevance = codeRelevance(opts.prompt);
+  if (!relevance.code) return done(started, relevance, "not-code");
+  const terms = queryTerms(opts.prompt).filter((t) => !GENERIC.has(t));
+  const paths = mentionedPaths(opts.prompt);
+  if (terms.length === 0 && paths.length === 0) return done(started, relevance, "no-terms");
+  const store = GraphStore.openForRead(opts.root);
+  if (!store) return done(started, relevance, "no-graph");
+  try {
+    const nodes = store.getNodes();
+    if (nodes.length === 0) return done(started, relevance, "empty-graph");
+    const minScore = opts.minScore ?? DEFAULT_AMBIENT_MIN_SCORE;
+    const maxHits = Math.max(1, opts.maxHits ?? DEFAULT_AMBIENT_HITS);
+    const pathHit = (file2) => paths.some((p) => file2 === p || file2.endsWith(`/${p}`));
+    const first = nodes.filter((n) => isTagTarget(n) || n.kind === "class" || n.kind === "file").map((node2) => {
+      let score = lexicalScore(terms, { node: node2 }, strictTermsMatch);
+      if (pathHit(node2.file)) score += node2.kind === "file" ? 4 : 1;
+      return { node: node2, score };
+    }).filter((c) => c.score > 0).sort((a, b) => b.score - a.score || span(a.node) - span(b.node)).slice(0, TAG_CANDIDATES);
+    if (first.length === 0) return done(started, relevance, "no-match");
+    const scored = first.map(({ node: node2, score }) => {
+      const tags = node2.stale ? [] : store.getTags(node2.id).filter((t) => t.hash === node2.hash);
+      const tagScore = lexicalScore(terms, { node: { id: node2.id, name: "", file: "" }, tags }, strictTermsMatch);
+      return { node: node2, tags, score: Math.round((score + tagScore) * 1e3) / 1e3 };
+    });
+    scored.sort((a, b) => b.score - a.score || span(a.node) - span(b.node) || (a.node.file < b.node.file ? -1 : 1));
+    const top = scored[0].score;
+    const above = scored.filter((c) => c.score >= minScore && c.score >= top / 2);
+    if (above.length === 0) return done(started, relevance, "no-match");
+    const indexedAt = store.indexedAt() ?? mtimeMs(join21(opts.root, STORE_DIR3, STORE_FILE)) ?? 0;
+    const perFile = /* @__PURE__ */ new Map();
+    const picked = [];
+    let stale = 0;
+    let checked2 = 0;
+    const fileState = /* @__PURE__ */ new Map();
+    for (const c of above) {
+      if (picked.length >= maxHits) break;
+      if (!safeFile(c.node.file) || !SAFE_NAME.test(c.node.name)) continue;
+      if ((perFile.get(c.node.file) ?? 0) >= PER_FILE) continue;
+      let fresh = fileState.get(c.node.file);
+      if (fresh === void 0) {
+        const m = mtimeMs(join21(opts.root, c.node.file));
+        fresh = m !== void 0 && m <= indexedAt;
+        fileState.set(c.node.file, fresh);
+        checked2++;
+        if (!fresh) stale++;
+      }
+      if (!fresh) continue;
+      if (c.node.kind === "file" && above.some((o) => o.node.file === c.node.file && o.node.kind !== "file")) continue;
+      perFile.set(c.node.file, (perFile.get(c.node.file) ?? 0) + 1);
+      picked.push(c);
+    }
+    if (checked2 > 0 && stale * 2 > checked2) return done(started, relevance, "stale", stale);
+    if (picked.length === 0) return done(started, relevance, "no-match", stale);
+    const nameOf = (id) => {
+      const n = store.getNode(id);
+      return n && SAFE_NAME.test(n.name) ? n.name : void 0;
+    };
+    const hits = picked.map(({ node: node2, tags, score }) => ({
+      nodeId: node2.id,
+      kind: node2.kind,
+      name: node2.name,
+      file: node2.file,
+      startLine: node2.startLine,
+      endLine: node2.endLine,
+      score,
+      tags: safeTags(tags),
+      callers: uniq(store.edgesTo(node2.id, "calls").map((e) => nameOf(e.from))).slice(0, NEIGHBOURS),
+      callees: uniq(store.edgesFrom(node2.id, "calls").map((e) => nameOf(e.to))).slice(0, NEIGHBOURS)
+    }));
+    const text2 = renderAmbient(hits, opts.maxChars ?? DEFAULT_AMBIENT_CHARS);
+    return { text: text2, hits, relevance, staleFiles: stale, latencyMs: Math.round(performance.now() - started) };
+  } finally {
+    store.close();
+  }
+}
+function span(n) {
+  return n.endLine - n.startLine;
+}
+function uniq(xs) {
+  return [...new Set(xs.filter((x) => x !== void 0))];
+}
+function renderAmbient(hits, maxChars = DEFAULT_AMBIENT_CHARS) {
+  if (hits.length === 0) return "";
+  let out2 = AMBIENT_HEADER;
+  let added = 0;
+  for (const h of hits) {
+    const loc = h.endLine > h.startLine ? `${h.file}:${h.startLine}-${h.endLine}` : `${h.file}:${h.startLine}`;
+    const parts2 = [`- ${loc} ${h.kind === "file" ? "(file)" : `${h.name} (${h.kind})`}`];
+    if (h.tags.length) parts2.push(`: ${h.tags.join(", ")}`);
+    if (h.callers.length) parts2.push(`; called by ${h.callers.join(", ")}`);
+    if (h.callees.length) parts2.push(`; calls ${h.callees.join(", ")}`);
+    const line = `
+${parts2.join("")}`;
+    if (out2.length + line.length > maxChars) break;
+    out2 += line;
+    added++;
+  }
+  return added ? out2 : "";
+}
+var DEFAULT_AMBIENT_CHARS, DEFAULT_AMBIENT_MIN_SCORE, DEFAULT_AMBIENT_HITS, TAG_CANDIDATES, PER_FILE, NEIGHBOURS, TAG_FLOOR, GENERIC, SAFE_FILE, SAFE_NAME, SAFE_QID, SAFE_ANSWER, AMBIENT_HEADER;
+var init_context = __esm({
+  "src/ambient/context.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_source();
+    init_store2();
+    init_tags();
+    init_lexical();
+    init_relevance();
+    DEFAULT_AMBIENT_CHARS = 1500;
+    DEFAULT_AMBIENT_MIN_SCORE = 3;
+    DEFAULT_AMBIENT_HITS = 6;
+    TAG_CANDIDATES = 60;
+    PER_FILE = 3;
+    NEIGHBOURS = 3;
+    TAG_FLOOR = 0.6;
+    GENERIC = new Set(
+      "fix bug bugs add change update make please need want look file files code repo codebase error errors test tests work working broken issue problem help new remove delete write read check run find show tell explain review function method class module value values thing things something everything way better now also just".split(" ")
+    );
+    SAFE_FILE = /^[\w@+.,/ -]{1,200}$/;
+    SAFE_NAME = /^[\w$.#<>-]{1,100}$/;
+    SAFE_QID = /^[a-z][a-z0-9_]{0,31}$/;
+    SAFE_ANSWER = /^[\w-]{1,32}$/;
+    AMBIENT_HEADER = "glassbox code graph matches for this prompt (static index, no model call; tags are earlier model estimates):";
+  }
+});
+
+// src/worker/index.ts
+var worker_exports = {};
+__export(worker_exports, {
+  DEFAULT_WORKER_LIMITS: () => DEFAULT_WORKER_LIMITS,
+  WORKER_LOCK_FILE: () => WORKER_LOCK_FILE,
+  WORKER_STATE_FILE: () => WORKER_STATE_FILE,
+  acquireLock: () => acquireLock,
+  localDay: () => localDay,
+  lockHeld: () => lockHeld,
+  maybeStartWorker: () => maybeStartWorker,
+  pidAlive: () => pidAlive,
+  readLock: () => readLock,
+  readWorkerState: () => readWorkerState,
+  releaseLock: () => releaseLock,
+  runWorker: () => runWorker,
+  shouldStartWorker: () => shouldStartWorker,
+  spawnDetached: () => spawnDetached,
+  workerEnabled: () => workerEnabled,
+  workerLimits: () => workerLimits,
+  writeWorkerState: () => writeWorkerState
+});
+import { spawn as spawn2 } from "node:child_process";
+import { closeSync, existsSync as existsSync4, openSync, readFileSync as readFileSync4, renameSync as renameSync2, rmSync as rmSync2, writeSync } from "node:fs";
+import { join as join22 } from "node:path";
+function int2(v) {
+  const n = v === void 0 ? NaN : Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : void 0;
+}
+function workerLimits(env, config2 = {}) {
+  const w = config2.worker ?? {};
+  const intervalSec = int2(env.GLASSBOX_WORKER_MIN_INTERVAL_SEC) ?? w.minIntervalSec;
+  return {
+    dailyCalls: int2(env.GLASSBOX_WORKER_DAILY_CALLS) ?? (w.dailyCalls !== void 0 ? Math.floor(w.dailyCalls) : DEFAULT_WORKER_LIMITS.dailyCalls),
+    minIntervalMs: intervalSec !== void 0 ? intervalSec * 1e3 : DEFAULT_WORKER_LIMITS.minIntervalMs,
+    maxNodesPerRun: int2(env.GLASSBOX_WORKER_MAX_NODES) ?? (w.maxNodesPerRun !== void 0 ? Math.floor(w.maxNodesPerRun) : DEFAULT_WORKER_LIMITS.maxNodesPerRun),
+    lockMaxAgeMs: DEFAULT_WORKER_LIMITS.lockMaxAgeMs
+  };
+}
+function workerEnabled(env, config2 = {}) {
+  return featureEnabled(env, { env: "GLASSBOX_WORKER", plugin: "CLAUDE_PLUGIN_OPTION_WORKER" }, config2.worker?.enabled, true);
+}
+function localDay(now) {
+  const d = new Date(now);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function storeFile(root2, name2) {
+  const dir = join22(root2, STORE_DIR4);
+  assertNotSymlinkSync(dir);
+  const file2 = join22(dir, name2);
+  assertNotSymlinkSync(file2);
+  return file2;
+}
+function readWorkerState(root2, now = Date.now()) {
+  const day = localDay(now);
+  let raw = {};
+  try {
+    raw = JSON.parse(readFileSync4(storeFile(root2, WORKER_STATE_FILE), "utf8"));
+  } catch {
+    raw = {};
+  }
+  const num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
+  const state = { day, callsToday: raw.day === day ? num(raw.callsToday) ?? 0 : 0 };
+  for (const k of ["lastSpawnAt", "lastStartedAt", "lastFinishedAt"]) {
+    const v = num(raw[k]);
+    if (v !== void 0) state[k] = v;
+  }
+  if (raw.lastResult && typeof raw.lastResult === "object") state.lastResult = raw.lastResult;
+  if (typeof raw.lastError === "string") state.lastError = raw.lastError.slice(0, 500);
+  if (typeof raw.lastSkip === "string") state.lastSkip = raw.lastSkip.slice(0, 200);
+  return state;
+}
+function writeWorkerState(root2, state) {
+  const file2 = storeFile(root2, WORKER_STATE_FILE);
+  const tmp = `${file2}.${process.pid}.tmp`;
+  try {
+    const fd = openSync(tmp, "wx", 420);
+    try {
+      writeSync(fd, `${JSON.stringify(state, null, 2)}
+`);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync2(tmp, file2);
+  } catch (err2) {
+    rmSync2(tmp, { force: true });
+    throw err2;
+  }
+}
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err2) {
+    return err2.code === "EPERM";
+  }
+}
+function readLock(root2) {
+  try {
+    const v = JSON.parse(readFileSync4(storeFile(root2, WORKER_LOCK_FILE), "utf8"));
+    if (typeof v.pid === "number" && typeof v.startedAt === "number") return { pid: v.pid, startedAt: v.startedAt };
+    return { pid: -1, startedAt: 0 };
+  } catch (err2) {
+    if (err2.code === "ENOENT") return void 0;
+    return { pid: -1, startedAt: Date.now() };
+  }
+}
+function lockHeld(lock, now, maxAgeMs = DEFAULT_WORKER_LIMITS.lockMaxAgeMs, alive = pidAlive) {
+  if (!lock) return false;
+  if (now - lock.startedAt > maxAgeMs) return false;
+  return lock.pid === -1 || alive(lock.pid);
+}
+function acquireLock(root2, now = Date.now(), opts = {}) {
+  const file2 = storeFile(root2, WORKER_LOCK_FILE);
+  const existing = readLock(root2);
+  if (existing) {
+    if (lockHeld(existing, now, opts.maxAgeMs, opts.alive)) return false;
+    rmSync2(file2, { force: true });
+  }
+  let fd;
+  try {
+    fd = openSync(file2, "wx", 420);
+  } catch (err2) {
+    if (err2.code === "EEXIST") return false;
+    throw err2;
+  }
+  try {
+    writeSync(fd, JSON.stringify({ pid: opts.pid ?? process.pid, startedAt: now }));
+  } finally {
+    closeSync(fd);
+  }
+  return true;
+}
+function releaseLock(root2) {
+  try {
+    rmSync2(storeFile(root2, WORKER_LOCK_FILE), { force: true });
+  } catch {
+  }
+}
+function shouldStartWorker(root2, env, now = Date.now(), config2) {
+  if (env.GLASSBOX_NESTED === "1") return { start: false, reason: "nested glassbox call" };
+  if (!existsSync4(join22(root2, STORE_DIR4, STORE_FILE3))) return { start: false, reason: "no glassbox graph" };
+  const cfg = config2 ?? loadProjectConfigSafe(root2);
+  if (!workerEnabled(env, cfg)) return { start: false, reason: "worker disabled" };
+  const limits = workerLimits(env, cfg);
+  if (lockHeld(readLock(root2), now, limits.lockMaxAgeMs)) return { start: false, reason: "a worker is running" };
+  const state = readWorkerState(root2, now);
+  if (state.callsToday >= limits.dailyCalls) return { start: false, reason: "daily call budget used" };
+  const last = Math.max(state.lastSpawnAt ?? 0, state.lastStartedAt ?? 0);
+  if (now - last < limits.minIntervalMs) return { start: false, reason: "rate limited" };
+  return { start: true };
+}
+function maybeStartWorker(root2, opts) {
+  try {
+    const now = opts.now ?? Date.now();
+    const decision = shouldStartWorker(root2, opts.env, now);
+    if (!decision.start) return decision;
+    const state = readWorkerState(root2, now);
+    writeWorkerState(root2, { ...state, lastSpawnAt: now });
+    const env = { ...opts.env };
+    if (opts.host) env.GLASSBOX_HOST = opts.host;
+    (opts.spawner ?? spawnDetached)(process.execPath, [opts.entry, "worker", "run", "--root", root2, "--quiet"], { cwd: root2, env });
+    return decision;
+  } catch (err2) {
+    return { start: false, reason: `could not start: ${err2 instanceof Error ? err2.message : String(err2)}` };
+  }
+}
+async function runWorker(root2, opts) {
+  const now = opts.now ?? Date.now;
+  const config2 = loadProjectConfigSafe(root2);
+  const limits = workerLimits(opts.env, config2);
+  if (!existsSync4(join22(root2, STORE_DIR4, STORE_FILE3))) return { ran: false, reason: "no glassbox graph", state: readWorkerState(root2, now()) };
+  if (!acquireLock(root2, now(), { maxAgeMs: limits.lockMaxAgeMs })) {
+    return { ran: false, reason: "a worker is running", state: readWorkerState(root2, now()) };
+  }
+  let state = readWorkerState(root2, now());
+  const skip = (reason) => {
+    state = { ...state, lastSkip: reason };
+    writeWorkerState(root2, state);
+    return { ran: false, reason, state };
+  };
+  try {
+    if (state.callsToday >= limits.dailyCalls) return skip("daily call budget used");
+    if (!opts.ignoreInterval && state.lastStartedAt !== void 0 && now() - state.lastStartedAt < limits.minIntervalMs) {
+      return skip("rate limited");
+    }
+    const startedAt = now();
+    state = { ...state, lastStartedAt: startedAt };
+    delete state.lastSkip;
+    writeWorkerState(root2, state);
+    const [{ GraphStore: GraphStore2 }, { indexRepo: indexRepo2 }, { tagPass: tagPass2, isTagTarget: isTagTarget2, tagsFresh: tagsFresh2, defaultTagQuestions: defaultTagQuestions2, inferAreas: inferAreas2 }] = await Promise.all([
+      Promise.resolve().then(() => (init_store2(), store_exports)),
+      Promise.resolve().then(() => (init_source(), source_exports)),
+      Promise.resolve().then(() => (init_tags(), tags_exports))
+    ]);
+    const store = GraphStore2.open(root2);
+    try {
+      await indexRepo2(root2, store);
+      const all = store.getNodes();
+      const qids = Object.keys(defaultTagQuestions2(inferAreas2(all.map((n) => n.file))));
+      const todo = all.filter((n) => isTagTarget2(n) && !tagsFresh2(store, n, qids)).length;
+      if (todo === 0) return skip("nothing stale");
+      const backend = opts.backend();
+      const runsPerCall = Math.max(1, backend.samples ?? 1);
+      const affordable = Math.floor((limits.dailyCalls - state.callsToday) / runsPerCall);
+      const limit = Math.min(limits.maxNodesPerRun, affordable);
+      if (limit <= 0) return skip("daily call budget used");
+      const r = await tagPass2(root2, backend, { store, limit, concurrency: 2, decide: { permutations: 1 } });
+      const calls = r.calls + r.failed.length;
+      const summary = {
+        asked: r.asked,
+        tags: r.tags,
+        deferred: r.deferred,
+        failed: r.failed.length,
+        modelRuns: calls * runsPerCall,
+        latencyMs: r.latencyMs
+      };
+      state = { ...readWorkerState(root2, now()), lastFinishedAt: now(), lastResult: summary };
+      state.callsToday += summary.modelRuns;
+      if (state.lastStartedAt === void 0) state.lastStartedAt = startedAt;
+      if (r.failed.length) state.lastError = r.failed[0].error.slice(0, 500);
+      else delete state.lastError;
+      writeWorkerState(root2, state);
+      return { ran: true, summary, state };
+    } finally {
+      store.close();
+    }
+  } catch (err2) {
+    state = { ...state, lastFinishedAt: now(), lastError: (err2 instanceof Error ? err2.message : String(err2)).slice(0, 500) };
+    try {
+      writeWorkerState(root2, state);
+    } catch {
+    }
+    return { ran: false, reason: state.lastError, state };
+  } finally {
+    releaseLock(root2);
+  }
+}
+var STORE_DIR4, STORE_FILE3, WORKER_STATE_FILE, WORKER_LOCK_FILE, DEFAULT_WORKER_LIMITS, spawnDetached;
+var init_worker = __esm({
+  "src/worker/index.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_project_config();
+    init_safefs();
+    STORE_DIR4 = ".glassbox";
+    STORE_FILE3 = "graph.db";
+    WORKER_STATE_FILE = "worker.json";
+    WORKER_LOCK_FILE = "worker.lock";
+    DEFAULT_WORKER_LIMITS = Object.freeze({
+      dailyCalls: 100,
+      minIntervalMs: 6e4,
+      maxNodesPerRun: 24,
+      lockMaxAgeMs: 30 * 6e4
+    });
+    spawnDetached = (cmd, args2, opts) => {
+      const child = spawn2(cmd, [...args2], { cwd: opts.cwd, env: opts.env, detached: true, stdio: "ignore", windowsHide: true });
+      child.on("error", () => {
+      });
+      child.unref();
+    };
+  }
+});
+
+// src/status.ts
+var status_exports = {};
+__export(status_exports, {
+  ambientEnabled: () => ambientEnabled,
+  gateEnabled: () => gateEnabled,
+  renderStatus: () => renderStatus,
+  status: () => status
+});
+import { existsSync as existsSync5, readFileSync as readFileSync5 } from "node:fs";
+import { join as join23 } from "node:path";
+function ambientEnabled(env, config2) {
+  return featureEnabled(env, { env: "GLASSBOX_AMBIENT", plugin: "CLAUDE_PLUGIN_OPTION_AMBIENT" }, config2.ambient?.enabled, false);
+}
+function gateEnabled(env, config2) {
+  return featureEnabled(env, { env: "GLASSBOX_GATE", plugin: "CLAUDE_PLUGIN_OPTION_GATE" }, config2.gate?.enabled, false);
+}
+async function graphStatus(root2) {
+  const [{ GraphStore: GraphStore2 }, { isTagTarget: isTagTarget2, tagsFresh: tagsFresh2, defaultTagQuestions: defaultTagQuestions2, inferAreas: inferAreas2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_store2(), store_exports)),
+    Promise.resolve().then(() => (init_tags(), tags_exports))
+  ]);
+  const store = GraphStore2.openForRead(root2);
+  if (!store) throw new Error("no graph");
+  try {
+    const nodes = store.getNodes();
+    const qids = Object.keys(defaultTagQuestions2(inferAreas2(nodes.map((n) => n.file))));
+    const targets = nodes.filter(isTagTarget2);
+    const indexedAt = store.indexedAt();
+    return {
+      files: nodes.filter((n) => n.kind === "file").length,
+      nodes: nodes.length,
+      edges: Number(store.db.prepare("SELECT COUNT(*) AS c FROM edges").get().c),
+      stale: nodes.filter((n) => n.stale).length,
+      tagTargets: targets.length,
+      tagged: targets.filter((n) => tagsFresh2(store, n, qids)).length,
+      ...indexedAt !== void 0 ? { indexedAt } : {}
+    };
+  } finally {
+    store.close();
+  }
+}
+async function status(root2, env, now = Date.now()) {
+  let config2 = {};
+  let configError;
+  try {
+    config2 = loadProjectConfig(root2);
+  } catch (err2) {
+    configError = err2 instanceof Error ? err2.message : String(err2);
+  }
+  let mode2;
+  try {
+    mode2 = resolveMode({ env, root: root2 });
+  } catch (err2) {
+    mode2 = { error: err2 instanceof Error ? err2.message : String(err2) };
+  }
+  let graph;
+  let graphError;
+  if (existsSync5(join23(root2, STORE_DIR5, STORE_FILE4))) {
+    try {
+      graph = await graphStatus(root2);
+    } catch (err2) {
+      graphError = err2 instanceof Error ? err2.message : String(err2);
+    }
+  }
+  const limits = workerLimits(env, config2);
+  const state = existsSync5(join23(root2, STORE_DIR5)) ? readWorkerState(root2, now) : { day: "", callsToday: 0 };
+  const lock = existsSync5(join23(root2, STORE_DIR5)) ? readLock(root2) : void 0;
+  const last = Math.max(state.lastSpawnAt ?? 0, state.lastStartedAt ?? 0);
+  let agentsMdBlock = false;
+  try {
+    agentsMdBlock = blockLineRange(readFileSync5(join23(root2, "AGENTS.md"), "utf8")) !== void 0;
+  } catch {
+    agentsMdBlock = false;
+  }
+  return {
+    root: root2,
+    ...graph ? { graph } : {},
+    ...graphError ? { graphError } : {},
+    mode: mode2,
+    ambient: ambientEnabled(env, config2),
+    gate: gateEnabled(env, config2),
+    worker: {
+      enabled: workerEnabled(env, config2),
+      ...lock && lockHeld(lock, now, limits.lockMaxAgeMs) ? { running: lock } : {},
+      limits,
+      state,
+      nextRunAt: last ? last + limits.minIntervalMs : now,
+      budgetLeft: Math.max(0, limits.dailyCalls - state.callsToday)
+    },
+    agentsMdBlock,
+    ...configError ? { configError } : {}
+  };
+}
+function time3(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function renderStatus(s, now = Date.now()) {
+  const out2 = [];
+  if (s.graph) {
+    const g = s.graph;
+    out2.push(
+      `graph    ${g.files} files, ${g.nodes} nodes, ${g.edges} edges, ${g.stale} stale; ${g.tagged}/${g.tagTargets} tag targets tagged` + (g.indexedAt ? `; parsed ${time3(g.indexedAt)}` : "")
+    );
+  } else if (s.graphError) out2.push(`graph    unreadable: ${s.graphError}`);
+  else out2.push("graph    none (run `glassbox init`)");
+  out2.push("mode" in s.mode ? `mode     ${s.mode.mode} (${s.mode.source === "default" ? "default" : `from ${s.mode.source}`})` : `mode     error: ${s.mode.error}`);
+  out2.push(`hooks    ambient ${s.ambient ? "on" : "off"}, gate ${s.gate ? "on" : "off"}, worker ${s.worker.enabled ? "on" : "off"}`);
+  const w = s.worker;
+  out2.push(
+    `worker   ${w.running ? `running (pid ${w.running.pid}, since ${time3(w.running.startedAt)})` : "idle"}; today ${w.state.callsToday}/${w.limits.dailyCalls} model runs` + (w.nextRunAt > now ? `; next run allowed ${time3(w.nextRunAt)}` : "")
+  );
+  if (w.state.lastResult && w.state.lastFinishedAt) {
+    const r = w.state.lastResult;
+    out2.push(
+      `         last run ${time3(w.state.lastFinishedAt)}: ${r.asked} nodes asked, ${r.modelRuns} model runs, ${r.failed} failed` + (r.deferred ? `, ${r.deferred} left for later` : "")
+    );
+  }
+  if (w.state.lastSkip) out2.push(`         last skip: ${w.state.lastSkip}`);
+  if (w.state.lastError) out2.push(`         last error: ${w.state.lastError}`);
+  out2.push(`agents   AGENTS.md block ${s.agentsMdBlock ? "present" : "missing"}`);
+  if (s.configError) out2.push(`config   ${s.configError}`);
+  return out2.join("\n");
+}
+var STORE_DIR5, STORE_FILE4;
+var init_status = __esm({
+  "src/status.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_sync();
+    init_modes();
+    init_project_config();
+    init_worker();
+    STORE_DIR5 = ".glassbox";
+    STORE_FILE4 = "graph.db";
+  }
+});
+
+// src/hooks/index.ts
+var hooks_exports = {};
+__export(hooks_exports, {
+  DEFAULT_GATE_TIMEOUT_MS: () => DEFAULT_GATE_TIMEOUT_MS,
+  GATE_STATE_FILE: () => GATE_STATE_FILE,
+  MAX_HOOK_INPUT: () => MAX_HOOK_INPUT,
+  editHooksEnabled: () => editHooksEnabled,
+  editedFiles: () => editedFiles,
+  findGraphRoot: () => findGraphRoot,
+  parseHookInput: () => parseHookInput,
+  postEditHook: () => postEditHook,
+  promptHook: () => promptHook,
+  readGateState: () => readGateState,
+  sessionStartHook: () => sessionStartHook,
+  stopHook: () => stopHook,
+  writeGateState: () => writeGateState
+});
+import { existsSync as existsSync6, readFileSync as readFileSync6, renameSync as renameSync3, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname10, join as join24, resolve as resolve4 } from "node:path";
+function parseHookInput(text2) {
+  if (!text2.trim() || text2.length > MAX_HOOK_INPUT) return {};
+  try {
+    const v = JSON.parse(text2);
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+    const o = v;
+    const out2 = {};
+    for (const k of ["hook_event_name", "session_id", "cwd", "prompt", "tool_name"]) {
+      if (typeof o[k] === "string") out2[k] = o[k];
+    }
+    if (typeof o.stop_hook_active === "boolean") out2.stop_hook_active = o.stop_hook_active;
+    if (o.tool_input !== void 0) out2.tool_input = o.tool_input;
+    return out2;
+  } catch {
+    return {};
+  }
+}
+function findGraphRoot(start2) {
+  let dir = resolve4(start2);
+  for (let i2 = 0; i2 < 40; i2++) {
+    if (existsSync6(join24(dir, STORE_DIR6, STORE_FILE5))) return dir;
+    if (existsSync6(join24(dir, ".git"))) return void 0;
+    const up = dirname10(dir);
+    if (up === dir) return void 0;
+    dir = up;
+  }
+  return void 0;
+}
+function rootFor(input2, ctx) {
+  const usable = (v) => v?.trim() && !v.includes("${") ? v.trim() : void 0;
+  const start2 = usable(ctx.root) ?? usable(ctx.env.CLAUDE_PROJECT_DIR) ?? usable(input2.cwd) ?? ctx.cwd;
+  return findGraphRoot(resolve4(ctx.cwd, start2));
+}
+function hostEnv(ctx) {
+  return ctx.host && !ctx.env.GLASSBOX_HOST?.trim() ? { ...ctx.env, GLASSBOX_HOST: ctx.host } : ctx.env;
+}
+function editHooksEnabled(env) {
+  return envFlag(env.GLASSBOX_HOOKS) ?? envFlag(env.CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS) ?? false;
+}
+function promptHook(input2, ctx) {
+  if (ctx.env.GLASSBOX_NESTED === "1") return "";
+  const root2 = rootFor(input2, ctx);
+  if (!root2) return "";
+  const config2 = loadProjectConfigSafe(root2);
+  if (!ambientEnabled(ctx.env, config2)) return "";
+  const prompt = (input2.prompt ?? "").slice(0, MAX_PROMPT);
+  if (!prompt.trim()) return "";
+  const a = config2.ambient ?? {};
+  const r = ambientContext({
+    root: root2,
+    prompt,
+    ...a.maxChars !== void 0 ? { maxChars: Math.min(a.maxChars, 4e3) } : {},
+    ...a.minScore !== void 0 ? { minScore: a.minScore } : {},
+    ...a.maxHits !== void 0 ? { maxHits: a.maxHits } : {}
+  });
+  if (!r.text) return "";
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: r.text } });
+}
+function editedFiles(toolInput) {
+  const out2 = /* @__PURE__ */ new Set();
+  const visit2 = (v, depth) => {
+    if (depth > 4 || v === null || v === void 0) return;
+    if (typeof v === "string") {
+      for (const m of v.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$|^\*\*\* Move to: (.+)$/gm)) {
+        const p = (m[1] ?? m[2])?.trim();
+        if (p) out2.add(p);
+      }
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const x of v.slice(0, 100)) visit2(x, depth + 1);
+      return;
+    }
+    if (typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) {
+        if ((k === "file_path" || k === "notebook_path" || k === "path") && typeof x === "string" && depth === 0) out2.add(x);
+        else visit2(x, depth + 1);
+      }
+    }
+  };
+  visit2(toolInput, 0);
+  return [...out2].filter((p) => p.length > 0 && p.length < 1024);
+}
+async function postEditHook(input2, ctx) {
+  if (ctx.env.GLASSBOX_NESTED === "1" || !editHooksEnabled(ctx.env)) return "";
+  const root2 = rootFor(input2, ctx);
+  if (!root2) return "";
+  const files = editedFiles(input2.tool_input);
+  if (files.length === 0) return "";
+  const { refresh: refresh2 } = await Promise.resolve().then(() => (init_refresh(), refresh_exports));
+  const r = await refresh2(root2, { files: files.map((f) => resolve4(input2.cwd ?? root2, f)) });
+  if (r.stale.length && ctx.entry) {
+    maybeStartWorker(root2, {
+      env: hostEnv(ctx),
+      entry: ctx.entry,
+      ...ctx.spawner ? { spawner: ctx.spawner } : {},
+      ...ctx.now ? { now: ctx.now() } : {},
+      ...ctx.host ? { host: ctx.host } : {}
+    });
+  }
+  return "";
+}
+async function sessionStartHook(input2, ctx) {
+  if (ctx.env.GLASSBOX_NESTED === "1" || !editHooksEnabled(ctx.env)) return "";
+  const root2 = rootFor(input2, ctx);
+  if (!root2) return "";
+  const { refresh: refresh2 } = await Promise.resolve().then(() => (init_refresh(), refresh_exports));
+  const r = await refresh2(root2, { syncMd: { claudeMd: false } });
+  if (r.stale.length && ctx.entry) {
+    maybeStartWorker(root2, {
+      env: hostEnv(ctx),
+      entry: ctx.entry,
+      ...ctx.spawner ? { spawner: ctx.spawner } : {},
+      ...ctx.now ? { now: ctx.now() } : {},
+      ...ctx.host ? { host: ctx.host } : {}
+    });
+  }
+  return "";
+}
+function gateFile(root2) {
+  const dir = join24(root2, STORE_DIR6);
+  assertNotSymlinkSync(dir);
+  const file2 = join24(dir, GATE_STATE_FILE);
+  assertNotSymlinkSync(file2);
+  return file2;
+}
+function readGateState(root2) {
+  try {
+    const v = JSON.parse(readFileSync6(gateFile(root2), "utf8"));
+    return typeof v.lastHash === "string" && typeof v.at === "number" ? v : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function writeGateState(root2, state) {
+  const file2 = gateFile(root2);
+  const tmp = `${file2}.${process.pid}.tmp`;
+  try {
+    writeFileSync3(tmp, `${JSON.stringify(state)}
+`, { flag: "wx" });
+    renameSync3(tmp, file2);
+  } catch {
+    rmSync3(tmp, { force: true });
+  }
+}
+async function stopHook(input2, ctx) {
+  if (ctx.env.GLASSBOX_NESTED === "1" || input2.stop_hook_active === true) return "";
+  const root2 = rootFor(input2, ctx);
+  if (!root2) return "";
+  const config2 = loadProjectConfigSafe(root2);
+  if (!gateEnabled(ctx.env, config2)) return "";
+  const { workingDiff: workingDiff2 } = await Promise.resolve().then(() => (init_git(), git_exports));
+  const diff = await workingDiff2(root2);
+  if (!diff.trim()) return "";
+  const hash2 = sha256(diff);
+  const now = ctx.now ?? Date.now;
+  if (readGateState(root2)?.lastHash === hash2) return "";
+  writeGateState(root2, { lastHash: hash2, at: now() });
+  const mode2 = config2.gate?.mode === "balanced" ? "balanced" : "fast";
+  const settings = MODE_SETTINGS[mode2];
+  const timeoutMs = Math.max(1e3, Math.min(config2.gate?.timeoutMs ?? envMs(ctx.env.GLASSBOX_GATE_TIMEOUT_MS) ?? DEFAULT_GATE_TIMEOUT_MS, 6e5));
+  const abort2 = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      abort2.abort(new GateTimeout("gate timed out"));
+      reject(new GateTimeout("gate timed out"));
+    }, timeoutMs);
+  });
+  try {
+    const reason = await Promise.race([gate(root2, diff, ctx, settings, abort2.signal), timeout]);
+    writeGateState(root2, { lastHash: hash2, at: now(), outcome: reason ? "block" : "pass" });
+    return reason ? JSON.stringify({ decision: "block", reason }) : "";
+  } catch (err2) {
+    writeGateState(root2, { lastHash: hash2, at: now(), outcome: err2 instanceof GateTimeout ? "timeout" : "error" });
+    return "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function envMs(v) {
+  const n = v === void 0 ? NaN : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : void 0;
+}
+async function gate(root2, diff, ctx, settings, signal) {
+  if (!ctx.backend) return "";
+  const [{ GraphStore: GraphStore2 }, { triage: triage2 }] = await Promise.all([Promise.resolve().then(() => (init_store2(), store_exports)), Promise.resolve().then(() => (init_triage(), triage_exports))]);
+  const store = GraphStore2.open(root2);
+  try {
+    if (store.getNodes({ kind: "file" }).length === 0) return "";
+    const backend = ctx.backend({ env: hostEnv(ctx), ...settings.samples !== void 0 ? { samples: settings.samples } : {} });
+    const r = await triage2(diff, {
+      store,
+      root: root2,
+      backend,
+      explain: false,
+      decide: { ...settings.permutations !== void 0 ? { permutations: settings.permutations } : {}, signal }
+    });
+    const risky = r.hunks.filter((h) => h.level === "High" && h.answer.band === "act");
+    if (risky.length === 0) return "";
+    const lines = risky.slice(0, MAX_REASON_HUNKS).map((h) => {
+      const names = h.nodes.map((id) => store.getNode(id)?.name ?? id).slice(0, 3).join(", ");
+      return `- ${h.file}:${h.startLine}-${h.endLine} (${names}) High risk, p=${h.p.toFixed(2)}`;
+    });
+    if (risky.length > MAX_REASON_HUNKS) lines.push(`- and ${risky.length - MAX_REASON_HUNKS} more`);
+    const callers = r.affected.slice(0, 5).map((a) => `${a.name} (${a.file}:${a.line})`);
+    return [
+      `glassbox gate: ${risky.length} changed hunk${risky.length === 1 ? "" : "s"} rated High risk with high confidence (decision ${r.record.id ?? "unlogged"}):`,
+      ...lines,
+      ...callers.length ? [`Direct callers: ${callers.join(", ")}.`] : [],
+      "Check these lines (and their tests) before finishing, or state why they are safe. This check runs once per diff."
+    ].join("\n");
+  } finally {
+    store.close();
+  }
+}
+var STORE_DIR6, STORE_FILE5, GATE_STATE_FILE, MAX_HOOK_INPUT, MAX_PROMPT, DEFAULT_GATE_TIMEOUT_MS, MAX_REASON_HUNKS, GateTimeout;
+var init_hooks = __esm({
+  "src/hooks/index.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_context();
+    init_modes();
+    init_project_config();
+    init_status();
+    init_hash();
+    init_safefs();
+    init_worker();
+    STORE_DIR6 = ".glassbox";
+    STORE_FILE5 = "graph.db";
+    GATE_STATE_FILE = "gate.json";
+    MAX_HOOK_INPUT = 1024 * 1024;
+    MAX_PROMPT = 2e4;
+    DEFAULT_GATE_TIMEOUT_MS = 45e3;
+    MAX_REASON_HUNKS = 6;
+    GateTimeout = class extends Error {
+    };
+  }
+});
+
+// src/launcher.ts
+var launcher_exports = {};
+__export(launcher_exports, {
+  AGENTS: () => AGENTS,
+  graphOutOfDate: () => graphOutOfDate,
+  isAgent: () => isAgent,
+  launch: () => launch,
+  launchPlan: () => launchPlan,
+  spawnForeground: () => spawnForeground
+});
+import { spawn as spawn3 } from "node:child_process";
+import { statSync as statSync2 } from "node:fs";
+import { join as join25 } from "node:path";
+function isAgent(v) {
+  return AGENTS.includes(v);
+}
+async function graphOutOfDate(root2) {
+  const { GraphStore: GraphStore2 } = await Promise.resolve().then(() => (init_store2(), store_exports));
+  const store = GraphStore2.openForRead(root2);
+  if (!store) return false;
+  try {
+    const at = store.indexedAt();
+    if (at === void 0) return true;
+    for (const n of store.getNodes({ kind: "file" })) {
+      try {
+        if (statSync2(join25(root2, n.file)).mtimeMs > at) return true;
+      } catch {
+        return true;
+      }
+    }
+    return false;
+  } finally {
+    store.close();
+  }
+}
+function launchPlan(opts) {
+  const name2 = opts.env[BIN_ENV[opts.agent]]?.trim() || opts.agent;
+  const bin = findOnPath(name2, opts.env);
+  if (!bin) throw new Error(`"${name2}" was not found on PATH; install it or set ${BIN_ENV[opts.agent]}`);
+  const resolved = resolveMode({ explicit: opts.mode, env: opts.env, root: opts.root });
+  const env = { ...opts.env, GLASSBOX_HOST: HOST[opts.agent] };
+  if (resolved.source !== "default") env.GLASSBOX_MODE = resolved.mode;
+  delete env.GLASSBOX_NESTED;
+  return { bin, args: [...opts.args], env };
+}
+async function launch(opts) {
+  let plan;
+  try {
+    plan = launchPlan(opts);
+  } catch (err2) {
+    opts.log(`glassbox: ${err2 instanceof Error ? err2.message : String(err2)}`);
+    return 127;
+  }
+  const { hasGraph: hasGraph2, refresh: refresh2 } = await Promise.resolve().then(() => (init_refresh(), refresh_exports));
+  if (hasGraph2(opts.root)) {
+    if (opts.refresh !== false) {
+      try {
+        if (await graphOutOfDate(opts.root)) {
+          const r = await refresh2(opts.root, { syncMd: { claudeMd: false } });
+          if (r.sync) opts.log(`glassbox: graph refreshed (+${r.sync.added.length} ~${r.sync.changed.length} -${r.sync.removed.length})`);
+        }
+      } catch (err2) {
+        opts.log(`glassbox: refresh skipped: ${err2 instanceof Error ? err2.message : String(err2)}`);
+      }
+    }
+    if (opts.entry) {
+      maybeStartWorker(opts.root, {
+        env: plan.env,
+        entry: opts.entry,
+        host: HOST[opts.agent],
+        ...opts.workerSpawner ? { spawner: opts.workerSpawner } : {}
+      });
+    }
+  }
+  const exit = await (opts.spawner ?? spawnForeground)(plan.bin, plan.args, { cwd: opts.cwd ?? opts.root, env: plan.env });
+  if (exit.code !== null) return exit.code;
+  const signals = { SIGHUP: 1, SIGINT: 2, SIGKILL: 9, SIGTERM: 15 };
+  return 128 + (exit.signal ? signals[exit.signal] ?? 1 : 1);
+}
+var AGENTS, HOST, BIN_ENV, FORWARDED, spawnForeground;
+var init_launcher = __esm({
+  "src/launcher.ts"() {
+    "use strict";
+    init_define_GLASSBOX_BUNDLE();
+    init_process();
+    init_modes();
+    init_worker();
+    AGENTS = ["claude", "codex"];
+    HOST = { claude: "claude-code", codex: "codex" };
+    BIN_ENV = { claude: "GLASSBOX_CLAUDE_BIN", codex: "GLASSBOX_CODEX_BIN" };
+    FORWARDED = ["SIGINT", "SIGTERM", "SIGHUP"];
+    spawnForeground = (cmd, args2, opts) => new Promise((resolve6, reject) => {
+      const child = spawn3(cmd, [...args2], { cwd: opts.cwd, env: opts.env, stdio: "inherit" });
+      const handlers = FORWARDED.map((sig) => {
+        const h = () => {
+          if (sig !== "SIGINT") child.kill(sig);
+        };
+        process.on(sig, h);
+        return [sig, h];
+      });
+      const cleanup = () => {
+        for (const [sig, h] of handlers) process.off(sig, h);
+      };
+      child.on("error", (e) => {
+        cleanup();
+        reject(e);
+      });
+      child.on("exit", (code, signal) => {
+        cleanup();
+        resolve6({ code, signal });
+      });
+    });
+  }
+});
+
 // src/cli/index.ts
 init_define_GLASSBOX_BUNDLE();
-import { realpathSync as realpathSync3 } from "node:fs";
+import { realpathSync as realpathSync4 } from "node:fs";
 import { readFile as readFile11 } from "node:fs/promises";
-import { resolve as resolve4 } from "node:path";
+import { resolve as resolve5 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // node_modules/commander/esm.mjs
@@ -57680,7 +58990,7 @@ async function runBench(bench, opts) {
   const results = /* @__PURE__ */ new Map();
   const latencies = [];
   let decideCalls = 0;
-  let done = 0;
+  let done2 = 0;
   await mapLimit(groups, Math.max(1, opts.concurrency ?? 2), async (g) => {
     try {
       const { chunks } = await buildScope({ paths: g.paths }, { root: bench.repos[g.repo] });
@@ -57707,8 +59017,8 @@ async function runBench(bench, opts) {
       const msg = err2 instanceof Error ? err2.message : String(err2);
       for (const i2 of g.items) results.set(i2.id, { id: i2.id, type: i2.type, truth: i2.truth, error: msg });
     }
-    done += g.items.length;
-    opts.onProgress?.(`bench  ${done}/${items.length} questions`);
+    done2 += g.items.length;
+    opts.onProgress?.(`bench  ${done2}/${items.length} questions`);
   });
   const ordered = items.map((i2) => results.get(i2.id));
   const pairs = items.map((i2, k) => ({ item: i2, s: sampleOf(ordered[k], i2) })).filter((x) => x.s !== void 0);
@@ -57909,6 +59219,8 @@ init_render3();
 init_triage();
 init_where();
 init_sync();
+init_modes();
+var CLI_ENTRY = fileURLToPath3(import.meta.url);
 function version3() {
   return packageVersion();
 }
@@ -57924,7 +59236,7 @@ var defaultIo = {
   env: process.env,
   cwd: process.cwd()
 };
-function int2(name2, min) {
+function int3(name2, min) {
   return (v) => {
     const n = Number(v);
     if (!Number.isInteger(n) || n < min) throw new InvalidArgumentError(`${name2} must be an integer >= ${min}`);
@@ -57940,51 +59252,68 @@ function collect(v, prev = []) {
   return [...prev, ...v.includes("=") ? [v] : v.split(",").map((s) => s.trim()).filter(Boolean)];
 }
 async function runAsk(words, flags2, io) {
-  const root2 = resolve4(io.cwd, flags2.root ?? ".");
+  const root2 = resolve5(io.cwd, flags2.root ?? ".");
   const scope = {};
   if (flags2.path?.length) scope.paths = flags2.path;
   if (flags2.node?.length) scope.nodes = flags2.node;
-  if (flags2.diff !== void 0) scope.diff = flags2.diff === "-" ? await io.readStdin() : await readFile11(resolve4(io.cwd, flags2.diff), "utf8");
+  if (flags2.diff !== void 0) scope.diff = flags2.diff === "-" ? await io.readStdin() : await readFile11(resolve5(io.cwd, flags2.diff), "utf8");
   if (!scope.paths && !scope.nodes && scope.diff === void 0) scope.paths = ["."];
   if (flags2.backend !== void 0 && !isBackendName(flags2.backend)) {
     io.stderr(`glassbox: unknown backend "${flags2.backend}"
 `);
     return 2;
   }
-  const backend = createBackend({
-    env: io.env,
-    ...flags2.backend ? { backend: flags2.backend } : {},
-    ...flags2.model ? { model: flags2.model } : {},
-    ...flags2.samples !== void 0 ? { samples: flags2.samples } : {},
-    ...io.backendConfig
-  });
-  const explain = flags2.explain ? {
-    ...flags2.budget !== void 0 ? { budget: flags2.budget } : {},
-    ...flags2.topK !== void 0 ? { topK: flags2.topK } : {},
-    ...flags2.minDelta !== void 0 ? { minDelta: flags2.minDelta } : {}
-  } : false;
-  const opts = {
-    backend,
-    root: root2,
-    explain,
-    log: flags2.log,
-    ...flags2.why !== void 0 ? { why: flags2.why } : {},
-    ...flags2.reasons?.length ? { reasons: parseReasons(flags2.reasons) } : {},
-    ...permutations(flags2, await loadCalibrators(root2, backend)),
-    ...flags2.chunkLines !== void 0 ? { chunkLines: flags2.chunkLines } : {}
-  };
-  const result = await ask(scope, makeQuestion(words.join(" "), flags2.type, flags2.options ?? []), opts);
-  io.stdout(`${flags2.json ? renderJson(result) : renderPretty(result)}
-`);
+  const resolved = modeOf(flags2, io, root2);
+  const question = makeQuestion(words.join(" "), flags2.type, flags2.options ?? []);
+  const run2 = await runWithMode(
+    resolved.mode,
+    async (_m, s) => {
+      const backend = backendFrom(flags2, io, s);
+      const explainOn = flags2.explain ?? s.explain ?? false;
+      const explain = explainOn ? {
+        ...flags2.budget !== void 0 ? { budget: flags2.budget } : {},
+        ...flags2.topK !== void 0 ? { topK: flags2.topK } : {},
+        ...flags2.minDelta !== void 0 ? { minDelta: flags2.minDelta } : {}
+      } : false;
+      const why = flags2.why ?? s.why;
+      const decide3 = modeDecideOptions(s, flags2.permutations, await loadCalibrators(root2, backend));
+      const opts = {
+        backend,
+        root: root2,
+        explain,
+        log: flags2.log,
+        ...why !== void 0 ? { why } : {},
+        ...flags2.reasons?.length ? { reasons: parseReasons(flags2.reasons) } : {},
+        ...decide3 ? { decide: decide3 } : {},
+        ...flags2.chunkLines !== void 0 ? { chunkLines: flags2.chunkLines } : {}
+      };
+      return ask(scope, question, opts);
+    },
+    (r) => r.answer.band
+  );
+  const report = modeReport(resolved, run2);
+  const result = run2.result;
+  io.stdout(
+    `${flags2.json ? JSON.stringify(withModeJson(JSON.parse(renderJson(result)), report), null, 2) : withModeText(renderPretty(result), report)}
+`
+  );
   return 0;
 }
-function backendFrom(flags2, io) {
+function modeOf(flags2, io, root2) {
+  try {
+    return resolveMode({ explicit: flags2.mode, env: io.env, root: root2 });
+  } catch (err2) {
+    throw new UsageError(err2 instanceof Error ? err2.message : String(err2));
+  }
+}
+function backendFrom(flags2, io, mode2 = {}) {
   if (flags2.backend !== void 0 && !isBackendName(flags2.backend)) throw new UsageError(`unknown backend "${flags2.backend}"`);
+  const samples = flags2.samples ?? mode2.samples;
   return createBackend({
     env: io.env,
     ...flags2.backend ? { backend: flags2.backend } : {},
     ...flags2.model ? { model: flags2.model } : {},
-    ...flags2.samples !== void 0 ? { samples: flags2.samples } : {},
+    ...samples !== void 0 ? { samples } : {},
     ...io.backendConfig
   });
 }
@@ -57994,7 +59323,7 @@ async function openStore2(root2) {
   return (await Promise.resolve().then(() => (init_store2(), store_exports))).GraphStore.open(root2);
 }
 function rootOf(flags2, io) {
-  return resolve4(io.cwd, flags2.root ?? ".");
+  return resolve5(io.cwd, flags2.root ?? ".");
 }
 function permutations(flags2, calibrators = {}) {
   const has = Object.keys(calibrators).length > 0;
@@ -58054,7 +59383,7 @@ async function runIndex(flags2, io, store, root2) {
 }
 async function readDiff(flags2, io, root2) {
   if (flags2.diff === "-") return io.readStdin();
-  if (flags2.diff !== void 0) return readFile11(resolve4(io.cwd, flags2.diff), "utf8");
+  if (flags2.diff !== void 0) return readFile11(resolve5(io.cwd, flags2.diff), "utf8");
   return workingDiff(root2);
 }
 function findNode(store, ref) {
@@ -58063,16 +59392,20 @@ function findNode(store, ref) {
   const matches = store.getNodes().filter((n) => n.name === ref || n.name.endsWith(`.${ref}`) || n.id.endsWith(`#${ref}`));
   return { node: matches.length === 1 ? matches[0] : void 0, matches };
 }
+var MODE_HELP = `${MODES.join(" | ")} (default GLASSBOX_MODE, .glassbox/config.json, else balanced)`;
+function addModeOption(cmd) {
+  return cmd.addOption(new Option("--mode <mode>", MODE_HELP).choices([...MODES]));
+}
 function addBackendOptions(cmd) {
-  return cmd.option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id (default GLASSBOX_MODEL or the backend default)").option("--samples <k>", "samples averaged per call on sampling backends", int2("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int2("permutations", 1));
+  return cmd.option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id (default GLASSBOX_MODEL or the backend default)").option("--samples <k>", "samples averaged per call on sampling backends", int3("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int3("permutations", 1));
 }
 function buildProgram(io, setCode) {
-  const program2 = new Command("glassbox").description("Fast typed decisions about code, with reasons. Runs on the host agent's own model.").version(version3(), "-v, --version").exitOverride().configureOutput({ writeOut: io.stdout, writeErr: io.stderr });
-  program2.command("ask").description("answer a typed question about files, a diff or graph nodes").argument("<question...>", 'the question, e.g. "does this change auth behavior?"').addOption(new Option("-t, --type <type>", "question type").choices(["yesno", "choice", "score"]).default("yesno")).option("-o, --options <items>", "choice: key or key=description; score: levels lowest first (repeatable or comma-separated)", collect).option("-p, --path <paths...>", "files or directories to ask about (default: the root)").option("-d, --diff <file>", 'a unified diff file to ask about ("-" reads stdin)').option("-n, --node <ids...>", "graph node ids, e.g. src/auth/session.ts#verifySession").option("-e, --explain", "find evidence by hiding spans and re-asking, plus reasons and a summary").option("--why", "always add a one-line why (default: only when confidence is below the act band)").option("--no-why", "never add the one-line why").option("-r, --reasons <codes>", "reason codes to check: code or code=question (repeatable or comma-separated)", collect).option("--budget <calls>", "most backend calls the explanation may spend (default 24)", int2("budget", 0)).option("--top-k <n>", "spans to hide and re-ask, most relevant first (default 12)", int2("top-k", 0)).option("--min-delta <p>", "smallest |delta p| kept as a highlight (default 0.05)", fraction).option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id (default GLASSBOX_MODEL or the backend default)").option("--samples <k>", "samples averaged per call on sampling backends", int2("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int2("permutations", 1)).option("--chunk-lines <n>", "longest span in lines (default 8)", int2("chunk-lines", 1)).option("--root <dir>", "repo root (default: the current directory)").option("--no-log", "do not append to .glassbox/decisions.jsonl").option("--json", "print JSON instead of the readable format").action(async (words, flags2) => {
+  const program2 = new Command("glassbox").description("Fast typed decisions about code, with reasons. Runs on the host agent's own model.").enablePositionalOptions().version(version3(), "-v, --version").exitOverride().configureOutput({ writeOut: io.stdout, writeErr: io.stderr });
+  program2.command("ask").description("answer a typed question about files, a diff or graph nodes").argument("<question...>", 'the question, e.g. "does this change auth behavior?"').addOption(new Option("-t, --type <type>", "question type").choices(["yesno", "choice", "score"]).default("yesno")).option("-o, --options <items>", "choice: key or key=description; score: levels lowest first (repeatable or comma-separated)", collect).option("-p, --path <paths...>", "files or directories to ask about (default: the root)").option("-d, --diff <file>", 'a unified diff file to ask about ("-" reads stdin)').option("-n, --node <ids...>", "graph node ids, e.g. src/auth/session.ts#verifySession").option("-e, --explain", "find evidence by hiding spans and re-asking, plus reasons and a summary").option("--why", "always add a one-line why (default: only when confidence is below the act band)").option("--no-why", "never add the one-line why").option("-r, --reasons <codes>", "reason codes to check: code or code=question (repeatable or comma-separated)", collect).option("--budget <calls>", "most backend calls the explanation may spend (default 24)", int3("budget", 0)).option("--top-k <n>", "spans to hide and re-ask, most relevant first (default 12)", int3("top-k", 0)).option("--min-delta <p>", "smallest |delta p| kept as a highlight (default 0.05)", fraction).option("-b, --backend <name>", "auto | claude-cli | codex-cli | anthropic | openai-compat | fake (default GLASSBOX_BACKEND or auto)").option("-m, --model <id>", "model id (default GLASSBOX_MODEL or the backend default)").option("--samples <k>", "samples averaged per call on sampling backends", int3("samples", 1)).option("--permutations <n>", "option orders averaged per question (default 2)", int3("permutations", 1)).option("--chunk-lines <n>", "longest span in lines (default 8)", int3("chunk-lines", 1)).addOption(new Option("--mode <mode>", MODE_HELP).choices([...MODES])).option("--root <dir>", "repo root (default: the current directory)").option("--no-log", "do not append to .glassbox/decisions.jsonl").option("--json", "print JSON instead of the readable format").action(async (words, flags2) => {
     setCode(await runAsk(words, flags2, io));
   });
   const indexCmd = (name2, description, sync) => {
-    const cmd = addBackendOptions(program2.command(name2).description(description)).option("--no-tags", "only build the code graph, skip the tag questions").option("--force", "re-ask tags for every node, cached or not").option("--concurrency <n>", "tag calls in flight at once (default 4)", int2("concurrency", 1)).option("--group-size <n>", "nodes asked about in one call (default 4)", int2("group-size", 1)).option("--limit <n>", "ask about at most this many nodes now; the rest stay stale", int2("limit", 0)).option("--root <dir>", "repo root (default: the current directory)").option("-q, --quiet", "no progress lines").option("--json", "print JSON");
+    const cmd = addBackendOptions(program2.command(name2).description(description)).option("--no-tags", "only build the code graph, skip the tag questions").option("--force", "re-ask tags for every node, cached or not").option("--concurrency <n>", "tag calls in flight at once (default 4)", int3("concurrency", 1)).option("--group-size <n>", "nodes asked about in one call (default 4)", int3("group-size", 1)).option("--limit <n>", "ask about at most this many nodes now; the rest stay stale", int3("limit", 0)).option("--root <dir>", "repo root (default: the current directory)").option("-q, --quiet", "no progress lines").option("--json", "print JSON");
     if (sync) cmd.option("--no-claude-md", "do not create CLAUDE.md (an existing one still gets the @AGENTS.md import)");
     return cmd.action(async (flags2) => {
       const root2 = rootOf(flags2, io);
@@ -58090,74 +59423,116 @@ function buildProgram(io, setCode) {
   };
   indexCmd("init", "index the code graph, tag it, and write the AGENTS.md block (plus the CLAUDE.md import)", true);
   indexCmd("index", "index the code graph and tag changed nodes (cached by content hash)", false);
-  addBackendOptions(
-    program2.command("where").description('rank the code most likely to implement a concept, e.g. "billing retries"').argument("<concept...>", "what to look for")
-  ).option("--top <n>", "hits to show (default 5)", int2("top", 1)).option("--candidates <n>", "prefiltered nodes the model checks (default 8)", int2("candidates", 1)).option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (words, flags2) => {
+  addModeOption(
+    addBackendOptions(
+      program2.command("where").description('rank the code most likely to implement a concept, e.g. "billing retries"').argument("<concept...>", "what to look for")
+    )
+  ).option("--top <n>", "hits to show (default 5)", int3("top", 1)).option("--candidates <n>", "prefiltered nodes the model checks (default 8)", int3("candidates", 1)).option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (words, flags2) => {
     const root2 = rootOf(flags2, io);
-    const backend = backendFrom(flags2, io);
+    const resolved = modeOf(flags2, io, root2);
+    backendFrom(flags2, io);
     await withStore(await openIndexed(root2, io, flags2.json), async (store) => {
-      const r = await where(words.join(" "), {
-        store,
-        root: root2,
-        backend,
-        ...flags2.top !== void 0 ? { top: flags2.top } : {},
-        ...flags2.candidates !== void 0 ? { candidates: flags2.candidates } : {},
-        ...permutations(flags2, await loadCalibrators(root2, backend))
-      });
-      io.stdout(`${flags2.json ? JSON.stringify(r, null, 2) : renderWhere(r)}
+      const run2 = await runWithMode(
+        resolved.mode,
+        async (_m, s) => {
+          const backend = backendFrom(flags2, io, s);
+          const decide3 = modeDecideOptions(s, flags2.permutations, await loadCalibrators(root2, backend));
+          return where(words.join(" "), {
+            store,
+            root: root2,
+            backend,
+            ...flags2.top !== void 0 ? { top: flags2.top } : {},
+            ...flags2.candidates !== void 0 ? { candidates: flags2.candidates } : {},
+            ...decide3 ? { decide: decide3 } : {}
+          });
+        },
+        (r) => whereBand(r.hits[0]?.p)
+      );
+      const report = modeReport(resolved, run2);
+      io.stdout(`${flags2.json ? JSON.stringify(withModeJson(run2.result, report), null, 2) : withModeText(renderWhere(run2.result), report)}
 `);
     });
   });
-  addBackendOptions(program2.command("triage").description("score the risk of a diff per hunk and show the callers it affects")).option("-d, --diff <file>", 'unified diff file ("-" reads stdin; default: git diff HEAD)').option("--no-explain", "skip the hide-and-re-ask evidence").option("--budget <calls>", "most backend calls the evidence may spend (default 12)", int2("budget", 0)).option("--chunk-lines <n>", "longest hunk window in diff lines (default 8)", int2("chunk-lines", 1)).option("--root <dir>", "repo root (default: the current directory)").option("--no-log", "do not append to .glassbox/decisions.jsonl").option("--json", "print JSON").action(async (flags2) => {
-    const root2 = rootOf(flags2, io);
-    const diff = await readDiff(flags2, io, root2);
-    if (!diff.trim()) {
-      io.stdout("no changes to triage\n");
-      return;
+  addModeOption(addBackendOptions(program2.command("triage").description("score the risk of a diff per hunk and show the callers it affects"))).option("-d, --diff <file>", 'unified diff file ("-" reads stdin; default: git diff HEAD)').option("--no-explain", "skip the hide-and-re-ask evidence").option("--budget <calls>", "most backend calls the evidence may spend (default 12)", int3("budget", 0)).option("--chunk-lines <n>", "longest hunk window in diff lines (default 8)", int3("chunk-lines", 1)).option("--root <dir>", "repo root (default: the current directory)").option("--no-log", "do not append to .glassbox/decisions.jsonl").option("--json", "print JSON").action(
+    async (flags2, cmd) => {
+      const root2 = rootOf(flags2, io);
+      const resolved = modeOf(flags2, io, root2);
+      const diff = await readDiff(flags2, io, root2);
+      if (!diff.trim()) {
+        io.stdout("no changes to triage\n");
+        return;
+      }
+      backendFrom(flags2, io);
+      const explicitExplain = cmd.getOptionValueSource("explain") === "cli" ? flags2.explain : void 0;
+      await withStore(await openIndexed(root2, io, flags2.json), async (store) => {
+        const run2 = await runWithMode(
+          resolved.mode,
+          async (_m, s) => {
+            const backend = backendFrom(flags2, io, s);
+            const explainOn = explicitExplain ?? s.explain ?? true;
+            const decide3 = modeDecideOptions(s, flags2.permutations, await loadCalibrators(root2, backend));
+            return triage(diff, {
+              store,
+              root: root2,
+              backend,
+              explain: explainOn ? flags2.budget !== void 0 ? { budget: flags2.budget } : true : false,
+              log: flags2.log,
+              ...flags2.chunkLines !== void 0 ? { chunkLines: flags2.chunkLines } : {},
+              ...decide3 ? { decide: decide3 } : {}
+            });
+          },
+          (r2) => r2.overall.band
+        );
+        const r = run2.result;
+        const report = modeReport(resolved, run2);
+        if (flags2.json) {
+          const { record: record2, hunks, ...rest } = r;
+          io.stdout(
+            `${JSON.stringify(withModeJson({ ...rest, id: record2.id, hunks: hunks.map(({ answer: _a3, ...h }) => h) }, report), null, 2)}
+`
+          );
+        } else io.stdout(`${withModeText(renderTriage(r), report)}
+`);
+      });
     }
-    const backend = backendFrom(flags2, io);
-    await withStore(await openIndexed(root2, io, flags2.json), async (store) => {
-      const r = await triage(diff, {
-        store,
-        root: root2,
-        backend,
-        explain: flags2.explain ? flags2.budget !== void 0 ? { budget: flags2.budget } : true : false,
-        log: flags2.log,
-        ...flags2.chunkLines !== void 0 ? { chunkLines: flags2.chunkLines } : {},
-        ...permutations(flags2, await loadCalibrators(root2, backend))
-      });
-      if (flags2.json) {
-        const { record: record2, hunks, ...rest } = r;
-        io.stdout(`${JSON.stringify({ ...rest, id: record2.id, hunks: hunks.map(({ answer: _a3, ...h }) => h) }, null, 2)}
-`);
-      } else io.stdout(`${renderTriage(r)}
-`);
-    });
-  });
-  addBackendOptions(
-    program2.command("decide").description('advise on your own "A or B?" question with probabilities, using graph tags as context').argument("<question...>", 'the question, e.g. "where should the retry limit live?"')
+  );
+  addModeOption(
+    addBackendOptions(
+      program2.command("decide").description('advise on your own "A or B?" question with probabilities, using graph tags as context').argument("<question...>", 'the question, e.g. "where should the retry limit live?"')
+    )
   ).requiredOption("-o, --options <items>", "the options: key or key=description (repeatable or comma-separated)", collect).option("-c, --context <text>", "extra context for the question").option("--root <dir>", "repo root (default: the current directory)").option("--no-log", "do not append to .glassbox/decisions.jsonl").option("--json", "print JSON").action(async (words, flags2) => {
     const root2 = rootOf(flags2, io);
-    const backend = backendFrom(flags2, io);
+    const resolved = modeOf(flags2, io, root2);
+    backendFrom(flags2, io);
     await withStore(await openIndexed(root2, io, flags2.json), async (store) => {
-      const r = await decide2(words.join(" "), flags2.options, flags2.context, {
-        store,
-        root: root2,
-        backend,
-        log: flags2.log,
-        ...permutations(flags2, await loadCalibrators(root2, backend))
-      });
+      const run2 = await runWithMode(
+        resolved.mode,
+        async (_m, s) => {
+          const backend = backendFrom(flags2, io, s);
+          const decide3 = modeDecideOptions(s, flags2.permutations, await loadCalibrators(root2, backend));
+          return decide2(words.join(" "), flags2.options, flags2.context, {
+            store,
+            root: root2,
+            backend,
+            log: flags2.log,
+            ...decide3 ? { decide: decide3 } : {}
+          });
+        },
+        (r2) => r2.band
+      );
+      const r = run2.result;
+      const report = modeReport(resolved, run2);
       if (flags2.json) {
         const { record: record2, ...rest } = r;
-        io.stdout(`${JSON.stringify({ ...rest, id: record2.id }, null, 2)}
+        io.stdout(`${JSON.stringify(withModeJson({ ...rest, id: record2.id }, report), null, 2)}
 `);
-      } else io.stdout(`${renderDecide(r)}
+      } else io.stdout(`${withModeText(renderDecide(r), report)}
 `);
     });
   });
   addBackendOptions(
     program2.command("explain").description("show or add evidence and reasons for an earlier decision").argument("<decisionId>", "the id printed by ask, triage or decide (a unique prefix works)")
-  ).option("--refresh", "re-run the evidence pass even when the log has one").option("--budget <calls>", "most backend calls the evidence may spend", int2("budget", 0)).option("--diff <file>", 'the diff the decision was made on ("-" reads stdin; default: git diff HEAD)').option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (id, flags2) => {
+  ).option("--refresh", "re-run the evidence pass even when the log has one").option("--budget <calls>", "most backend calls the evidence may spend", int3("budget", 0)).option("--diff <file>", 'the diff the decision was made on ("-" reads stdin; default: git diff HEAD)').option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (id, flags2) => {
     const root2 = rootOf(flags2, io);
     const { GraphStore: GraphStore2 } = await Promise.resolve().then(() => (init_store2(), store_exports));
     let store;
@@ -58210,7 +59585,7 @@ function buildProgram(io, setCode) {
   });
   addBackendOptions(
     program2.command("refresh").description("update the graph: mark edited files stale (fast, for hooks), or re-parse changed files")
-  ).option("-f, --files <paths...>", "only mark these files' nodes and their direct dependents stale (no parsing, no model calls)").option("--tags", "re-ask tags for stale nodes after re-parsing (model calls)").option("--limit <n>", "with --tags: re-tag at most this many nodes now", int2("limit", 0)).option("--sync-md", "rewrite the AGENTS.md block afterwards").option("--no-claude-md", "with --sync-md: do not create CLAUDE.md").option("--root <dir>", "repo root (default: the current directory)").option("-q, --quiet", "print nothing unless something failed").option("--json", "print JSON").action(
+  ).option("-f, --files <paths...>", "only mark these files' nodes and their direct dependents stale (no parsing, no model calls)").option("--tags", "re-ask tags for stale nodes after re-parsing (model calls)").option("--limit <n>", "with --tags: re-tag at most this many nodes now", int3("limit", 0)).option("--sync-md", "rewrite the AGENTS.md block afterwards").option("--no-claude-md", "with --sync-md: do not create CLAUDE.md").option("--root <dir>", "repo root (default: the current directory)").option("-q, --quiet", "print nothing unless something failed").option("--json", "print JSON").action(
     async (flags2) => {
       const { refresh: refresh2, renderRefresh: renderRefresh2 } = await Promise.resolve().then(() => (init_refresh(), refresh_exports));
       const r = await refresh2(rootOf(flags2, io), {
@@ -58237,10 +59612,10 @@ function buildProgram(io, setCode) {
   program2.command("label").description("record the true answer of a logged decision, for calibrate").argument("<decisionId>", "the id printed by ask, triage or decide (a unique prefix works)").argument("<answer>", "yes/no, a choice key, or a score level (index or text)").option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (id, answer, flags2) => {
     setCode(await runLabel(id, answer, flags2, io));
   });
-  program2.command("calibrate").description("fit temperature or Platt scaling from labeled decisions; saves .glassbox/calibration.json").addOption(new Option("--method <m>", "fit method (auto: Platt for yes/no with 30+ labels, else temperature)").choices(["auto", "temperature", "platt"])).option("--min-labels <n>", "labels needed before fitting a group (default 8)", int2("min-labels", 1)).option("--dry-run", "report only, do not save").option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (flags2) => {
+  program2.command("calibrate").description("fit temperature or Platt scaling from labeled decisions; saves .glassbox/calibration.json").addOption(new Option("--method <m>", "fit method (auto: Platt for yes/no with 30+ labels, else temperature)").choices(["auto", "temperature", "platt"])).option("--min-labels <n>", "labels needed before fitting a group (default 8)", int3("min-labels", 1)).option("--dry-run", "report only, do not save").option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (flags2) => {
     setCode(await runCalibrate(flags2, io));
   });
-  addBackendOptions(program2.command("bench").description("run the labeled benchmark and write bench/results/<backend>.json and .md")).option("--file <path>", "bench file (default: bench/questions.json)").option("--out <dir>", "results directory (default: results/ next to the bench file)").option("--limit <n>", "only the first n questions", int2("limit", 1)).option("--group-size <n>", "questions per batched call (default 8)", int2("group-size", 1)).option("--concurrency <n>", "batched decisions in flight (default 2)", int2("concurrency", 1)).option("--no-faithfulness", "skip the deletion and sufficiency tests").option("--faith-limit <n>", "yes/no items given faithfulness tests (default: all)", int2("faith-limit", 0)).option("--faith-budget <calls>", "occlusion calls per faithfulness item (default 10)", int2("faith-budget", 1)).option("--no-write", "print only, do not write result files").option("--note <text...>", "caveats to record in the results (for example the model a CLI default resolved to)").option("-q, --quiet", "no progress lines").option("--json", "print JSON").action(async (flags2) => {
+  addBackendOptions(program2.command("bench").description("run the labeled benchmark and write bench/results/<backend>.json and .md")).option("--file <path>", "bench file (default: bench/questions.json)").option("--out <dir>", "results directory (default: results/ next to the bench file)").option("--limit <n>", "only the first n questions", int3("limit", 1)).option("--group-size <n>", "questions per batched call (default 8)", int3("group-size", 1)).option("--concurrency <n>", "batched decisions in flight (default 2)", int3("concurrency", 1)).option("--no-faithfulness", "skip the deletion and sufficiency tests").option("--faith-limit <n>", "yes/no items given faithfulness tests (default: all)", int3("faith-limit", 0)).option("--faith-budget <calls>", "occlusion calls per faithfulness item (default 10)", int3("faith-budget", 1)).option("--no-write", "print only, do not write result files").option("--note <text...>", "caveats to record in the results (for example the model a CLI default resolved to)").option("-q, --quiet", "no progress lines").option("--json", "print JSON").action(async (flags2) => {
     if (flags2.backend !== void 0 && !isBackendName(flags2.backend)) throw new UsageError(`unknown backend "${flags2.backend}"`);
     setCode(
       await runBenchCommand(
@@ -58257,7 +59632,115 @@ function buildProgram(io, setCode) {
       )
     );
   });
+  program2.command("context").description("graph-only context for a prompt: matching file:line with tags and callers (no model call)").option("--prompt <text>", 'the prompt ("-" reads stdin)', "-").option("--max-chars <n>", "most characters of output (default 1500)", int3("max-chars", 100)).option("--min-score <n>", "lowest match score shown (default 3)", Number).option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (flags2) => {
+    const { ambientContext: ambientContext2 } = await Promise.resolve().then(() => (init_context(), context_exports));
+    const prompt = flags2.prompt === "-" ? await io.readStdin() : flags2.prompt;
+    const r = ambientContext2({
+      root: rootOf(flags2, io),
+      prompt,
+      ...flags2.maxChars !== void 0 ? { maxChars: flags2.maxChars } : {},
+      ...flags2.minScore !== void 0 && Number.isFinite(flags2.minScore) ? { minScore: flags2.minScore } : {}
+    });
+    if (flags2.json) io.stdout(`${JSON.stringify(r, null, 2)}
+`);
+    else if (r.text) io.stdout(`${r.text}
+`);
+  });
+  program2.command("status").description("show the graph, mode, hook switches and the background worker (calls today, budget, last run)").option("--root <dir>", "repo root (default: the current directory)").option("--json", "print JSON").action(async (flags2) => {
+    const { status: status2, renderStatus: renderStatus2 } = await Promise.resolve().then(() => (init_status(), status_exports));
+    const now = io.now?.() ?? Date.now();
+    const r = await status2(rootOf(flags2, io), io.env, now);
+    io.stdout(`${flags2.json ? JSON.stringify(r, null, 2) : renderStatus2(r, now)}
+`);
+  });
+  const worker = program2.command("worker").description("the background re-tagging worker");
+  addBackendOptions(worker.command("run").description("re-parse changed files and re-tag stale nodes in fast mode, within the daily budget")).option("--force", "ignore the minimum interval between runs (the daily budget still applies)").option("--root <dir>", "repo root (default: the current directory)").option("-q, --quiet", "print nothing").option("--json", "print JSON").action(async (flags2) => {
+    const { runWorker: runWorker2 } = await Promise.resolve().then(() => (init_worker(), worker_exports));
+    const { withPluginOptions: withPluginOptions2 } = await Promise.resolve().then(() => (init_env(), env_exports));
+    const env = withPluginOptions2(io.env);
+    const now = io.now;
+    const r = await runWorker2(rootOf(flags2, io), {
+      env,
+      backend: () => backendFrom(flags2, { ...io, env }, { samples: 1 }),
+      ...now ? { now } : {},
+      ...flags2.force ? { ignoreInterval: true } : {}
+    });
+    if (flags2.json) io.stdout(`${JSON.stringify(r, null, 2)}
+`);
+    else if (!flags2.quiet) {
+      io.stdout(
+        r.ran && r.summary ? `worker  ${r.summary.asked} nodes asked, ${r.summary.tags} tags, ${r.summary.modelRuns} model runs, ${r.summary.failed} failed${r.summary.deferred ? `, ${r.summary.deferred} left` : ""}; today ${r.state.callsToday} model runs
+` : `worker  nothing done: ${r.reason ?? "unknown"}
+`
+      );
+    }
+  });
+  program2.command("hook").description("entry point for agent hooks: reads the hook JSON on stdin; always exits 0 and prints nothing on error").addArgument(new Argument("<event>", "hook event").choices(["prompt", "stop", "post-edit", "session-start"])).addOption(new Option("--host <host>", "the agent running the hook").choices(["claude-code", "codex"])).option("--root <dir>", "repo root (default: CLAUDE_PROJECT_DIR, the hook input cwd, or the current directory)").action(async (event, flags2) => {
+    setCode(0);
+    if (io.env.GLASSBOX_NESTED === "1") return;
+    try {
+      const hooks = await Promise.resolve().then(() => (init_hooks(), hooks_exports));
+      const text2 = await readStdinCapped(io, HOOK_STDIN_MS, hooks.MAX_HOOK_INPUT);
+      const input2 = hooks.parseHookInput(text2);
+      const { withPluginOptions: withPluginOptions2 } = await Promise.resolve().then(() => (init_env(), env_exports));
+      const ctx = {
+        env: io.env,
+        cwd: io.cwd,
+        entry: CLI_ENTRY,
+        ...flags2.root ? { root: flags2.root } : {},
+        ...flags2.host ? { host: flags2.host } : {},
+        ...io.spawnDetached ? { spawner: io.spawnDetached } : {},
+        ...io.now ? { now: io.now } : {},
+        backend: ({ samples, env }) => createBackend({ env: withPluginOptions2(env), ...samples !== void 0 ? { samples } : {}, ...io.backendConfig })
+      };
+      let out2 = "";
+      if (event === "prompt") out2 = hooks.promptHook(input2, ctx);
+      else if (event === "stop") out2 = await hooks.stopHook(input2, ctx);
+      else if (event === "post-edit") out2 = await hooks.postEditHook(input2, ctx);
+      else out2 = await hooks.sessionStartHook(input2, ctx);
+      if (out2) io.stdout(`${out2}
+`);
+    } catch {
+    }
+  });
+  program2.command("run").description("refresh the graph and AGENTS.md if files changed, then run claude or codex with its args passed through untouched").addArgument(new Argument("<agent>", "the agent to run").choices(["claude", "codex"])).argument("[args...]", "arguments for the agent (put glassbox options before the agent name)").addOption(new Option("--mode <mode>", `set GLASSBOX_MODE for the session: ${MODES.join(" | ")}`).choices([...MODES])).option("--no-refresh", "do not refresh the graph or AGENTS.md first").option("--root <dir>", "repo root (default: the current directory)").passThroughOptions().allowUnknownOption().helpOption(false).action(async (agent, args2, flags2) => {
+    const { launch: launch2, isAgent: isAgent2 } = await Promise.resolve().then(() => (init_launcher(), launcher_exports));
+    if (!isAgent2(agent)) throw new UsageError(`unknown agent "${agent}"`);
+    const root2 = rootOf(flags2, io);
+    if (flags2.mode === void 0) modeOf({}, io, root2);
+    setCode(
+      await launch2({
+        agent,
+        args: args2,
+        root: root2,
+        cwd: io.cwd,
+        env: io.env,
+        ...flags2.mode ? { mode: flags2.mode } : {},
+        refresh: flags2.refresh,
+        entry: CLI_ENTRY,
+        log: (line) => io.stderr(`${line}
+`),
+        ...io.spawnForeground ? { spawner: io.spawnForeground } : {},
+        ...io.spawnDetached ? { workerSpawner: io.spawnDetached } : {}
+      })
+    );
+  });
   return program2;
+}
+var HOOK_STDIN_MS = 2e3;
+async function readStdinCapped(io, ms, max) {
+  let timer;
+  try {
+    const text2 = await Promise.race([
+      io.readStdin(),
+      new Promise((done2) => {
+        timer = setTimeout(() => done2(""), ms);
+      })
+    ]);
+    return text2.length > max ? "" : text2;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 async function main(argv, io = defaultIo) {
   let code = 0;
@@ -58285,14 +59768,18 @@ function isEntry() {
   const arg = process.argv[1];
   if (!arg) return false;
   try {
-    return realpathSync3(arg) === realpathSync3(fileURLToPath3(import.meta.url));
+    return realpathSync4(arg) === realpathSync4(fileURLToPath3(import.meta.url));
   } catch {
     return false;
   }
 }
 if (isEntry()) {
-  main(process.argv.slice(2)).then(
-    (code) => process.exitCode = code,
+  const argv = process.argv.slice(2);
+  main(argv).then(
+    (code) => {
+      process.exitCode = code;
+      if (argv[0] === "hook") process.stdin.destroy();
+    },
     (err2) => {
       process.stderr.write(`glassbox: ${err2 instanceof Error ? err2.message : String(err2)}
 `);
@@ -58301,6 +59788,7 @@ if (isEntry()) {
   );
 }
 export {
+  CLI_ENTRY,
   buildProgram,
   main
 };
