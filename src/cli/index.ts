@@ -8,6 +8,8 @@ import { Command, CommanderError, InvalidArgumentError, Option } from 'commander
 import { ask, makeQuestion, type AskOptions } from '../ask.js';
 import { createBackend, type BackendConfig } from '../backends/index.js';
 import { isBackendName } from '../config.js';
+import { runBenchCommand, runCalibrate, runLabel, type BenchFlags, type CalibrateFlags } from '../calibrate/cli.js';
+import { loadCalibrators } from '../calibrate/store.js';
 import { parseReasons } from '../explain/reasons.js';
 import { renderJson, renderPretty } from '../render.js';
 import { buildAgentsSummary } from '../memory/summary.js';
@@ -21,7 +23,7 @@ import { triage } from '../query/triage.js';
 import { where } from '../query/where.js';
 import { syncAgentsMd } from '../agents-md/sync.js';
 import type { AskScope } from '../scope.js';
-import type { Backend, QuestionType } from '../types.js';
+import type { Backend, Calibrator, QuestionType } from '../types.js';
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -132,7 +134,7 @@ async function runAsk(words: string[], flags: AskFlags, io: CliIo): Promise<numb
     log: flags.log,
     ...(flags.why !== undefined ? { why: flags.why } : {}),
     ...(flags.reasons?.length ? { reasons: parseReasons(flags.reasons) } : {}),
-    ...(flags.permutations !== undefined ? { decide: { permutations: flags.permutations } } : {}),
+    ...permutations(flags, await loadCalibrators(root, backend)),
     ...(flags.chunkLines !== undefined ? { chunkLines: flags.chunkLines } : {}),
   };
   const result = await ask(scope, makeQuestion(words.join(' '), flags.type, flags.options ?? []), opts);
@@ -172,8 +174,11 @@ function rootOf(flags: { root?: string }, io: CliIo): string {
   return resolve(io.cwd, flags.root ?? '.');
 }
 
-function permutations(flags: BackendFlags) {
-  return flags.permutations !== undefined ? { decide: { permutations: flags.permutations } } : {};
+/** Decide options from flags, plus the fitted calibrators from .glassbox/calibration.json when there are any. */
+function permutations(flags: BackendFlags, calibrators: Record<string, Calibrator> = {}) {
+  const has = Object.keys(calibrators).length > 0;
+  if (flags.permutations === undefined && !has) return {};
+  return { decide: { ...(flags.permutations !== undefined ? { permutations: flags.permutations } : {}), ...(has ? { calibrators } : {}) } };
 }
 
 /** Opens the store, indexing the graph first (without tags) when it is empty. */
@@ -223,7 +228,7 @@ async function runIndex(flags: IndexFlags, io: CliIo, store: GraphStore, root: s
       ...(flags.concurrency !== undefined ? { concurrency: flags.concurrency } : {}),
       ...(flags.groupSize !== undefined ? { groupSize: flags.groupSize } : {}),
       ...(flags.limit !== undefined ? { limit: flags.limit } : {}),
-      ...permutations(flags),
+      ...permutations(flags, await loadCalibrators(root, backend)),
       onProgress: (p) => {
         const pct = Math.floor((p.done / p.total) * 10);
         if (progress && (pct !== lastPct || p.done === p.total)) {
@@ -350,7 +355,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
           backend,
           ...(flags.top !== undefined ? { top: flags.top } : {}),
           ...(flags.candidates !== undefined ? { candidates: flags.candidates } : {}),
-          ...permutations(flags),
+          ...permutations(flags, await loadCalibrators(root, backend)),
         });
         io.stdout(`${flags.json ? JSON.stringify(r, null, 2) : renderWhere(r)}\n`);
       });
@@ -380,7 +385,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
           explain: flags.explain ? (flags.budget !== undefined ? { budget: flags.budget } : true) : false,
           log: flags.log,
           ...(flags.chunkLines !== undefined ? { chunkLines: flags.chunkLines } : {}),
-          ...permutations(flags),
+          ...permutations(flags, await loadCalibrators(root, backend)),
         });
         if (flags.json) {
           const { record, hunks, ...rest } = r;
@@ -409,7 +414,7 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
           root,
           backend,
           log: flags.log,
-          ...permutations(flags),
+          ...permutations(flags, await loadCalibrators(root, backend)),
         });
         if (flags.json) {
           const { record, ...rest } = r;
@@ -488,6 +493,102 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
           `${flags.json ? JSON.stringify({ ...view, tags: store.getTags(node.id) }, null, 2) : renderGraph(view)}\n`,
         );
       });
+    });
+
+  addBackendOptions(
+    program
+      .command('refresh')
+      .description('update the graph: mark edited files stale (fast, for hooks), or re-parse changed files'),
+  )
+    .option('-f, --files <paths...>', 'only mark these files\' nodes and their direct dependents stale (no parsing, no model calls)')
+    .option('--tags', 're-ask tags for stale nodes after re-parsing (model calls)')
+    .option('--limit <n>', 'with --tags: re-tag at most this many nodes now', int('limit', 0))
+    .option('--sync-md', 'rewrite the AGENTS.md block afterwards')
+    .option('--no-claude-md', 'with --sync-md: do not create CLAUDE.md')
+    .option('--root <dir>', 'repo root (default: the current directory)')
+    .option('-q, --quiet', 'print nothing unless something failed')
+    .option('--json', 'print JSON')
+    .action(
+      async (
+        flags: BackendFlags & { files?: string[]; tags?: boolean; limit?: number; syncMd?: boolean; claudeMd: boolean; quiet?: boolean },
+      ) => {
+        const { refresh, renderRefresh } = await import('../memory/refresh.js');
+        const r = await refresh(rootOf(flags, io), {
+          ...(flags.files ? { files: flags.files } : {}),
+          ...(flags.tags ? { tags: true, backend: () => backendFrom(flags, io) } : {}),
+          ...(flags.limit !== undefined ? { limit: flags.limit } : {}),
+          ...(flags.syncMd ? { syncMd: { claudeMd: flags.claudeMd } } : {}),
+        });
+        if (flags.json) io.stdout(`${JSON.stringify(r, null, 2)}\n`);
+        else if (!flags.quiet) io.stdout(`${renderRefresh(r)}\n`);
+      },
+    );
+
+  program
+    .command('mcp')
+    .description('run the glassbox MCP server on stdio (for Claude Code, Codex and other MCP clients)')
+    .option('--root <dir>', 'repo root (default: GLASSBOX_ROOT, CLAUDE_PROJECT_DIR or the current directory)')
+    .action(async (flags: { root?: string }) => {
+      // Loaded here so the other commands never pay for the MCP SDK.
+      const { runStdioServer } = await import('../mcp/server.js');
+      await runStdioServer({
+        env: io.env,
+        cwd: io.cwd,
+        ...(flags.root ? { root: flags.root } : {}),
+        ...(io.backendConfig ? { backendConfig: io.backendConfig } : {}),
+      });
+    });
+
+  program
+    .command('label')
+    .description('record the true answer of a logged decision, for calibrate')
+    .argument('<decisionId>', 'the id printed by ask, triage or decide (a unique prefix works)')
+    .argument('<answer>', 'yes/no, a choice key, or a score level (index or text)')
+    .option('--root <dir>', 'repo root (default: the current directory)')
+    .option('--json', 'print JSON')
+    .action(async (id: string, answer: string, flags: { root?: string; json?: boolean }) => {
+      setCode(await runLabel(id, answer, flags, io));
+    });
+
+  program
+    .command('calibrate')
+    .description('fit temperature or Platt scaling from labeled decisions; saves .glassbox/calibration.json')
+    .addOption(new Option('--method <m>', 'fit method (auto: Platt for yes/no with 30+ labels, else temperature)').choices(['auto', 'temperature', 'platt']))
+    .option('--min-labels <n>', 'labels needed before fitting a group (default 8)', int('min-labels', 1))
+    .option('--dry-run', 'report only, do not save')
+    .option('--root <dir>', 'repo root (default: the current directory)')
+    .option('--json', 'print JSON')
+    .action(async (flags: CalibrateFlags) => {
+      setCode(await runCalibrate(flags, io));
+    });
+
+  addBackendOptions(program.command('bench').description('run the labeled benchmark and write bench/results/<backend>.json and .md'))
+    .option('--file <path>', 'bench file (default: bench/questions.json)')
+    .option('--out <dir>', 'results directory (default: results/ next to the bench file)')
+    .option('--limit <n>', 'only the first n questions', int('limit', 1))
+    .option('--group-size <n>', 'questions per batched call (default 8)', int('group-size', 1))
+    .option('--concurrency <n>', 'batched decisions in flight (default 2)', int('concurrency', 1))
+    .option('--no-faithfulness', 'skip the deletion and sufficiency tests')
+    .option('--faith-limit <n>', 'yes/no items given faithfulness tests (default: all)', int('faith-limit', 0))
+    .option('--faith-budget <calls>', 'occlusion calls per faithfulness item (default 10)', int('faith-budget', 1))
+    .option('--no-write', 'print only, do not write result files')
+    .option('--note <text...>', 'caveats to record in the results (for example the model a CLI default resolved to)')
+    .option('-q, --quiet', 'no progress lines')
+    .option('--json', 'print JSON')
+    .action(async (flags: BenchFlags & BackendFlags) => {
+      if (flags.backend !== undefined && !isBackendName(flags.backend)) throw new UsageError(`unknown backend "${flags.backend}"`);
+      setCode(
+        await runBenchCommand(flags, io, (rules) =>
+          createBackend({
+            env: io.env,
+            ...(flags.backend ? { backend: flags.backend as BackendConfig['backend'] & string } : {}),
+            ...(flags.model ? { model: flags.model } : {}),
+            ...(flags.samples !== undefined ? { samples: flags.samples } : {}),
+            fake: { rules },
+            ...io.backendConfig,
+          }),
+        ),
+      );
     });
 
   return program;

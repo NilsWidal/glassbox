@@ -1,0 +1,28 @@
+{
+  "description": "Opt-in glassbox hooks: mark edited files stale and refresh the AGENTS.md block. They do nothing unless enable_hooks (or GLASSBOX_HOOKS=1) is set and the repo has a glassbox graph.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh\" post-edit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/glassbox-hook.sh\" session-start",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

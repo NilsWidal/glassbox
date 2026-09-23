@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "glassbox",
+  "displayName": "glassbox",
+  "version": "0.1.0",
+  "description": "Fast typed decisions about code, with probabilities, confidence and checked reasons. Runs on your Claude Code model through the claude CLI, so no extra keys.",
+  "author": {
+    "name": "Nils Widal",
+    "url": "https://github.com/NilsWidal"
+  },
+  "homepage": "https://github.com/NilsWidal/glassbox",
+  "repository": "https://github.com/NilsWidal/glassbox",
+  "license": "MIT",
+  "keywords": ["mcp", "code-review", "risk", "decisions", "calibration", "explainability", "agents-md"],
+  "userConfig": {
+    "backend": {
+      "type": "string",
+      "title": "Backend",
+      "description": "Which model glassbox asks. auto (default) uses the host agent's own CLI (claude -p in Claude Code), so no key is needed. anthropic and openai-compat are optional API backends for CI or headless use.",
+      "options": ["auto", "claude-cli", "codex-cli", "anthropic", "openai-compat"],
+      "default": "auto"
+    },
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "Model id for the chosen backend. Leave empty for the default (haiku for claude-cli).",
+      "default": ""
+    },
+    "enable_hooks": {
+      "type": "boolean",
+      "title": "Enable hooks",
+      "description": "Mark edited files stale after Edit, Write and MultiEdit, and refresh the AGENTS.md block at session start. Only acts in repos where you ran `glassbox init`.",
+      "default": false
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key (optional)",
+      "description": "Only for the anthropic backend. Not needed with auto or claude-cli.",
+      "sensitive": true,
+      "required": false
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI-compatible API key (optional)",
+      "description": "Only for the openai-compat backend.",
+      "sensitive": true,
+      "required": false
+    },
+    "openai_base_url": {
+      "type": "string",
+      "title": "OpenAI-compatible base URL (optional)",
+      "description": "Only for the openai-compat backend, e.g. https://api.openai.com/v1.",
+      "default": ""
+    }
+  }
+}

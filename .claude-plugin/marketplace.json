@@ -1,0 +1,23 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "glassbox",
+  "owner": {
+    "name": "Nils Widal",
+    "url": "https://github.com/NilsWidal"
+  },
+  "description": "glassbox: fast typed decisions about code for Claude Code.",
+  "plugins": [
+    {
+      "name": "glassbox",
+      "source": "./",
+      "description": "Fast typed decisions about code, with probabilities, confidence and checked reasons. Runs on your Claude Code model, no extra keys.",
+      "version": "0.1.0",
+      "author": { "name": "Nils Widal" },
+      "homepage": "https://github.com/NilsWidal/glassbox",
+      "repository": "https://github.com/NilsWidal/glassbox",
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["mcp", "code-review", "risk", "decisions"]
+    }
+  ]
+}

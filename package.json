@@ -30,6 +30,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/server.d.ts",
+      "import": "./dist/mcp/server.js"
     }
   },
   "files": [
@@ -54,9 +58,11 @@
     "vitest": "^5.0.1"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "commander": "^14.0.3",
     "ignore": "^7.0.10",
     "tree-sitter-wasms": "^0.1.13",
-    "web-tree-sitter": "~0.25.10"
+    "web-tree-sitter": "~0.25.10",
+    "zod": "^4.6.5"
   }
 }

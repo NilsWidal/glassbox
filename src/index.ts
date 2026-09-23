@@ -34,4 +34,6 @@ export {
   type TagProgress,
 } from './memory/tags.js';
 export { buildAgentsSummary, syncMd } from './memory/summary.js';
+export { graphPath, hasGraph, refresh, renderRefresh, type RefreshOptions, type RefreshResult } from './memory/refresh.js';
+// The MCP server lives at '@nilswidal/glassbox/mcp' so importing the package never loads the MCP SDK.
 export * from './query/index.js';
