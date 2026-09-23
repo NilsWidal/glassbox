@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { dirname, join, resolve } from 'node:path';
 import { ambientContext } from '../ambient/context.js';
 import { MODE_SETTINGS } from '../modes.js';
-import { envFlag, loadProjectConfigSafe } from '../project-config.js';
+import { editHooksEnabled, loadProjectConfigSafe } from '../project-config.js';
 import { ambientEnabled, gateEnabled } from '../status.js';
 import type { Backend } from '../types.js';
 import { sha256 } from '../util/hash.js';
@@ -124,10 +124,8 @@ function resumeWorker(root: string, ctx: HookContext): void {
   if (ctx.entry) resumePendingWorker(root, startOptions(ctx, ctx.entry));
 }
 
-/** The v0.1 edit hooks switch: GLASSBOX_HOOKS, else the plugin's enable_hooks option. Default off. */
-export function editHooksEnabled(env: NodeJS.ProcessEnv): boolean {
-  return envFlag(env.GLASSBOX_HOOKS) ?? envFlag(env.CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS) ?? false;
-}
+/** The v0.1 edit hooks switch, kept here for existing imports. */
+export { editHooksEnabled };
 
 // ------------------------------------------------------------ UserPromptSubmit
 
@@ -200,15 +198,55 @@ export async function postEditHook(input: HookInput, ctx: HookContext): Promise<
 
 // ------------------------------------------------------------ SessionStart
 
-/** SessionStart: re-parses changed files, rewrites the AGENTS.md block (never creates CLAUDE.md), maybe starts the worker. */
+function sessionContext(text: string): string {
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } });
+}
+
+function startDir(input: HookInput, ctx: HookContext): string {
+  const usable = (v: string | undefined) => (v?.trim() && !v.includes('${') ? v.trim() : undefined);
+  return resolve(ctx.cwd, usable(ctx.root) ?? usable(ctx.env.CLAUDE_PROJECT_DIR) ?? usable(input.cwd) ?? ctx.cwd);
+}
+
+/**
+ * SessionStart. In a repo with a graph: with the edit hooks on, re-parses
+ * changed files, rewrites the AGENTS.md block (only after a full init; never
+ * creates CLAUDE.md) and maybe starts the worker; then, unless auto-init is
+ * off, adds a compact code map as context. In a git repo without a graph:
+ * starts the background structure-only auto-init (see ../autoinit) and says
+ * so in one line. The hook itself only checks, locks and spawns.
+ */
 export async function sessionStartHook(input: HookInput, ctx: HookContext): Promise<string> {
-  if (ctx.env.GLASSBOX_NESTED === '1' || !editHooksEnabled(ctx.env)) return '';
-  const root = rootFor(input, ctx);
-  if (!root) return '';
-  const { refresh } = await import('../memory/refresh.js');
-  const r = await refresh(root, { syncMd: { claudeMd: false } });
-  if (ctx.entry && (r.stale.length || workerPending(root))) maybeStartWorker(root, startOptions(ctx, ctx.entry));
-  return '';
+  if (ctx.env.GLASSBOX_NESTED === '1') return '';
+  const now = ctx.now?.() ?? Date.now();
+  const start = startDir(input, ctx);
+  const autoinit = await import('../autoinit/index.js');
+  const root = findGraphRoot(start);
+  if (root) {
+    const config = loadProjectConfigSafe(root);
+    const running = autoinit.autoInitRunning(root, now);
+    if (editHooksEnabled(ctx.env) && !running) {
+      const { refresh } = await import('../memory/refresh.js');
+      // A structure-only graph has not been through `glassbox init`, so it never writes AGENTS.md.
+      const r = await refresh(root, autoinit.isStructureOnly(root) ? {} : { syncMd: { claudeMd: false } });
+      if (ctx.entry && (r.stale.length || workerPending(root))) maybeStartWorker(root, startOptions(ctx, ctx.entry));
+    }
+    if (!autoinit.autoInitEnabled(ctx.env, config)) return '';
+    if (running) return sessionContext(autoinit.INDEXING_CONTEXT);
+    const map = await autoinit.sessionCodeMap(root);
+    return map ? sessionContext(map) : '';
+  }
+  if (!ctx.entry) return '';
+  const check = autoinit.checkAutoInit(start, ctx.env, now);
+  if (check.action === 'indexing') return sessionContext(autoinit.INDEXING_CONTEXT);
+  if (check.action !== 'init') return '';
+  const r = autoinit.startAutoInit(check.root, {
+    env: ctx.env,
+    entry: ctx.entry,
+    ...(ctx.spawner ? { spawner: ctx.spawner } : {}),
+    now,
+    ...(ctx.host ? { host: ctx.host } : {}),
+  });
+  return r.started || (!r.started && r.indexing) ? sessionContext(autoinit.INDEXING_CONTEXT) : '';
 }
 
 // ------------------------------------------------------------ Stop

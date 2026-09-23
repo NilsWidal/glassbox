@@ -4,6 +4,7 @@ import { blockLineRange } from './agents-md/sync.js';
 import { conciseRulesEnabled } from './style/concise.js';
 import { resolveMode, type ResolvedMode } from './modes.js';
 import { featureEnabled, loadProjectConfig, type ProjectConfig } from './project-config.js';
+import { autoInitEnabled, autoInitRunning, readAutoInitState } from './autoinit/index.js';
 import { lockHeld, readLock, readWorkerState, workerEnabled, workerLimits, type WorkerLimits, type WorkerLock, type WorkerState } from './worker/index.js';
 
 const STORE_DIR = '.glassbox';
@@ -42,7 +43,22 @@ export interface StatusReport {
     budgetLeft: number;
   };
   agentsMdBlock: boolean;
+  /** How the graph got here: indexing, structure-only (auto-init, no tags yet), tagged, or none yet. */
+  autoInit: AutoInitStatus;
   configError?: string;
+}
+
+export interface AutoInitStatus {
+  /** GLASSBOX_AUTO_INIT, config `autoInit`, the plugin's auto_init option; default on. */
+  enabled: boolean;
+  state: 'indexing' | 'structure-only' | 'tagged' | 'none' | 'failed' | 'skipped';
+  /** The graph came from a structure-only init (auto or manual) and no full init has run since. */
+  structureOnly: boolean;
+  /** Epoch ms: when the running auto-init started, else when the last one finished. */
+  at?: number;
+  tagged?: number;
+  tagTargets?: number;
+  detail?: string;
 }
 
 export function ambientEnabled(env: NodeJS.ProcessEnv, config: ProjectConfig): boolean {
@@ -107,6 +123,7 @@ export async function status(root: string, env: NodeJS.ProcessEnv, now = Date.no
   const state = existsSync(join(root, STORE_DIR)) ? readWorkerState(root, now) : { day: '', callsToday: 0 };
   const lock = existsSync(join(root, STORE_DIR)) ? readLock(root) : undefined;
   const last = Math.max(state.lastSpawnAt ?? 0, state.lastStartedAt ?? 0);
+  const autoInit = autoInitStatus(root, env, config, graph, now);
   let agentsMdBlock = false;
   try {
     agentsMdBlock = blockLineRange(readFileSync(join(root, 'AGENTS.md'), 'utf8')) !== undefined;
@@ -130,8 +147,45 @@ export async function status(root: string, env: NodeJS.ProcessEnv, now = Date.no
       budgetLeft: Math.max(0, limits.dailyCalls - state.callsToday),
     },
     agentsMdBlock,
+    autoInit,
     ...(configError ? { configError } : {}),
   };
+}
+
+function autoInitStatus(root: string, env: NodeJS.ProcessEnv, config: ProjectConfig, graph: GraphStatus | undefined, now: number): AutoInitStatus {
+  const enabled = autoInitEnabled(env, config);
+  const hasStore = existsSync(join(root, STORE_DIR));
+  const running = hasStore ? autoInitRunning(root, now) : undefined;
+  const st = hasStore ? readAutoInitState(root) : undefined;
+  const structureOnly = st?.structureOnly === true;
+  if (running) return { enabled, state: 'indexing', structureOnly, at: running.since };
+  if (graph) {
+    const counts = { tagged: graph.tagged, tagTargets: graph.tagTargets };
+    const at = st?.finishedAt !== undefined ? { at: st.finishedAt } : {};
+    return { enabled, state: graph.tagged === 0 ? 'structure-only' : 'tagged', structureOnly, ...at, ...counts };
+  }
+  if (st?.error) return { enabled, state: 'failed', structureOnly, ...(st.finishedAt !== undefined ? { at: st.finishedAt } : {}), detail: st.error };
+  if (st?.skipped) return { enabled, state: 'skipped', structureOnly, ...(st.finishedAt !== undefined ? { at: st.finishedAt } : {}), detail: st.skipped };
+  return { enabled, state: 'none', structureOnly };
+}
+
+function autoInitLine(a: AutoInitStatus): string {
+  const onOff = `auto-init ${a.enabled ? 'on' : 'off'}`;
+  const when = a.at ? ` ${time(a.at)}` : '';
+  switch (a.state) {
+    case 'indexing':
+      return `init     indexing in the background (started${when}); ${onOff}`;
+    case 'structure-only':
+      return `init     structure-only (no tags yet${a.structureOnly && a.at ? `, built${when}` : ''}); tagged 0 of ${a.tagTargets ?? 0}; run /glassbox:init or \`glassbox init\` for tags and AGENTS.md; ${onOff}`;
+    case 'tagged':
+      return `init     tagged ${a.tagged} of ${a.tagTargets}${a.structureOnly ? ' (structure-only init, tags from the worker)' : ''}; ${onOff}`;
+    case 'failed':
+      return `init     last auto-init failed${when}: ${a.detail}; ${onOff}`;
+    case 'skipped':
+      return `init     last auto-init skipped${when}: ${a.detail}; ${onOff}`;
+    default:
+      return `init     no graph yet; ${a.enabled ? 'auto-init starts at the next session in a git repo' : 'auto-init off, run `glassbox init`'}`;
+  }
 }
 
 function time(ms: number): string {
@@ -148,7 +202,8 @@ export function renderStatus(s: StatusReport, now = Date.now()): string {
         (g.indexedAt ? `; parsed ${time(g.indexedAt)}` : ''),
     );
   } else if (s.graphError) out.push(`graph    unreadable: ${s.graphError}`);
-  else out.push('graph    none (run `glassbox init`)');
+  else out.push('graph    none yet');
+  out.push(autoInitLine(s.autoInit));
   out.push('mode' in s.mode ? `mode     ${s.mode.mode} (${s.mode.source === 'default' ? 'default' : `from ${s.mode.source}`})` : `mode     error: ${s.mode.error}`);
   out.push(`hooks    ambient ${s.ambient ? 'on' : 'off'}, gate ${s.gate ? 'on' : 'off'}, concise rules ${s.conciseRules ? 'on' : 'off'}, worker ${s.worker.enabled ? 'on' : 'off'}`);
   const w = s.worker;

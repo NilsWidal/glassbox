@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "glassbox",
   "displayName": "glassbox",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Fast typed decisions about code, with probabilities, confidence and checked reasons. Runs on your Claude Code model through the claude CLI, so no extra keys.",
   "author": {
     "name": "Nils Widal",
@@ -53,16 +53,22 @@
       ],
       "default": "balanced"
     },
+    "auto_init": {
+      "type": "boolean",
+      "title": "Auto-init",
+      "description": "At session start in a git repo without a glassbox graph, build the code graph in the background (parsing only: no model calls, no AGENTS.md or CLAUDE.md changes), and in later sessions add a short code map as context. Skipped for your home directory, for repos with more than 5,000 source files (GLASSBOX_AUTO_INIT_MAX_FILES) and where .glassbox/config.json sets autoInit to false. GLASSBOX_AUTO_INIT overrides it. Run /glassbox:init for tags and the AGENTS.md block.",
+      "default": true
+    },
     "enable_hooks": {
       "type": "boolean",
       "title": "Enable hooks",
-      "description": "Mark edited files stale after Edit, Write and MultiEdit (a background worker re-tags them within a daily budget), and refresh the AGENTS.md block at session start. Only acts in repos where you ran `glassbox init`.",
+      "description": "Mark edited files stale after Edit, Write and MultiEdit, re-parse changed files and refresh the AGENTS.md block at session start, and let the background worker tag nodes within its daily budget (also the untagged nodes of an auto-inited repo). Only acts in repos with a glassbox graph.",
       "default": false
     },
     "ambient": {
       "type": "boolean",
       "title": "Ambient context",
-      "description": "Before each prompt that looks like it is about code, add up to about 1,500 characters of matching file:line locations and tags from the glassbox graph. No model call, typically well under 300 ms. Only acts in repos where you ran `glassbox init`. GLASSBOX_AMBIENT and .glassbox/config.json override it.",
+      "description": "Before each prompt that looks like it is about code, add up to about 1,500 characters of matching file:line locations and tags from the glassbox graph. No model call, typically well under 300 ms. Only acts in repos with a glassbox graph (auto-init or `glassbox init`). GLASSBOX_AMBIENT and .glassbox/config.json override it.",
       "default": false
     },
     "gate": {

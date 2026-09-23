@@ -20,7 +20,7 @@ codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/glassbox/plugin-d
 Once `@nilswidal/glassbox` is published on npm, this works without a clone:
 
 ```sh
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.1.0 mcp
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.3.0 mcp
 ```
 
 `GLASSBOX_HOST=codex` tells glassbox which agent started it. Codex gives MCP servers a trimmed environment, so glassbox cannot always tell on its own, and without the hint it would use whichever of `claude` or `codex` it finds on your PATH first.
@@ -31,7 +31,7 @@ Or edit `~/.codex/config.toml` (or `.codex/config.toml` in a project) by hand:
 [mcp_servers.glassbox]
 command = "node"
 args = ["/path/to/glassbox/plugin-dist/glassbox.mjs", "mcp"]
-# After publishing: command = "npx", args = ["-y", "@nilswidal/glassbox@0.1.0", "mcp"]
+# After publishing: command = "npx", args = ["-y", "@nilswidal/glassbox@0.3.0", "mcp"]
 startup_timeout_sec = 30
 # Each answer takes seconds, and `explain` makes several calls, so allow more than the 60 s default.
 tool_timeout_sec = 300
@@ -61,7 +61,7 @@ This installs `skills/glassbox/SKILL.md`. Add `-a codex` to install it for Codex
 
 ## 3. Index the repo and write AGENTS.md
 
-In the repository you want glassbox to know about:
+With the `SessionStart` hook below, glassbox builds the code graph by itself in the background the first time Codex starts in a git repo without one (parsing only: no model calls, no `AGENTS.md` changes), and adds a short code map to later sessions. For tags and the AGENTS.md block, run the full init once. In the repository you want glassbox to know about:
 
 ```sh
 node /path/to/glassbox/plugin-dist/glassbox.mjs init
@@ -122,6 +122,9 @@ A `~/.codex/hooks.json` (or `.codex/hooks.json` in a trusted project) could look
     ],
     "PostToolUse": [
       { "hooks": [{ "type": "command", "command": "node /path/to/glassbox/plugin-dist/glassbox.mjs hook post-edit --host codex", "timeout": 5 }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node /path/to/glassbox/plugin-dist/glassbox.mjs hook session-start --host codex", "timeout": 30 }] }
     ]
   }
 }
@@ -131,6 +134,7 @@ Things to know:
 
 - **Trust.** Codex asks you to review and trust each hook in `/hooks`, and asks again whenever a hook's definition changes. Keep the command string stable.
 - **Loops.** Codex turns a Stop block into a new prompt and documents no limit on repeated blocks. The gate guards itself: it does nothing when `stop_hook_active` is set, rates each diff once, and never blocks twice for the same hunk.
+- **Auto-init.** `session-start` in a git repo without a graph starts `glassbox init --structure-only` in the background (at most 5,000 source files, `GLASSBOX_AUTO_INIT_MAX_FILES`; never in your home directory or `/`; a lock stops two sessions from indexing at once) and prints one line saying so. In a repo with a graph it prints a code map of at most about 1,500 characters as `additionalContext`. `GLASSBOX_AUTO_INIT=0` turns both off. It never writes `AGENTS.md`; tags come from `glassbox init`, or, with `GLASSBOX_HOOKS=1`, from the background worker within its daily budget, which on a large repo takes days. See the README's [Auto-init](../README.md#auto-init).
 - **Edits.** `post-edit` reads Codex `apply_patch` input (the `*** Update File:` headers) as well as Claude Code's `file_path`. It only acts with `GLASSBOX_HOOKS=1`.
 - **`notify`.** Codex's `notify` setting is separate, fires only after a turn and cannot block. glassbox does not use or change it.
 - **Not yet checked end to end.** These hooks have unit tests against the documented format, but have not yet been run in a real Codex session, and it is not yet known whether `codex exec` runs hooks you have not trusted in the interactive UI. The AGENTS.md path above is the one to rely on for now.

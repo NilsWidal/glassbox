@@ -197,9 +197,9 @@ function readLockAt(file: string): WorkerLock | undefined {
   return { pid: -1, startedAt: Math.floor(mtime) };
 }
 
-export function readLock(root: string): WorkerLock | undefined {
+export function readLock(root: string, name = WORKER_LOCK_FILE): WorkerLock | undefined {
   try {
-    return readLockAt(storeFile(root, WORKER_LOCK_FILE));
+    return readLockAt(storeFile(root, name));
   } catch {
     return { pid: -1, startedAt: Date.now() };
   }
@@ -277,10 +277,11 @@ function takeOverStaleLock(file: string, stale: WorkerLock): boolean {
 export function acquireLock(
   root: string,
   now = Date.now(),
-  opts: { maxAgeMs?: number; alive?: (pid: number) => boolean; pid?: number } = {},
+  opts: { maxAgeMs?: number; alive?: (pid: number) => boolean; pid?: number; name?: string } = {},
 ): boolean {
-  const file = storeFile(root, WORKER_LOCK_FILE);
-  const existing = readLock(root);
+  const name = opts.name ?? WORKER_LOCK_FILE;
+  const file = storeFile(root, name);
+  const existing = readLock(root, name);
   if (existing) {
     if (lockHeld(existing, now, opts.maxAgeMs, opts.alive)) return false;
     if (!takeOverStaleLock(file, existing)) return false;
@@ -298,15 +299,15 @@ export function acquireLock(
   } finally {
     closeSync(fd);
   }
-  if (readLock(root)?.token !== token) return false;
+  if (readLock(root, name)?.token !== token) return false;
   ownTokens.set(file, token);
   return true;
 }
 
 /** True when this process holds the lock (its token is in the lock file). */
-export function ownsLock(root: string): boolean {
+export function ownsLock(root: string, name = WORKER_LOCK_FILE): boolean {
   try {
-    const file = storeFile(root, WORKER_LOCK_FILE);
+    const file = storeFile(root, name);
     const token = ownTokens.get(file);
     return token !== undefined && readLockAt(file)?.token === token;
   } catch {
@@ -315,14 +316,60 @@ export function ownsLock(root: string): boolean {
 }
 
 /** Removes the lock only when this process holds it; a lock another worker took is left alone. */
-export function releaseLock(root: string): void {
+export function releaseLock(root: string, name = WORKER_LOCK_FILE): void {
   try {
-    const file = storeFile(root, WORKER_LOCK_FILE);
+    const file = storeFile(root, name);
     const token = ownTokens.get(file);
     ownTokens.delete(file);
     if (token !== undefined && readLockAt(file)?.token === token) rmSync(file, { force: true });
   } catch {
     // A symlinked lock is left alone.
+  }
+}
+
+/**
+ * Passes a lock this process holds to another process (a child it just
+ * started): the lock file keeps its token and start time and gets the new pid,
+ * so the lock stays held while that process lives. The file is replaced with
+ * a temp file plus rename. False when this process does not hold the lock.
+ */
+export function handOverLock(root: string, name: string, pid: number): boolean {
+  try {
+    const file = storeFile(root, name);
+    const token = ownTokens.get(file);
+    const current = readLockAt(file);
+    if (token === undefined || current?.token !== token) return false;
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+      writeNewFileSync(tmp, JSON.stringify({ pid, startedAt: current.startedAt, token }));
+      renameSync(tmp, file);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
+    ownTokens.delete(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Removes the lock when it names this pid (a lock handed over by the parent). */
+export function releaseLockOfPid(root: string, name: string, pid = process.pid): void {
+  try {
+    const file = storeFile(root, name);
+    if (readLockAt(file)?.pid === pid) rmSync(file, { force: true });
+  } catch {
+    // A symlinked lock is left alone.
+  }
+}
+
+function writeNewFileSync(file: string, text: string): void {
+  const fd = openSync(file, 'wx', 0o644);
+  try {
+    writeSync(fd, text);
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -344,12 +391,18 @@ export function shouldStartWorker(root: string, env: NodeJS.ProcessEnv, now = Da
 }
 
 /** Starts a process that outlives the caller and is not waited for. Injectable for tests. */
-export type DetachedSpawner = (cmd: string, args: readonly string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => void;
+export type DetachedSpawner = (
+  cmd: string,
+  args: readonly string[],
+  opts: { cwd: string; env: NodeJS.ProcessEnv },
+) => number | undefined | void;
 
+/** Starts the process detached, with no stdio, and returns its pid (undefined when it could not start). */
 export const spawnDetached: DetachedSpawner = (cmd, args, opts) => {
   const child = spawn(cmd, [...args], { cwd: opts.cwd, env: opts.env, detached: true, stdio: 'ignore', windowsHide: true });
   child.on('error', () => {});
   child.unref();
+  return child.pid;
 };
 
 /** Reasons a start was refused that go away with time, so the stale nodes are marked pending. */

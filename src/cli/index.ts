@@ -289,6 +289,8 @@ interface IndexFlags extends BackendFlags {
   limit?: number;
   quiet?: boolean;
   claudeMd?: boolean;
+  structureOnly?: boolean;
+  auto?: boolean;
 }
 
 /** Index the graph, then (unless --no-tags) run the tag pass. Returns the report lines and JSON. */
@@ -404,9 +406,30 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
       .option('--root <dir>', 'repo root (default: the current directory)')
       .option('-q, --quiet', 'no progress lines')
       .option('--json', 'print JSON');
-    if (sync) cmd.option('--no-claude-md', 'do not create CLAUDE.md (an existing one still gets the @AGENTS.md import)');
+    if (sync) {
+      cmd
+        .option('--no-claude-md', 'do not create CLAUDE.md (an existing one still gets the @AGENTS.md import)')
+        .option('--structure-only', 'only parse the code graph: no model calls, no AGENTS.md or CLAUDE.md writes (what auto-init runs)')
+        // Set by the session-start hook's detached auto-init: file cap, lock hand-over, worker start.
+        .addOption(new Option('--auto').hideHelp());
+    }
     return cmd.action(async (flags: IndexFlags) => {
       const root = rootOf(flags, io);
+      if (sync && flags.structureOnly) {
+        const { structureOnlyInit } = await import('../autoinit/index.js');
+        const r = await structureOnlyInit(root, {
+          env: io.env,
+          ...(flags.auto ? { auto: true, entry: CLI_ENTRY } : {}),
+          ...(io.spawnDetached ? { spawner: io.spawnDetached } : {}),
+          ...(io.now ? { now: io.now } : {}),
+        });
+        if (flags.json) io.stdout(`${JSON.stringify({ structureOnly: true, ...r }, null, 2)}\n`);
+        else if (r.skipped) io.stderr(`glassbox: structure-only init skipped: ${r.skipped}\n`);
+        else if (!flags.quiet) {
+          io.stdout(`graph  ${r.files} files, ${r.nodes} nodes, ${r.edges} edges (structure only: no tags, AGENTS.md and CLAUDE.md untouched)\n`);
+        }
+        return;
+      }
       await withStore(await openStore(root), async (store) => {
         const r = await runIndex(flags, io, store, root);
         let md: Awaited<ReturnType<typeof syncAgentsMd>> | undefined;
@@ -418,6 +441,8 @@ export function buildProgram(io: CliIo, setCode: (code: number) => void): Comman
           }
           md = await syncAgentsMd(root, buildAgentsSummary(store), { claudeMd: flags.claudeMd !== false });
           r.lines.push(`sync   AGENTS.md ${md.agentsMd}, CLAUDE.md ${md.claudeMd} (${md.lines} lines${md.truncated ? ', truncated' : ''})`);
+          const { markFullInit } = await import('../autoinit/index.js');
+          markFullInit(root, io.now?.() ?? Date.now());
         }
         io.stdout(`${flags.json ? JSON.stringify({ ...r.json, ...(md ? { sync: md } : {}) }, null, 2) : r.lines.join('\n')}\n`);
       });

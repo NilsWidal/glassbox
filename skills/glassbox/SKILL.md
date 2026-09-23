@@ -21,7 +21,7 @@ glassbox answers typed questions about code with a probability instead of free t
 
 Tips:
 - Scope `ask` narrowly (`paths`, `nodes` or a `diff`). The default scope is the whole repo, which is slow and blurs the answer.
-- `where`, `triage`, `decide` and `graph` use the code graph in `.glassbox/`. If the repo has none, they build it (no model calls) on first use. `glassbox init` also adds tags (handles_auth, side_effects, touches_pii, needs_tests, area, risk) and an AGENTS.md summary.
+- `where`, `triage`, `decide` and `graph` use the code graph in `.glassbox/`. If the repo has none, they build it (no model calls) on first use. In Claude Code the plugin also builds it in the background at session start (auto-init), without tags. `glassbox init` (`/glassbox:init` in Claude Code) also adds tags (handles_auth, side_effects, touches_pii, needs_tests, area, risk) and an AGENTS.md summary; on an untagged graph the tools still match names, paths and callers.
 - `decide` only advises. You or the user still make the call.
 
 ## How to read the output

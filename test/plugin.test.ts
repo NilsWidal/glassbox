@@ -72,6 +72,25 @@ describe('plugin manifests', () => {
     expect(h.hooks.Stop![0]!.hooks[0]!.timeout * 1000).toBeGreaterThanOrEqual(GATE_TIMEOUT_CAP_MS + 5000);
   });
 
+  it('plugin.json turns auto-init on by default', async () => {
+    const p = await readJson<{ userConfig: Record<string, { type: string; default?: unknown; description: string }> }>('.claude-plugin/plugin.json');
+    expect(p.userConfig.auto_init).toMatchObject({ type: 'boolean', default: true });
+    expect(p.userConfig.auto_init!.description).toMatch(/no model calls/);
+  });
+
+  it('ships /glassbox:init and /glassbox:status commands that run only the plugin bundle', async () => {
+    const init = await readFile(join(REPO, 'commands/init.md'), 'utf8');
+    const fm = /^---\n([\s\S]*?)\n---\n/.exec(init)![1]!;
+    expect(fm).toMatch(/^description: .+$/m);
+    expect(fm).toMatch(/^disable-model-invocation: true$/m);
+    expect(fm).toMatch(/^allowed-tools: Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/plugin-dist\/glassbox\.mjs" init \*\)$/m);
+    expect(init).toContain('node "${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs" init --root "${CLAUDE_PROJECT_DIR}" $ARGUMENTS');
+    const st = await readFile(join(REPO, 'commands/status.md'), 'utf8');
+    expect(st).toMatch(/^allowed-tools: Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/plugin-dist\/glassbox\.mjs" status \*\)$/m);
+    expect(st).toContain('!`node "${CLAUDE_PLUGIN_ROOT}/plugin-dist/glassbox.mjs" status --root "${CLAUDE_PROJECT_DIR}"`');
+    for (const t of [init, st]) expect(t).not.toMatch(/npx|@nilswidal\/glassbox@/);
+  });
+
   it('plugin.json offers ambient, gate and concise_rules options, all off by default', async () => {
     const p = await readJson<{ userConfig: Record<string, { type: string; default?: unknown }> }>('.claude-plugin/plugin.json');
     for (const key of ['ambient', 'gate', 'concise_rules', 'enable_hooks']) {
@@ -108,6 +127,8 @@ describe('plugin manifests', () => {
       'hooks/glassbox-hook.sh',
       'output-styles/concise.md',
       'skills/glassbox/SKILL.md',
+      'commands/init.md',
+      'commands/status.md',
       'docs/codex.md',
       'docs/claude-code.md',
       'README.md',
@@ -285,6 +306,58 @@ describe('hook script', () => {
     expect(r.stdout).toBe('');
   });
 
+  it('lets session-start through without a graph (auto-init), unless auto-init and the edit hooks are both off', async () => {
+    const fresh = join(tmp, 'fresh');
+    await mkdir(fresh, { recursive: true });
+    const on = await runHook('session-start', {}, '{}', fresh);
+    expect(on.code).toBe(0);
+    expect(on.calls).toBe(`hook session-start --host claude-code --root ${fresh}`);
+    const offEnvs: Record<string, string>[] = [{ GLASSBOX_AUTO_INIT: '0' }, { CLAUDE_PLUGIN_OPTION_AUTO_INIT: 'false' }, { GLASSBOX_AUTO_INIT: 'off', CLAUDE_PLUGIN_OPTION_AUTO_INIT: 'true' }];
+    for (const env of offEnvs) {
+      const off = await runHook('session-start', env, '{}', fresh);
+      expect(off.calls, JSON.stringify(env)).toBe('');
+      expect(off.ms).toBeLessThan(1000);
+    }
+    // The edit hooks still refresh a repo with a graph when auto-init is off.
+    expect((await runHook('session-start', { GLASSBOX_AUTO_INIT: '0', GLASSBOX_HOOKS: '1' })).calls).toBe(
+      `hook session-start --host claude-code --root ${project}`,
+    );
+    expect((await runHook('session-start', { GLASSBOX_NESTED: '1' }, '{}', fresh)).calls).toBe('');
+    expect((await runHook('session-start', { CLAUDE_PLUGIN_ROOT: join(tmp, 'no-plugin') }, '{}', fresh)).calls).toBe('');
+    // The other events still need a graph.
+    for (const event of ['prompt', 'stop']) expect((await runHook(event, {}, '{}', fresh)).calls, event).toBe('');
+    expect((await runHook('post-edit', { GLASSBOX_HOOKS: '1' }, edit, fresh)).calls).toBe('');
+  });
+
+  it.skipIf(!existsSync('/bin/dash'))('under dash, session-start without a graph reaches node with its stdin', async () => {
+    const echo = join(tmp, 'echo-ss');
+    await mkdir(join(echo, 'plugin-dist'), { recursive: true });
+    await writeFile(
+      join(echo, 'plugin-dist', 'glassbox.mjs'),
+      `import { appendFileSync } from 'node:fs';\n` +
+        `let input = '';\nprocess.stdin.on('data', (d) => (input += d));\n` +
+        `process.stdin.on('end', () => appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + ' stdin ' + input + '\\n'));\n`,
+    );
+    const fresh = join(tmp, 'fresh-dash');
+    await mkdir(fresh, { recursive: true });
+    await rm(log, { force: true });
+    const r = spawnSync('/bin/dash', [HOOK, 'session-start'], {
+      input: '{"hook_event_name":"SessionStart"}',
+      env: { PATH: process.env.PATH ?? '', CLAUDE_PROJECT_DIR: fresh, CLAUDE_PLUGIN_ROOT: echo },
+      encoding: 'utf8',
+    });
+    expect(r.status).toBe(0);
+    expect(await readFile(log, 'utf8')).toContain(`hook session-start --host claude-code --root ${fresh} stdin {"hook_event_name":"SessionStart"}`);
+    await rm(log, { force: true });
+    const off = spawnSync('/bin/dash', [HOOK, 'session-start'], {
+      input: '{}',
+      env: { PATH: process.env.PATH ?? '', CLAUDE_PROJECT_DIR: fresh, CLAUDE_PLUGIN_ROOT: echo, GLASSBOX_AUTO_INIT: '0' },
+      encoding: 'utf8',
+    });
+    expect(off.status).toBe(0);
+    expect(await readFile(log, 'utf8').catch(() => '')).toBe('');
+  });
+
   it('refreshes the AGENTS.md block at session start without creating CLAUDE.md', async () => {
     const r = await runHook('session-start', { GLASSBOX_HOOKS: '1' });
     expect(r.code).toBe(0);
@@ -327,5 +400,24 @@ describe('committed plugin bundle', () => {
     // TypeScript, TSX and Python files all parsed, so every grammar loaded.
     expect(out.graph.files).toBeGreaterThanOrEqual(15);
     expect(await readFile(join(repo, 'AGENTS.md'), 'utf8')).toContain('<!-- glassbox:start -->');
+  }, 30_000);
+
+  it('runs a structure-only init from the bundle: graph only, no AGENTS.md', async () => {
+    const dist = join(tmp, 'plugin', 'plugin-dist');
+    await mkdir(dist, { recursive: true });
+    for (const f of BUNDLE_FILES) await copyFile(join(REPO, 'plugin-dist', f), join(dist, f));
+    const repo = join(tmp, 'repo-structure');
+    await cp(join(REPO, 'test', 'fixtures', 'sample-repo'), repo, { recursive: true });
+    const r = spawnSync(process.execPath, [join(dist, 'glassbox.mjs'), 'init', '--structure-only', '--json'], {
+      cwd: repo,
+      // A backend that cannot work: the structure-only path must never build one.
+      env: { PATH: process.env.PATH ?? '', GLASSBOX_BACKEND: 'anthropic', NODE_NO_WARNINGS: '1' },
+      encoding: 'utf8',
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect((JSON.parse(r.stdout) as { files: number }).files).toBeGreaterThanOrEqual(15);
+    expect(existsSync(join(repo, '.glassbox', 'graph.db'))).toBe(true);
+    expect(existsSync(join(repo, 'AGENTS.md'))).toBe(false);
+    expect(existsSync(join(repo, 'CLAUDE.md'))).toBe(false);
   }, 30_000);
 });

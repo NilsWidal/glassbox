@@ -44,6 +44,12 @@ export interface ProjectConfig {
    * existing one still gets the import). `init --no-claude-md` sets it.
    */
   claudeMd?: boolean;
+  /**
+   * false: the session-start hook never builds the graph by itself in this
+   * repo, and adds no code map. Default true (GLASSBOX_AUTO_INIT and the
+   * plugin's auto_init option can also turn it off).
+   */
+  autoInit?: boolean;
   worker?: {
     /** false stops hooks and the launcher from starting the background re-tagging worker. Default true. */
     enabled?: boolean;
@@ -79,6 +85,7 @@ export function parseProjectConfig(value: unknown): ProjectConfig {
   if (typeof value.mode === 'string') out.mode = value.mode;
   if (typeof value.conciseRules === 'boolean') out.conciseRules = value.conciseRules;
   if (typeof value.claudeMd === 'boolean') out.claudeMd = value.claudeMd;
+  if (typeof value.autoInit === 'boolean') out.autoInit = value.autoInit;
   const ambient = pick<NonNullable<ProjectConfig['ambient']>>(value.ambient, {
     enabled: 'boolean',
     maxChars: 'number',
@@ -110,6 +117,7 @@ export function onlyDisables(config: ProjectConfig): ProjectConfig {
   if (config.worker?.enabled === false) out.worker = { enabled: false };
   if (config.conciseRules === false) out.conciseRules = false;
   if (config.claudeMd === false) out.claudeMd = false;
+  if (config.autoInit === false) out.autoInit = false;
   return out;
 }
 
@@ -194,4 +202,9 @@ export function featureEnabled(
   fallback: boolean,
 ): boolean {
   return envFlag(env[names.env]) ?? project ?? envFlag(env[names.plugin]) ?? fallback;
+}
+
+/** The edit-hooks switch (post-edit refresh, session-start refresh, worker kicks): GLASSBOX_HOOKS, else the plugin's enable_hooks option. Default off. */
+export function editHooksEnabled(env: NodeJS.ProcessEnv): boolean {
+  return envFlag(env.GLASSBOX_HOOKS) ?? envFlag(env.CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS) ?? false;
 }

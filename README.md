@@ -2,7 +2,24 @@
 
 Fast typed decisions about code, with probabilities, confidence and checked reasons. Built for Claude Code and Codex.
 
-> Status: early development (v0.2 in progress). The decision engine, host CLI backends, explanations, memory graph, MCP server and Claude Code plugin work, and so do the v0.2 modes, ambient context, end-of-turn gate, concise output style and launcher. The npm package is not published yet, so until it is, install from a clone (see the docs linked below).
+> Status: early development (v0.3). The decision engine, host CLI backends, explanations, memory graph, MCP server and Claude Code plugin work, and so do the v0.2 modes, ambient context, end-of-turn gate, concise output style and launcher, and the v0.3 auto-init. The npm package is not published yet, so until it is, install from a clone (see the docs linked below).
+
+## Quick start (Claude Code)
+
+1. Install the plugin:
+
+   ```
+   /plugin marketplace add NilsWidal/glassbox
+   /plugin install glassbox@glassbox
+   ```
+
+2. Open a git repository in Claude Code. That's it.
+
+At the start of the first session, glassbox builds the code graph in the background (parsing only: no model calls, and it does not touch `AGENTS.md` or `CLAUDE.md`). From the next session on, Claude gets a short code map of the repo (areas, entry points, how to use the glassbox tools) as context, and the MCP tools work at once. See [Auto-init](#auto-init) for when it runs and how to turn it off.
+
+For tags (auth, side effects, personal data, risk, ...) and the `AGENTS.md` block, run `/glassbox:init` once. It asks your Claude Code model about every function, so it takes a few minutes on a large repo. `/glassbox:status` shows where things stand.
+
+What auto-init does not do: it does not tag. With the `enable_hooks` option on, the background worker tags the auto-inited graph a little at a time, within its daily budget (100 model runs a day by default), so on a large repo tags fill in over days, not minutes. With `enable_hooks` off (the default), there are no tags until you run `/glassbox:init`.
 
 ## What it does
 
@@ -35,6 +52,8 @@ Configuration:
 | `GLASSBOX_ROOT` | Repo the MCP server works on (default: the project directory, else the current directory) |
 | `GLASSBOX_ALLOWED_ROOTS` | Extra directories (separated by `:`, or `;` on Windows) that an MCP tool call's `root` may point at. By default a tool call can only use the project directory and folders inside it |
 | `GLASSBOX_HOOKS` | `1` turns the Claude Code plugin hooks on, `0` off |
+| `GLASSBOX_AUTO_INIT` | `1` or `0`: build the code graph by itself at session start in a git repo without one, and add the session code map (default on; see [Auto-init](#auto-init)) |
+| `GLASSBOX_AUTO_INIT_MAX_FILES` | Auto-init skips repos with more supported source files than this (default 5000) |
 | `GLASSBOX_MODE` | `fast`, `balanced` (default), `explained`, `strict` or `auto`; see [Modes](#modes) |
 | `GLASSBOX_AMBIENT`, `GLASSBOX_GATE`, `GLASSBOX_WORKER` | `1` or `0`: turn the ambient context hook, the end-of-turn gate and the background re-tagging worker on or off (see [Ambient mode](#ambient-mode)) |
 | `GLASSBOX_CONCISE_RULES` | `1` or `0`: add the concise answer rules to the AGENTS.md block (see [Concise answers](#concise-answers)) |
@@ -61,7 +80,7 @@ The nested `codex exec` call runs with a read-only sandbox, in an empty temp dir
 
 The plugin runs a self-contained bundle committed in `plugin-dist/` with `node`, so it works straight from the git repository: no npm package and no `npm install`. It needs Node 22.13 or newer.
 
-The plugin adds the MCP tools, a skill that teaches Claude when to use them, the `glassbox:concise` output style, and opt-in hooks: graph context before each prompt, an end-of-turn risk check, and keeping the graph fresh as you edit. The backend defaults to `auto` (your Claude Code login), and API keys are optional fields stored in your keychain. Details: [docs/claude-code.md](docs/claude-code.md).
+The plugin adds the MCP tools, a skill that teaches Claude when to use them, the `/glassbox:init` and `/glassbox:status` commands, the `glassbox:concise` output style, auto-init with a code map at session start (on by default), and opt-in hooks: graph context before each prompt, an end-of-turn risk check, and keeping the graph fresh as you edit. The backend defaults to `auto` (your Claude Code login), and API keys are optional fields stored in your keychain. Details: [docs/claude-code.md](docs/claude-code.md).
 
 ### Codex
 
@@ -71,17 +90,32 @@ codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/glassbox/plugin-d
 npx skills add NilsWidal/glassbox
 ```
 
-Once the npm package is published, `npx -y @nilswidal/glassbox@0.1.0 mcp` replaces the `node .../glassbox.mjs mcp` part and no clone is needed.
+Once the npm package is published, `npx -y @nilswidal/glassbox@0.3.0 mcp` replaces the `node .../glassbox.mjs mcp` part and no clone is needed.
 
 Inside Codex, glassbox asks the model through `codex exec`, with your Codex login. Details, including a `config.toml` snippet: [docs/codex.md](docs/codex.md).
 
 ### Then, in your repository
 
+In Claude Code, nothing: auto-init builds the graph at the start of the first session. For tags and the `AGENTS.md` block, run `/glassbox:init`. Outside the plugin (Codex, CI, a terminal):
+
 ```sh
 node /path/to/glassbox/plugin-dist/glassbox.mjs init    # after publishing: npx -y @nilswidal/glassbox init
 ```
 
-This builds the code graph and its tags in `.glassbox/` (which gets its own `.gitignore`, so the graph and the decision log stay local; the log keeps only a hash and the file list of each diff, never its text), and writes a short managed block into `AGENTS.md`. It also adds an `@AGENTS.md` import to `CLAUDE.md`, so both agents read the same summary.
+This builds the code graph and its tags in `.glassbox/` (which gets its own `.gitignore`, so the graph and the decision log stay local; the log keeps only a hash and the file list of each diff, never its text), and writes a short managed block into `AGENTS.md`. It also adds an `@AGENTS.md` import to `CLAUDE.md`, so both agents read the same summary. `init --structure-only` builds only the graph: no model calls, no `AGENTS.md` or `CLAUDE.md` changes (this is what auto-init runs).
+
+### Auto-init
+
+At session start (the plugin's `SessionStart` hook, or `glassbox hook session-start --host codex` in Codex), glassbox checks, in well under a second and without starting any model:
+
+- auto-init is on: the plugin's `auto_init` option (default on), `GLASSBOX_AUTO_INIT` (`0` or `1`, wins over the option), and `"autoInit": false` in `.glassbox/config.json` (a config that git tracks can only turn it off);
+- the session is inside a git work tree, and its root is not your home directory or `/`;
+- the repo has no `.glassbox/graph.db` yet, and git does not track anything in `.glassbox/`;
+- it has at most `GLASSBOX_AUTO_INIT_MAX_FILES` (default 5000) TypeScript, JavaScript or Python files, counted with `git ls-files` (so `.gitignore` is respected).
+
+When all hold, it creates `.glassbox/` with its `.gitignore`, takes a lock (so two sessions never index twice), and starts `glassbox init --structure-only` as a detached background process, as an argument list without a shell. The session gets one line saying glassbox is indexing. The background init parses the code and writes the graph; it makes no model calls and never writes `AGENTS.md` or `CLAUDE.md`. When it is done, and only when the worker and the edit hooks (`enable_hooks`) are on, it starts the background worker to tag nodes within its daily budget.
+
+In later sessions, the hook adds a code map of at most about 1,500 characters: the areas, their entry points, the riskiest nodes once tags exist, and how to use the MCP tools. Paths and names are in code format and cut to a safe character set, as in the AGENTS.md block, and the map says they are data, not instructions. `GLASSBOX_AUTO_INIT=0` turns off both the auto-init and this code map. A failed or skipped auto-init is not retried for a day; `glassbox status` shows why.
 
 ### MCP tools
 
@@ -168,7 +202,7 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 
 ### Status and settings
 
-`glassbox status` shows the graph (nodes, stale nodes, tagged share, last parse), the mode and where it came from, which hooks and the concise rules are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
+`glassbox status` (or `/glassbox:status` in Claude Code) shows the graph (nodes, stale nodes, tagged share, last parse), how it got there (auto-init indexing in the background, structure-only with no tags yet, or tagged N of M), the mode and where it came from, which hooks and the concise rules are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
 
 `.glassbox/config.json` is meant to be local to your checkout (`glassbox init` git-ignores the folder). Every field is optional:
 
@@ -179,6 +213,7 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
   "gate": { "enabled": true, "mode": "fast", "timeoutMs": 45000 },
   "conciseRules": true,
   "claudeMd": false,
+  "autoInit": true,
   "worker": { "enabled": true, "dailyCalls": 100, "minIntervalSec": 60, "maxNodesPerRun": 24 }
 }
 ```
@@ -187,11 +222,11 @@ Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
 
 For each setting the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else the default. The worker limits and the gate timeout are clamped to the bounds in the environment table under [No extra keys or models](#no-extra-keys-or-models), whatever sets them.
 
-A `.glassbox/config.json` in a `.glassbox/` that git tracks (any file in it, in any letter case, or `.glassbox` as a submodule) came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, `"conciseRules": false` and `"claudeMd": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
+A `.glassbox/config.json` in a `.glassbox/` that git tracks (any file in it, in any letter case, or `.glassbox` as a submodule) came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, `"conciseRules": false`, `"claudeMd": false` and `"autoInit": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
 
 ### Hook entry points
 
-`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin (at most 1 MiB; more is dropped unread) and prints what the host expects (`additionalContext` for `prompt`, `{"decision":"block","reason":...}` for `stop`, nothing for the others). It always exits 0 and prints nothing on any error, for a missing or unknown event or bad arguments, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/`. `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
+`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin (at most 1 MiB; more is dropped unread) and prints what the host expects (`additionalContext` for `prompt`, and for `session-start` the code map or the one-line indexing note; `{"decision":"block","reason":...}` for `stop`; nothing for `post-edit`). It always exits 0 and prints nothing on any error, for a missing or unknown event or bad arguments, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/` (except `session-start`, which may start the auto-init there). `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
 
 ### Ambient mode in Codex
 

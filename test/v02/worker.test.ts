@@ -475,7 +475,9 @@ describe('status without a graph', () => {
       const s = await status(dir, { GLASSBOX_MODE: 'fast', GLASSBOX_AMBIENT: '1' });
       expect(s.graph).toBeUndefined();
       const text = renderStatus(s);
-      expect(text).toContain('graph    none (run `glassbox init`)');
+      expect(text).toContain('graph    none yet');
+      expect(text).toContain('init     no graph yet; auto-init starts at the next session in a git repo');
+      expect(s.autoInit).toEqual({ enabled: true, state: 'none', structureOnly: false });
       expect(text).toContain('mode     fast (from env)');
       expect(text).toContain('ambient on');
       expect(existsSync(join(dir, '.glassbox'))).toBe(false);

@@ -3,9 +3,14 @@
 # Claude Code runs it in exec form (no shell string): sh <this file> <event>.
 # It exits 0 at once, without starting node, when:
 #   - this is a nested glassbox model call (GLASSBOX_NESTED=1);
-#   - the project has no glassbox graph (.glassbox/graph.db, made by `glassbox init`);
-#   - post-edit and session-start only: neither GLASSBOX_HOOKS=1 nor the plugin's
-#     enable_hooks option is on (GLASSBOX_HOOKS=0 turns them off).
+#   - post-edit only: neither GLASSBOX_HOOKS=1 nor the plugin's enable_hooks
+#     option is on (GLASSBOX_HOOKS=0 turns it off);
+#   - session-start only: auto-init is off (GLASSBOX_AUTO_INIT=0, or the
+#     plugin's auto_init option off) and so are the edit hooks;
+#   - prompt, stop and post-edit: the project has no glassbox graph
+#     (.glassbox/graph.db). session-start runs without one, because that is
+#     where auto-init starts building it (node checks for a git repo, the
+#     file count and a lock, then starts the build in the background).
 # prompt and stop can also be turned on in .glassbox/config.json, so node reads
 # that and decides. The hook JSON on stdin goes straight to `glassbox hook`.
 # Hooks never fail the turn: errors are swallowed and the exit code is always 0.
@@ -13,18 +18,28 @@
 
 event="$1"
 [ "${GLASSBOX_NESTED:-}" = "1" ] && exit 0
+hooks_on=0
+case "${GLASSBOX_HOOKS:-${CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS:-}}" in
+  1 | true) hooks_on=1 ;;
+esac
+dir="${CLAUDE_PROJECT_DIR:-$PWD}"
 case "$event" in
-  prompt | stop) ;;
-  post-edit | session-start)
-    case "${GLASSBOX_HOOKS:-${CLAUDE_PLUGIN_OPTION_ENABLE_HOOKS:-}}" in
-      1 | true) ;;
-      *) exit 0 ;;
-    esac
+  prompt | stop)
+    [ -f "$dir/.glassbox/graph.db" ] || exit 0
+    ;;
+  post-edit)
+    [ "$hooks_on" = 1 ] || exit 0
+    [ -f "$dir/.glassbox/graph.db" ] || exit 0
+    ;;
+  session-start)
+    if [ "$hooks_on" != 1 ]; then
+      case "${GLASSBOX_AUTO_INIT:-${CLAUDE_PLUGIN_OPTION_AUTO_INIT:-true}}" in
+        0 | false | no | off) exit 0 ;;
+      esac
+    fi
     ;;
   *) exit 0 ;;
 esac
-dir="${CLAUDE_PROJECT_DIR:-$PWD}"
-[ -f "$dir/.glassbox/graph.db" ] || exit 0
 
 # Runner: the plugin's own committed bundle, and nothing else. Nothing is
 # fetched from npm or taken from PATH, so what runs is always the code in this
