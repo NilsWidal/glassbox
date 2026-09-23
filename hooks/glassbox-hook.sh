@@ -35,7 +35,11 @@ bundle="${CLAUDE_PLUGIN_ROOT:-}/plugin-dist/glassbox.mjs"
 # node runs as a child with stdin passed on explicitly, so that a stop signal from
 # the host (on its hook timeout) can be forwarded: the Stop gate then ends its
 # model calls and their processes instead of leaving them running.
-node "$bundle" hook "$event" --host claude-code --root "$dir" <&0 2>/dev/null &
+# Some shells (dash) point a background job's stdin at /dev/null, so hand node
+# the hook JSON through fd 3 instead.
+exec 3<&0
+node "$bundle" hook "$event" --host claude-code --root "$dir" <&3 3<&- 2>/dev/null &
+exec 3<&-
 pid=$!
 trap 'kill -TERM "$pid" 2>/dev/null' TERM INT HUP
 wait "$pid"

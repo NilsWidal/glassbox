@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -232,6 +232,26 @@ describe('hook script', () => {
     const calls = await readFile(log, 'utf8');
     expect(calls).toContain('stdin {"hook":"json"}');
     expect(calls).toContain('SIGTERM');
+  });
+
+  it.skipIf(!existsSync('/bin/dash'))('hands the hook JSON to node under dash, which nulls background stdin', async () => {
+    const echo = join(tmp, 'echo');
+    await mkdir(join(echo, 'plugin-dist'), { recursive: true });
+    await writeFile(
+      join(echo, 'plugin-dist', 'glassbox.mjs'),
+      `import { appendFileSync } from 'node:fs';\n` +
+        `let input = '';\nprocess.stdin.on('data', (d) => (input += d));\n` +
+        `process.stdin.on('end', () => appendFileSync(${JSON.stringify(log)}, 'stdin ' + input + '\\n'));\n`,
+    );
+    await rm(log, { force: true });
+    const child = spawn('/bin/dash', [HOOK, 'stop'], {
+      env: { PATH: process.env.PATH ?? '', CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_ROOT: echo },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+    child.stdin.end('{"hook":"json"}');
+    const code = await new Promise<number | null>((done) => child.on('close', (c) => done(c)));
+    expect(code).toBe(0);
+    expect(await readFile(log, 'utf8')).toContain('stdin {"hook":"json"}');
   });
 
   it('runs only the plugin bundle: never npx or a `glassbox` from PATH, and nothing without the bundle', async () => {
