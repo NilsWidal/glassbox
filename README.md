@@ -1,73 +1,28 @@
 # glassbox
 
-Fast typed decisions about code, with probabilities, confidence and checked reasons. Built for Claude Code and Codex.
+Your coding agent answers questions about code as typed decisions, each with a probability, a confidence band and the lines that drove it. It also keeps a map of your codebase, so it starts each task knowing where things are. It works in Claude Code and Codex, and uses the login you already have.
 
-> Status: early development (v0.3). The decision engine, host CLI backends, explanations, memory graph, MCP server and Claude Code plugin work, and so do the v0.2 modes, ambient context, end-of-turn gate, concise output style and launcher, and the v0.3 auto-init. The npm package is not published yet, so until it is, install from a clone (see the docs linked below).
+```
+$ glassbox ask "does this change session handling?" --path src/auth --mode explained
 
-## Quick start (Claude Code)
+YES  p=0.72  conf=0.44  escalate   "does this change session handling?"
+summary
+  requireAdmin() -> requireAuth()                    # Δp +0.28 at src/auth/middleware.ts:10-17
+                    -> verifySession()               # Δp -0.72 at src/auth/session.ts:46
+                       -> SessionStore.revoke()      # Δp -0.67 at src/auth/session.ts:25-28
+  because: reads-config (p=0.97), side-effects (p=0.81)
+  ruled out: changes-behavior (p=0.14), missing-check (p=0.01)
+highlights
+  src/auth/session.ts:46         Δp -0.72
+  src/auth/session.ts:25-28      Δp -0.67
+  src/auth/middleware.ts:10-17   Δp +0.28
+cost  2 calls + 24 explain + 1 why, 11/12 spans tested
+id    07a2d2cbb919   (glassbox explain 07a2d2cbb919)
+```
 
-1. Install the plugin:
+This is the real output format, run on the bundled sample repo with the test backend, so the numbers are illustrative. `Δp` is how much the answer's probability changes when glassbox hides those lines and asks again. The highlights are measured, not the model's say-so. `escalate` is the confidence band: `act`, `confirm` or `escalate`.
 
-   ```
-   /plugin marketplace add NilsWidal/glassbox
-   /plugin install glassbox@glassbox
-   ```
-
-2. Open a git repository in Claude Code. That's it.
-
-At the start of the first session, glassbox builds the code graph in the background (parsing only: no model calls, and it does not touch `AGENTS.md` or `CLAUDE.md`). From the next session on, Claude gets a short code map of the repo (areas, entry points, how to use the glassbox tools) as context, and the MCP tools work at once. See [Auto-init](#auto-init) for when it runs and how to turn it off.
-
-For tags (auth, side effects, personal data, risk, ...) and the `AGENTS.md` block, run `/glassbox:init` once. It asks your Claude Code model about every function, so it takes a few minutes on a large repo. `/glassbox:status` shows where things stand.
-
-What auto-init does not do: it does not tag. With the `enable_hooks` option on, the background worker tags the auto-inited graph a little at a time, within its daily budget (100 model runs a day by default), so on a large repo tags fill in over days, not minutes. With `enable_hooks` off (the default), there are no tags until you run `/glassbox:init`.
-
-## What it does
-
-You ask a typed question about some code. glassbox answers with a probability and a confidence value instead of free text:
-
-- `yesno`: `{ p }`, the probability the answer is yes. The readable output prints the probability of the answer it shows, so `NO  p=0.97` means P(yes) = 0.03.
-- `choice`: `{ choice, probabilities, confidence }`.
-- `score`: `{ score, legend, probabilities, confidence }`, where `score` is the probability-weighted expected level.
-
-Every answer also carries a band: `act`, `confirm` or `escalate`.
-
-## No extra keys or models
-
-glassbox runs on the model of the agent you are already using, through that agent's own CLI:
-
-| Where you run it | Backend | How it calls the model |
-|---|---|---|
-| Claude Code | `claude-cli` | `claude -p ... --json-schema ...` (default model `haiku`) |
-| Codex | `codex-cli` | `codex exec --output-schema ...` (uses your Codex default model) |
-
-`auto` (the default) picks the backend from the host agent. Your existing Claude or ChatGPT login is used. Optional API backends (`anthropic`, `openai-compat`) exist for CI and headless use.
-
-Configuration:
-
-| Variable | Meaning |
-|---|---|
-| `GLASSBOX_BACKEND` | `auto`, `claude-cli`, `codex-cli`, `anthropic`, `openai-compat` |
-| `GLASSBOX_MODEL` | Model id for the chosen backend |
-| `GLASSBOX_HOST` | `claude-code` or `codex`: which agent started the MCP server, so `auto` picks its CLI (set by the plugin and the Codex setup) |
-| `GLASSBOX_ROOT` | Repo the MCP server works on (default: the project directory, else the current directory) |
-| `GLASSBOX_ALLOWED_ROOTS` | Extra directories (separated by `:`, or `;` on Windows) that an MCP tool call's `root` may point at. By default a tool call can only use the project directory and folders inside it |
-| `GLASSBOX_HOOKS` | `1` turns the Claude Code plugin hooks on, `0` off |
-| `GLASSBOX_AUTO_INIT` | `1` or `0`: build the code graph by itself at session start in a git repo without one, and add the session code map (default on; see [Auto-init](#auto-init)) |
-| `GLASSBOX_AUTO_INIT_MAX_FILES` | Auto-init skips repos with more supported source files than this (default 5000) |
-| `GLASSBOX_MODE` | `fast`, `balanced` (default), `explained`, `strict` or `auto`; see [Modes](#modes) |
-| `GLASSBOX_AMBIENT`, `GLASSBOX_GATE`, `GLASSBOX_WORKER` | `1` or `0`: turn the ambient context hook, the end-of-turn gate and the background re-tagging worker on or off (see [Ambient mode](#ambient-mode)) |
-| `GLASSBOX_CONCISE_RULES` | `1` or `0`: add the concise answer rules to the AGENTS.md block (see [Concise answers](#concise-answers)) |
-| `GLASSBOX_GATE_TIMEOUT_MS` | Longest the end-of-turn gate may take before it lets the turn end (default 45000, at most 50000) |
-| `GLASSBOX_WORKER_DAILY_CALLS`, `GLASSBOX_WORKER_MIN_INTERVAL_SEC`, `GLASSBOX_WORKER_MAX_NODES` | Worker limits: model runs per day (default 100, at most 1000), seconds between runs (default 60, at least 10), nodes re-tagged per run (default 24, at most 100) |
-| `GLASSBOX_SAMPLES` | Samples averaged per call on the CLI and Anthropic backends (1 to 16, default 3) |
-| `GLASSBOX_TIMEOUT_MS` | Timeout per model call in milliseconds (default 120000) |
-| `GLASSBOX_CODEX_EFFORT` | Reasoning effort for `codex-cli` (default `low`, since these are quick judgments) |
-| `GLASSBOX_CLAUDE_BIN`, `GLASSBOX_CODEX_BIN` | Path to the `claude` or `codex` binary (default: found on PATH) |
-| `ANTHROPIC_API_KEY` or `GLASSBOX_ANTHROPIC_API_KEY` | Only for the optional `anthropic` backend. The plugin stores its key as `GLASSBOX_ANTHROPIC_API_KEY`, which is never passed to the nested `claude -p`, so that call keeps using your Claude Code login |
-| `GLASSBOX_OPENAI_API_KEY` or `OPENAI_API_KEY` | Only for the optional `openai-compat` backend |
-| `GLASSBOX_OPENAI_BASE_URL` or `OPENAI_BASE_URL` | Base URL for `openai-compat` (default `https://api.openai.com/v1`) |
-
-The nested `codex exec` call runs with a read-only sandbox, in an empty temp directory, with its shell and other tools turned off. The nested `claude -p` call runs with no tools.
+> Status (v0.3.0, 2026-09-23): early, working, tested (587 unit tests, plus live runs against the real `claude` and `codex` CLIs). Not yet published to npm. The plugin runs from this repository, so you do not need npm.
 
 ## Install
 
@@ -78,243 +33,81 @@ The nested `codex exec` call runs with a read-only sandbox, in an empty temp dir
 /plugin install glassbox@glassbox
 ```
 
-The plugin runs a self-contained bundle committed in `plugin-dist/` with `node`, so it works straight from the git repository: no npm package and no `npm install`. It needs Node 22.13 or newer.
-
-The plugin adds the MCP tools, a skill that teaches Claude when to use them, the `/glassbox:init` and `/glassbox:status` commands, the `glassbox:concise` output style, auto-init with a code map at session start (on by default), and opt-in hooks: graph context before each prompt, an end-of-turn risk check, and keeping the graph fresh as you edit. The backend defaults to `auto` (your Claude Code login), and API keys are optional fields stored in your keychain. Details: [docs/claude-code.md](docs/claude-code.md).
+Then open any git repository in Claude Code. There is no setup step.
 
 ### Codex
 
 ```sh
-git clone https://github.com/NilsWidal/glassbox
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/glassbox/plugin-dist/glassbox.mjs" mcp
-npx skills add NilsWidal/glassbox
+git clone https://github.com/NilsWidal/glassbox ~/glassbox
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- node ~/glassbox/plugin-dist/glassbox.mjs mcp
+npx skills add NilsWidal/glassbox -g -a codex
 ```
 
-Once the npm package is published, `npx -y @nilswidal/glassbox@0.3.0 mcp` replaces the `node .../glassbox.mjs mcp` part and no clone is needed.
+Requires Node 22.13 or newer. Details: [docs/claude-code.md](docs/claude-code.md), [docs/codex.md](docs/codex.md).
 
-Inside Codex, glassbox asks the model through `codex exec`, with your Codex login. Details, including a `config.toml` snippet: [docs/codex.md](docs/codex.md).
+## What happens after install
 
-### Then, in your repository
+1. **First session in a repo.** glassbox builds a graph of the code in the background: files, functions, classes, imports and calls. That takes seconds, makes no model calls, and writes only into `.glassbox/`, which ignores itself in git. Your `AGENTS.md` and `CLAUDE.md` stay untouched. It skips folders that are not git repos, your home directory, and repos with more than 5,000 TypeScript, JavaScript or Python files.
+2. **Every later session.** Claude starts with a short code map (areas, entry points, riskiest code once tagged) and can call the glassbox tools on its own:
 
-In Claude Code, nothing: auto-init builds the graph at the start of the first session. For tags and the `AGENTS.md` block, run `/glassbox:init`. Outside the plugin (Codex, CI, a terminal):
+   | Tool | Answers |
+   |---|---|
+   | `where` | Where is this concept implemented? Ranked `file:line` |
+   | `ask` | A yes/no, choice or score question about files, a diff or functions |
+   | `triage` | How risky is this diff, per hunk, and which callers does it affect? |
+   | `decide` | The agent's own "A or B?" question, with probabilities |
+   | `explain` | Evidence and a one-line reason for an earlier decision |
+   | `graph`, `refresh` | A function's tags and neighbours; re-parse after edits |
 
-```sh
-node /path/to/glassbox/plugin-dist/glassbox.mjs init    # after publishing: npx -y @nilswidal/glassbox init
-```
+3. **Optional, when you want more:**
+   - `/glassbox:init` tags every function now (auth, side effects, personal data, needs tests, area, risk) and writes a summary block into `AGENTS.md` that Codex and teammates read. It asks your model about each function, so it takes minutes on a large repo.
+   - Turn on `enable_hooks` in `/plugin configure glassbox@glassbox` and tags fill in by themselves in the background, within a daily budget (100 model runs by default).
+   - `ambient` adds matching `file:line` spans to every prompt, and `gate` checks risky changes before a turn ends.
+   - `/output-style glassbox:concise` gives shorter answers that cite `file:line` instead of pasting code.
+   - `/glassbox:status` shows what is indexed, what is tagged and today's model use.
 
-This builds the code graph and its tags in `.glassbox/` (which gets its own `.gitignore`, so the graph and the decision log stay local; the log keeps only a hash and the file list of each diff, never its text), and writes a short managed block into `AGENTS.md`. It also adds an `@AGENTS.md` import to `CLAUDE.md`, so both agents read the same summary. `init --structure-only` builds only the graph: no model calls, no `AGENTS.md` or `CLAUDE.md` changes (this is what auto-init runs).
+## Where the model calls come from
 
-### Auto-init
+glassbox never needs its own API key. In Claude Code it asks `claude -p` (default model haiku). In Codex it asks `codex exec`. It uses your existing subscription, and nothing else. The nested calls run without tools, so code in your repo cannot make them act.
 
-At session start (the plugin's `SessionStart` hook, or `glassbox hook session-start --host codex` in Codex), glassbox checks, in well under a second and without starting any model:
+The tradeoff is speed. TypeSafe's Jev, the model that inspired the answer format, answers in about 100 ms. A host CLI call takes seconds (12 s median per batched decision with haiku, measured below). glassbox makes up for it by asking all questions about one piece of code in one call and caching the answers in the graph. The prompt-time map and context use the graph only and take about 60 to 100 ms.
 
-- auto-init is on: first `GLASSBOX_AUTO_INIT` (`0` or `1`), then `"autoInit"` in `.glassbox/config.json` (a config that git tracks can only turn it off), then the plugin's `auto_init` option, default on;
-- the session is inside a git work tree, and its root is not your home directory or `/`;
-- the repo has no `.glassbox/graph.db` yet, and git does not track anything in `.glassbox/`;
-- it has at most `GLASSBOX_AUTO_INIT_MAX_FILES` (default 5000) TypeScript, JavaScript or Python files, counted with `git ls-files` (so `.gitignore` is respected).
+## Does it help
 
-When all hold, it creates `.glassbox/` with its `.gitignore`, takes a lock (so two sessions never index twice), and starts `glassbox init --structure-only` as a detached background process, as an argument list without a shell. The session gets one line saying glassbox is indexing. The background init parses the code and writes the graph; it makes no model calls and never writes `AGENTS.md` or `CLAUDE.md`. When it is done, and only when the worker and the edit hooks (`enable_hooks`) are on, it starts the background worker to tag nodes within its daily budget.
+Measured on 2026-09-23, small samples, so read these as early signals:
 
-In later sessions, the hook adds a code map of at most about 1,500 characters: the areas, their entry points, the riskiest nodes once tags exist, and how to use the MCP tools. Paths and names are in code format and cut to a safe character set, as in the AGENTS.md block, and the map says they are data, not instructions. `GLASSBOX_AUTO_INIT=0` turns off both the auto-init and this code map. A failed auto-init, or one skipped because git could not count the files within 1 s, is not retried for a day; `glassbox status` shows why.
+- **Answer quality on a test set.** On 75 questions written by the author about the bundled test repo, `claude-cli` (haiku) got 74 right and `codex-cli` got 75. Probabilities were close to observed accuracy (calibration error 0.017 and 0.002). The set is too easy to tell good calibration from bad; a human-labeled set on real repos is still to do. Details: [bench/](bench/README.md).
+- **Faithfulness of highlights.** Removing the highlighted lines moved the answer every time (4 of 4 per backend), and removing the same amount of other lines did not (0 of 4).
+- **Agent effort (A/B pilot).** 6 tasks, run twice with the plugin and twice without, on haiku. Every run passed in both arms, and total cost was the same ($0.608 with, $0.601 without). "Where is X" questions and a one-file edit took about half the tool calls with glassbox. Two bug fixes in a real library took more. With 2 repeats per arm, noise is as large as these differences. Details: [bench/ab/](bench/ab/README.md).
 
-### MCP tools
-
-| Tool | What it does |
-|---|---|
-| `ask` | Answers a yes/no, choice or score question about files, a diff or graph nodes, with optional evidence. |
-| `where` | Ranks the code most likely to implement a concept. |
-| `triage` | Scores the risk of a diff per hunk and lists the callers it affects. |
-| `decide` | Advises on the agent's own "A or B?" question, with probabilities. |
-| `explain` | Adds evidence and reasons to an earlier decision. |
-| `graph` | Shows a node's stored tags and neighbours. |
-| `refresh` | Marks edited files stale, or re-parses changed files. |
-
-The same commands exist on the CLI (`glassbox ask`, `glassbox where`, ...), and `glassbox mcp` starts the server on stdio for any MCP client. `ask`, `where`, `triage` and `decide` take a `mode` (MCP) or `--mode` (CLI).
+So glassbox does not yet claim to make agents more successful, cheaper, faster or more concise. The harness to test that is in the repo.
 
 ## Modes
 
-A mode sets how much work one call does:
+Every call can do more or less work: `fast` (one sample, no evidence), `balanced` (default), `explained` (adds highlights and a why), `strict` (more samples, stricter bands) or `auto` (fast first, explained when unsure). Set it per call, with `GLASSBOX_MODE`, or in the plugin settings.
 
-| Mode | What it does |
-|---|---|
-| `fast` | 1 sample, 1 option order, no evidence, no generated why. The cheapest call. |
-| `balanced` | The defaults above (2 option orders, the backend's samples, evidence only when asked). Used when nothing sets a mode. |
-| `explained` | `balanced` plus the hide-and-re-ask evidence and the one-line why. |
-| `strict` | 5 samples, 3 option orders, evidence, and higher bands (`act` at 0.9, `confirm` at 0.7). |
-| `auto` | Runs `fast`; when the answer's band is not `act`, asks again in `explained`. The output says when that happened. |
+## Safety
 
-The first one set wins: the call itself (`mode` in MCP, `--mode` on the CLI), `GLASSBOX_MODE`, `"mode"` in `.glassbox/config.json`, the plugin's `mode` option, else `balanced`. Explicit flags such as `--samples` or `--permutations` still win over the mode's values.
+- A `.glassbox/` folder that came with a cloned repo (committed in any letter case, a submodule, or symlinked) is never trusted: it can only turn features off, never on.
+- Files that look like secrets (`.env`, keys) are never sent to the model or written to logs.
+- Paths and names from the repo are shown as code and marked as data, not instructions.
+- Hooks fail open, have hard timeouts, and never block a turn twice.
 
-## Ambient mode
+## Reference
 
-These parts run next to the agent instead of being called by it. All of them are off by default. None adds a model call to the prompt path: only the end-of-turn gate calls the model, and only after a turn that changed code.
-
-In Claude Code the plugin wires them up (see [docs/claude-code.md](docs/claude-code.md#ambient-mode)); turn each one on in `/plugin` or in `.glassbox/config.json`. In Codex, see [Codex](#ambient-mode-in-codex) below.
-
-### Ambient context (before each prompt)
-
-`glassbox context --prompt "<text>"` (or `-` for stdin) prints graph matches for a prompt: `file:line`, node name, stored tags and direct callers, at most about 1,500 characters.
-
-- It uses only the stored graph. A rule-based check first skips prompts that are not about code.
-- It prints nothing when there is no graph, when git tracks anything in `.glassbox/` in any letter case or `.glassbox` is a submodule (it came with the clone), when no node clears the match floor, or when most matching files changed after the last parse.
-- The matches come inside a fenced block that the header marks as data, not instructions. Only paths without whitespace (each segment at most 40 characters) and plain identifiers are shown, which keeps what a file name can say short. It cannot stop a short name made of words, which is why the block is labelled as data. The AGENTS.md block does the same: paths and area names are in code format, long segments are cut, and a note says they are data.
-- On the sample repo it takes about 10 ms in process, and about 100 ms as a hook (starting `node` is most of it).
-
-The `UserPromptSubmit` hook adds this text to the prompt as extra context. On with the plugin's `ambient` option, `GLASSBOX_AMBIENT=1` or `"ambient": {"enabled": true}` in `.glassbox/config.json`.
-
-### End-of-turn gate
-
-The `Stop` hook runs when the agent is about to finish a turn:
-
-1. It hashes the working diff (`git diff HEAD` plus untracked files, without any file that may hold secrets, such as `.env` or key files, tracked or not). No diff, or the same hash as the last check, means it does nothing.
-2. Otherwise it rates the diff with `triage` in `fast` mode (one sample, one option order), or `balanced` when `"gate": {"mode": "balanced"}` is set.
-3. If a hunk is rated High risk and its answer is in the `act` band, it blocks the stop once. The agent gets a short reason that names the lines, for example:
-
-   ```
-   glassbox gate: 1 changed hunk rated High risk with high confidence (decision 430f797e09d5):
-   - src/auth/session.ts:38-41 (verifySession) High risk, p=0.95
-   Direct callers: requireAuth (src/auth/middleware.ts:11).
-   Check these lines (and their tests) before finishing, or state why they are safe. glassbox asks once per change.
-   ```
-
-It never blocks twice in a row: it does nothing when the host says the turn already continued because of a Stop hook (`stop_hook_active`), and it records each diff hash before rating it, so a diff is checked once whatever the outcome. It gives up after 45 s (`GLASSBOX_GATE_TIMEOUT_MS`, else `"gate": {"timeoutMs": ...}`; never more than 50 s, so it ends before the 60 s hook timeout), counting from before it reads the diff, and a timeout or any error lets the turn end normally. On a timeout, or when the host stops the hook, it stops its model calls and the processes they started. On with the plugin's `gate` option, `GLASSBOX_GATE=1` or `"gate": {"enabled": true}`. The last outcome is in `.glassbox/gate.json`.
-
-The `act` band needs the model to put about 0.9 or more on High, so the gate stays quiet on most diffs. Near that line a `fast` rating can go either way between runs: in a test on the sample repo, the same diff (deleting a session expiry check) blocked on one run and passed on the next. Use `"mode": "balanced"` for steadier ratings at about twice the model runs.
-
-### Concise answers
-
-Six rules meant to shorten replies (their effect is not measured yet; see [the A/B pilot](#ambient-mode-ab-pilot)): lead with the answer, cite `file:line` instead of pasting code, never paste unchanged code, one line per reason, no closing recap, and one line on what was not checked. They come in two forms, both off by default:
-
-- **Claude Code output style.** The plugin ships `output-styles/concise.md`. Select it with `/output-style glassbox:concise`, in `/config`, or with `"outputStyle": "glassbox:concise"` in a settings file. For one run: `claude --settings '{"outputStyle":"glassbox:concise"}'`. It keeps Claude Code's coding instructions and changes only how replies are written. Claude Code's built-in Concise style is similar; this one adds the `file:line` and no-unchanged-code rules.
-- **AGENTS.md section.** An `### Answer style` section with the same rules inside the glassbox block, for Codex and any other agent that reads AGENTS.md. On with the plugin's `concise_rules` option, `GLASSBOX_CONCISE_RULES=1` or `"conciseRules": true` in `.glassbox/config.json`; the block is rewritten on the next `sync-md`, `refresh --sync-md`, `init`, launcher start or session-start hook.
-
-### Background re-tagging
-
-After an edit marks nodes stale, a detached worker (`glassbox worker run`) re-parses the changed files and re-tags stale nodes in `fast` mode.
-
-- It holds a lock file so only one runs.
-- It waits at least 60 s between runs and re-tags at most 24 nodes per run.
-- It stops at a daily budget of 100 model runs. Each run charges its worst case to the budget before its first model call and settles to the real count at the end, so a run that is killed half way still counts. With the API backends every HTTP request counts, retries included.
-- A run stops its model calls after 20 minutes.
-- When an edit comes while the worker may not start yet (too soon after the last run, a run in progress, or no budget left), `worker.json` records a pending re-tag, and the next hook call (prompt, stop, edit or session start) starts the worker once it is allowed. `glassbox status` shows it.
-
-Set `"worker": {"enabled": false}` or `GLASSBOX_WORKER=0` to turn it off.
-
-### Status and settings
-
-`glassbox status` (or `/glassbox:status` in Claude Code) shows the graph (nodes, stale nodes, tagged share, last parse), how it got there (auto-init indexing in the background, structure-only with no tags yet, or tagged N of M), the mode and where it came from, which hooks and the concise rules are on, and the worker: running or idle, model runs today against the budget, the last run and any last error.
-
-`.glassbox/config.json` is meant to be local to your checkout (`glassbox init` git-ignores the folder). Every field is optional:
-
-```json
-{
-  "mode": "auto",
-  "ambient": { "enabled": true, "maxChars": 1500, "minScore": 3, "maxHits": 6 },
-  "gate": { "enabled": true, "mode": "fast", "timeoutMs": 45000 },
-  "conciseRules": true,
-  "claudeMd": false,
-  "autoInit": true,
-  "worker": { "enabled": true, "dailyCalls": 100, "minIntervalSec": 60, "maxNodesPerRun": 24 }
-}
-```
-
-`"claudeMd": false` means a sync never creates CLAUDE.md (an existing one still gets the `@AGENTS.md` import). `glassbox init --no-claude-md` writes it, so later `sync-md`, `refresh --sync-md`, hook and launcher syncs keep that choice.
-
-For each setting the first one set wins: the `GLASSBOX_*` variable, then `.glassbox/config.json`, then the plugin option, else the default. The worker limits and the gate timeout are clamped to the bounds in the environment table under [No extra keys or models](#no-extra-keys-or-models), whatever sets them.
-
-A `.glassbox/config.json` in a `.glassbox/` that git tracks (any file in it, in any letter case, or `.glassbox` as a submodule) came with the repo, so someone else wrote it. glassbox then keeps only the switches that turn something off (`"enabled": false` for `ambient`, `gate` or `worker`, `"conciseRules": false`, `"claudeMd": false` and `"autoInit": false`) and ignores the rest, so a cloned repo cannot turn on model calls, raise the worker budget or change the mode.
-
-### Hook entry points
-
-`glassbox hook prompt|stop|post-edit|session-start` reads the host's hook JSON on stdin (at most 1 MiB; more is dropped unread) and prints what the host expects (`additionalContext` for `prompt`, and for `session-start` the code map or the one-line indexing note; `{"decision":"block","reason":...}` for `stop`; nothing for `post-edit`). It always exits 0 and prints nothing on any error, for a missing or unknown event or bad arguments, inside a nested glassbox call (`GLASSBOX_NESTED=1`), or in a repo without `.glassbox/` (except `session-start`, which may start the auto-init there). `--host claude-code|codex` tells it which agent runs it, so the gate asks that agent's CLI.
-
-### Ambient mode in Codex
-
-Codex reads the AGENTS.md block at the start of every session, so that is the zero-setup path: the code map, and the concise rules when they are on. `glassbox run codex ...` keeps the block and the graph fresh before each session. Codex 0.154 also has hooks, and the same `glassbox hook` commands can serve them; see [docs/codex.md](docs/codex.md#ambient-mode-hooks).
-
-## Launcher
-
-```sh
-glassbox run claude [claude args...]
-glassbox run --mode auto codex exec "fix the failing test"
-```
-
-`glassbox run` re-parses the graph and rewrites the AGENTS.md block when a file changed since the last parse (no model calls), may start the background worker, sets `GLASSBOX_HOST` (and `GLASSBOX_MODE` when a mode is set), then runs the agent with its arguments passed through untouched, as an argument list without a shell, and returns its exit code. Put glassbox's own options (`--mode`, `--no-refresh`, `--root`) before the agent name; everything after it goes to the agent. `GLASSBOX_CLAUDE_BIN` and `GLASSBOX_CODEX_BIN` pick the binary.
-
-## How the numbers are made
-
-- **One call per state.** Every question about one piece of code goes into a single model call, because host CLI calls take seconds.
-- **Calls and model runs.** Each call is asked in 2 option orders by default, and the host CLI backends average K=3 samples per call (`GLASSBOX_SAMPLES`), each one a separate `claude -p` or `codex exec` process. So one plain `ask` starts 6 processes in parallel. The cost line shows both, for example `2 calls (x 3 samples = 6 model runs)`.
-- **Option shuffling.** Options get single-letter labels (A, B, C, ...). The engine asks again with the options in a different order (in parallel) and averages, which cancels the model's preference for particular positions.
-- **Confidence** is `(K * pmax - 1) / (K - 1)`, where K is the number of options: 0 for a uniform answer, 1 when one option has all the probability. This is our own definition.
-- **Bands.** By default `act` when confidence is at least 0.85, `confirm` at 0.6 or above, else `escalate`. Each question can set its own thresholds.
-- **Calibration.** Every decision is logged to `.glassbox/decisions.jsonl` with an id. Record the true answer with `glassbox label <id> yes` (or a choice key, or a score level), then run `glassbox calibrate` to fit temperature or Platt scaling per question kind, backend and model from those labels (free-form questions are grouped by type and option count, so a yes/no fit is never applied to a 3-way choice). The result goes to `.glassbox/calibration.json`, and later answers from the same backend and model use it, in the CLI and the MCP tools alike. `calibrate --dry-run` shows ECE and Brier before and after without saving. Below a minimum number of labels nothing is fitted, Platt scaling is pulled toward no change, and the "after" numbers are in-sample, so they are optimistic.
-
-Probabilities from the host CLIs are stated by the model, not read from token probabilities, so they are coarser than a dedicated classifier until calibrated.
-
-## Benchmark results so far
-
-Measured with `glassbox bench` on 2026-09-23. Full tables, per-item results and how to run it: [bench/](bench/README.md).
-
-| backend | model | accuracy | ECE | Brier | p50 / p95 per batched decision | faithfulness: deletion / sufficiency / control drop |
-|---|---|---|---|---|---|---|
-| claude-cli | haiku, 3 samples | 0.987 (74/75) | 0.017 | 0.008 | 12.4 s / 16.6 s | 4/4, 4/4, 0/4 |
-| codex-cli | Codex's configured model, effort low, 3 samples | 1.000 (75/75) | 0.002 | 0.000 | 27.2 s / 30.4 s | 4/4, 4/4, 0/4 |
-
-Read these numbers with care:
-
-- **The labels are author-constructed.** The glassbox author wrote all 75 questions (53 yes/no, 12 choice, 10 score) against the small test fixture repo. Nobody else labeled them.
-- **The set is nearly saturated.** Both backends get almost everything right with p close to 1, partly because the fixture has short files and hint comments. So these numbers cannot yet tell good calibration from bad.
-- **n is small.** One wrong answer moves accuracy by more than a point, and faithfulness ran on only 4 items per backend.
-- **Still open:** the planned benchmark of about 200 human-labeled questions over 2 or 3 real open-source repos, and harder items that no comment gives away.
-
-## Ambient mode A/B pilot
-
-[bench/ab/](bench/ab/README.md) runs the same tasks through `claude -p` (or `codex exec`) with and without glassbox ambient mode, in fresh copies of the repo, and records success, cost, tokens, tool calls, wall time and answer length. It ships 23 tasks on the sample fixture and two small MIT projects (tomli and schedule) pinned to a commit.
-
-A first **pilot, small n** (2026-09-23): Claude Code with haiku, 6 tasks x 2 arms x 2 repeats. The ambient arm is the whole glassbox plugin setup (context hook, AGENTS.md block and skill) against none, with the gate, concise style, worker and MCP server off. Both arms also loaded two unrelated plugins (`agents-md`, `telemetry`), the same in each arm.
-
-| arm | passed | total cost | mean tool calls | mean wall time | mean answer words |
-|---|---|---|---|---|---|
-| baseline (no glassbox) | 12/12 | $0.601 | 5.2 | 20.4 s | 69 |
-| ambient | 12/12 | $0.608 | 5.3 | 22.1 s | 75 |
-
-- No difference in success or cost. Every run passed in both arms.
-- Mixed on effort. On two "where is X" questions and a one-file edit, the ambient runs made about half the tool calls. On two injected-bug fixes in tomli they made more tool calls and took longer.
-- With 2 repeats per arm, run-to-run noise is as large as these differences.
-
-So glassbox does not claim that ambient context, the gate or the concise style make the agent more successful, cheaper, faster or its answers shorter. Per-task numbers and caveats: [bench/ab/README.md](bench/ab/README.md).
-
-## Library use
-
-```ts
-import { decide, FakeBackend } from '@nilswidal/glassbox';
-
-const result = await decide(
-  { file: 'src/auth/session.ts', code: '...' },
-  {
-    auth: { type: 'yesno', instructions: 'Does this code change session handling?' },
-    risk: { type: 'score', instructions: 'How risky is this change?', criteria: ['low', 'medium', 'high'] },
-  },
-  new FakeBackend(), // swap in a real backend
-);
-console.log(result.answers.auth); // { type: 'yesno', p: ..., confidence: ..., band: ... }
-```
+Configuration, auto-init rules, all hooks, modes, the launcher, how probabilities and confidence are computed, calibration and library use: [docs/reference.md](docs/reference.md).
 
 ## Development
-
-Requires Node 22.13 or newer (the first release with `node:sqlite` available without a flag).
 
 ```sh
 npm install
 npm test          # unit tests, no network (fake backend)
 npm run typecheck
 npm run lint
-npm run build
-npm run bundle    # rebuild plugin-dist/ (commit it; CI runs `npm run bundle:check`)
+npm run bundle    # rebuild plugin-dist/ (commit it; CI runs bundle:check)
 ```
 
-Live tests against the real `claude` and `codex` CLIs are opt-in: set `GLASSBOX_IT=1`.
+Live tests against the real `claude` and `codex` CLIs are opt-in: `GLASSBOX_IT=1 npm test`.
 
 ## License
 

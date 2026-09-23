@@ -98,7 +98,7 @@ All four hooks are in `hooks/hooks.json`. Apart from auto-init and the session c
 
 For each switch the first one set wins: the environment variable (`GLASSBOX_AMBIENT`, `GLASSBOX_GATE`, `GLASSBOX_HOOKS`, `1` or `0`), then `.glassbox/config.json` (`"ambient": {"enabled": true}`, `"gate": {"enabled": true}`; not for `enable_hooks`), then the plugin setting.
 
-**How the gate avoids loops.** It blocks at most once per turn: when Claude continues because of a Stop hook, Claude Code marks the next Stop with `stop_hook_active`, and the gate then does nothing. It also rates each diff only once (by hash, recorded before the check), and it does not block again for a hunk it already flagged in an earlier turn. A timeout or any error lets the turn end normally. The last outcome is in `.glassbox/gate.json`. The README explains [what makes it block](../README.md#end-of-turn-gate).
+**How the gate avoids loops.** It blocks at most once per turn: when Claude continues because of a Stop hook, Claude Code marks the next Stop with `stop_hook_active`, and the gate then does nothing. It also rates each diff only once (by hash, recorded before the check), and it does not block again for a hunk it already flagged in an earlier turn. A timeout or any error lets the turn end normally. The last outcome is in `.glassbox/gate.json`. The reference explains [what makes it block](reference.md#end-of-turn-gate).
 
 **What you see.** With `claude -p --output-format json`, a blocked stop adds one turn (`num_turns` goes up by 1), and `result` holds only Claude's final message, written after it checked the flagged lines.
 
