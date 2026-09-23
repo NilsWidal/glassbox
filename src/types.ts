@@ -163,6 +163,8 @@ export interface DecideOptions {
 }
 
 export interface DecisionRecord {
+  /** Short id for `glassbox explain <id>`; set when the record is logged. */
+  id?: string;
   /** ISO timestamp. */
   ts: string;
   /** sha256 of the stable serialization of the state. */
@@ -183,6 +185,10 @@ export interface DecisionRecord {
   explain?: ExplainBlock;
   /** Human ground truth (an option key), added later for calibration. */
   truth?: string;
+  /** What was asked about, so the decision can be explained later. */
+  scope?: { paths?: string[]; diff?: string; nodes?: string[] };
+  /** Which command made the record. Absent means `ask`. */
+  source?: 'ask' | 'triage' | 'decide';
 }
 
 export interface DecideResult {

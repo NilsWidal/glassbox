@@ -331,6 +331,17 @@ export class GraphStore {
     );
   }
 
+  allTags(): Tag[] {
+    return (this.db.prepare('SELECT * FROM tags ORDER BY node_id, question_id').all() as Row[]).map(toTag);
+  }
+
+  /** Distinct tag question ids in the store. */
+  tagQuestionIds(): string[] {
+    return (this.db.prepare('SELECT DISTINCT question_id FROM tags ORDER BY question_id').all() as Row[]).map((r) =>
+      String(r.question_id),
+    );
+  }
+
   /** Tags whose recorded hash no longer matches their node's current hash. */
   staleTags(): Tag[] {
     const rows = this.db

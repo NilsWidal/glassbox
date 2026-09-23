@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createBackend } from './backends/index.js';
 import { winningOption } from './engine/answer.js';
@@ -30,6 +30,7 @@ import type {
   QuestionType,
   ReasonCode,
 } from './types.js';
+import { sha256 } from './util/hash.js';
 
 // Same directory as the graph store; kept local so ask never loads node:sqlite.
 export const STORE_DIR = '.glassbox';
@@ -98,10 +99,45 @@ export function makeQuestion(text: string, type: QuestionType = 'yesno', options
   }
 }
 
+/** Short stable id for a logged decision. */
+export function decisionId(record: Pick<DecisionRecord, 'ts' | 'stateHash' | 'questionId' | 'question'>): string {
+  return sha256(`${record.ts}\u0000${record.stateHash}\u0000${record.questionId}\u0000${record.question.instructions}`).slice(0, 12);
+}
+
+/** Reads the JSONL decision log; missing file means no records. Bad lines are skipped. */
+export async function readDecisionLog(file: string): Promise<DecisionRecord[]> {
+  let text: string;
+  try {
+    text = await readFile(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+  const out: DecisionRecord[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line) as DecisionRecord);
+    } catch {
+      // A torn last line from a crash should not hide the rest.
+    }
+  }
+  return out;
+}
+
 /** Appends one record to the JSONL decision log. */
 export async function appendDecisionLog(file: string, record: DecisionRecord): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   await appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+}
+
+/** The scope as stored in the log (only the parts that were given). */
+function logScope(scope: AskScope): NonNullable<DecisionRecord['scope']> {
+  const out: NonNullable<DecisionRecord['scope']> = {};
+  if (scope.paths?.length) out.paths = [...scope.paths];
+  if (scope.diff !== undefined) out.diff = scope.diff;
+  if (scope.nodes?.length) out.nodes = [...scope.nodes];
+  return out;
 }
 
 /**
@@ -192,6 +228,8 @@ export async function ask(scope: AskScope, question: string | Question, opts: As
   const record: DecisionRecord = { ...main.records[0]!, ...(explain ? { explain } : {}) };
   let logFile: string | undefined;
   if (opts.log !== false) {
+    record.id = decisionId(record);
+    record.scope = logScope(scope);
     logFile = typeof opts.log === 'string' ? opts.log : join(root, STORE_DIR, DECISION_LOG);
     await appendDecisionLog(logFile, record);
   }

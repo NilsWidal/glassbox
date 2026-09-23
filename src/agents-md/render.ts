@@ -20,7 +20,7 @@ const USAGE: readonly string[] = [
   '- `triage`: risk of a diff per chunk, plus graph impact. CLI: `glassbox triage`',
   '- `decide`: answer an "A or B?" question with probabilities. CLI: `glassbox decide "<question>"`',
   '- `explain`: evidence and why for an earlier decision. CLI: `glassbox explain <id>`',
-  '- `graph`: a node\'s neighbours and stored tags. MCP only.',
+  '- `graph`: a node\'s neighbours and stored tags. CLI: `glassbox graph <node>`',
   '- `refresh`: re-index changed files. CLI: `glassbox index`',
 ];
 

@@ -2,7 +2,7 @@ import type { AskResult } from './ask.js';
 import { winningOption } from './engine/answer.js';
 import { formatDelta } from './explain/summary.js';
 import { spanLabel } from './scope.js';
-import type { Answer } from './types.js';
+import type { Answer, ExplainBlock } from './types.js';
 
 /** YES / NO, the chosen option key, or "level 2: high". */
 export function answerLabel(answer: Answer): string {
@@ -35,6 +35,28 @@ function headline(r: AskResult): string {
   return `${label}  p=${answerP(a).toFixed(2)}  conf=${a.confidence.toFixed(2)}  ${a.band}   ${JSON.stringify(r.question.instructions)}`;
 }
 
+/** Summary, highlights, reasons and why of an explanation, as readable lines. */
+export function explainLines(ex: ExplainBlock): string[] {
+  const out: string[] = [];
+  if (ex.summary.length) out.push('summary', ...ex.summary.map((l) => `  ${l}`));
+  if (ex.highlights.length) {
+    const spans = ex.highlights.map((h) => spanLabel(h.file, h.startLine, h.endLine));
+    const width = Math.max(...spans.map((s) => s.length));
+    out.push('highlights');
+    ex.highlights.forEach((h, i) => {
+      out.push(`  ${spans[i]!.padEnd(width)}   Δp ${formatDelta(h.deltaP)}${h.comment ? `  # ${h.comment}` : ''}`);
+    });
+  } else if (ex.stats) {
+    out.push('highlights', '  none above the threshold');
+  }
+  if (ex.reasons.length) {
+    const width = Math.max(...ex.reasons.map((x) => x.code.length));
+    out.push('reasons', ...ex.reasons.map((x) => `  ${x.code.padEnd(width)}   p=${x.p.toFixed(2)}`));
+  }
+  if (ex.why) out.push(`why  ${ex.why.text}   (narrative, not checked)`);
+  return out;
+}
+
 /** The human-readable output shown in the plan. */
 export function renderPretty(r: AskResult): string {
   const out = [headline(r)];
@@ -42,23 +64,8 @@ export function renderPretty(r: AskResult): string {
   if (a.type !== 'yesno') {
     out.push(`options  ${Object.entries(a.probabilities).map(([k, p]) => `${k} ${p.toFixed(2)}`).join('   ')}`);
   }
-  const ex = r.explain;
-  if (ex?.summary.length) out.push('summary', ...ex.summary.map((l) => `  ${l}`));
-  if (ex?.highlights.length) {
-    const spans = ex.highlights.map((h) => spanLabel(h.file, h.startLine, h.endLine));
-    const width = Math.max(...spans.map((s) => s.length));
-    out.push('highlights');
-    ex.highlights.forEach((h, i) => {
-      out.push(`  ${spans[i]!.padEnd(width)}   Δp ${formatDelta(h.deltaP)}${h.comment ? `  # ${h.comment}` : ''}`);
-    });
-  } else if (r.explainStats) {
-    out.push('highlights', '  none above the threshold');
-  }
-  if (ex?.reasons.length) {
-    const width = Math.max(...ex.reasons.map((x) => x.code.length));
-    out.push('reasons', ...ex.reasons.map((x) => `  ${x.code.padEnd(width)}   p=${x.p.toFixed(2)}`));
-  }
-  if (ex?.why) out.push(`why  ${ex.why.text}   (narrative, not checked)`);
+  if (r.explain) out.push(...explainLines(r.explain));
+  else if (r.explainStats) out.push('highlights', '  none above the threshold');
 
   const parts = [`${r.calls.decide} call${r.calls.decide === 1 ? '' : 's'}`];
   if (r.calls.explain) parts.push(`${r.calls.explain} explain`);
@@ -66,6 +73,7 @@ export function renderPretty(r: AskResult): string {
   const stats = r.explainStats;
   const tested = stats ? `, ${stats.tested}/${stats.candidates} spans tested` : '';
   out.push(`cost  ${parts.join(' + ')}${tested}, ${(r.latencyMs / 1000).toFixed(1)} s, ${r.backend}${r.model ? ` (${r.model})` : ''}`);
+  if (r.record.id) out.push(`id    ${r.record.id}   (glassbox explain ${r.record.id})`);
   return out.join('\n');
 }
 
@@ -83,6 +91,7 @@ export function renderJson(r: AskResult): string {
       backend: r.backend,
       ...(r.model ? { model: r.model } : {}),
       stateHash: r.record.stateHash,
+      ...(r.record.id ? { id: r.record.id } : {}),
       scope: r.chunks.map((c) => spanLabel(c.file, c.startLine, c.endLine)),
       ...(r.logFile ? { logFile: r.logFile } : {}),
     },
