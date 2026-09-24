@@ -83,7 +83,7 @@ Outside Claude Code, run the full init with the same bundle the plugin uses:
 node /path/to/glassbox/plugin-dist/glassbox.mjs init
 ```
 
-Once the package is published on npm, `npx -y @nilswidal/glassbox init` does the same. It writes `.glassbox/` (with its own `.gitignore`, so it is not committed), a managed block in `AGENTS.md`, and an `@AGENTS.md` import line in `CLAUDE.md`. Claude Code and Codex then read the same summary.
+`npx -y @nilswidal/glassbox@0.3.1 init` does the same without the plugin. It writes `.glassbox/` (with its own `.gitignore`, so it is not committed), a managed block in `AGENTS.md`, and an `@AGENTS.md` import line in `CLAUDE.md`. Claude Code and Codex then read the same summary.
 
 ## Ambient mode
 
