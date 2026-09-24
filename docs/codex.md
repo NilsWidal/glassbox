@@ -10,17 +10,17 @@ Three parts, each optional:
 
 ## 1. Add the MCP server
 
-The package is not on npm yet, so run the self-contained bundle that this repository commits in `plugin-dist/` (one file with every dependency, plus the tree-sitter `.wasm` files). It needs only Node 22.13 or newer, no `npm install`:
+The package is on npm as `@nilswidal/glassbox`. Pin the version, so an update only reaches you when you choose it:
+
+```sh
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.3.1 mcp
+```
+
+Without npm, run the self-contained bundle that this repository commits in `plugin-dist/` (one file with every dependency, plus the tree-sitter `.wasm` files). It needs only Node 22.13 or newer:
 
 ```sh
 git clone https://github.com/NilsWidal/glassbox
 codex mcp add glassbox --env GLASSBOX_HOST=codex -- node "$PWD/glassbox/plugin-dist/glassbox.mjs" mcp
-```
-
-Once `@nilswidal/glassbox` is published on npm, this works without a clone:
-
-```sh
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.3.1 mcp
 ```
 
 `GLASSBOX_HOST=codex` tells glassbox which agent started it. Codex gives MCP servers a trimmed environment, so glassbox cannot always tell on its own, and without the hint it would use whichever of `claude` or `codex` it finds on your PATH first.
@@ -29,9 +29,9 @@ Or edit `~/.codex/config.toml` (or `.codex/config.toml` in a project) by hand:
 
 ```toml
 [mcp_servers.glassbox]
-command = "node"
-args = ["/path/to/glassbox/plugin-dist/glassbox.mjs", "mcp"]
-# After publishing: command = "npx", args = ["-y", "@nilswidal/glassbox@0.3.1", "mcp"]
+command = "npx"
+args = ["-y", "@nilswidal/glassbox@0.3.1", "mcp"]
+# Without npm: command = "node", args = ["/path/to/glassbox/plugin-dist/glassbox.mjs", "mcp"]
 startup_timeout_sec = 30
 # Each answer takes seconds, and `explain` makes several calls, so allow more than the 60 s default.
 tool_timeout_sec = 300
@@ -64,10 +64,10 @@ This installs `skills/glassbox/SKILL.md`. Add `-a codex` to install it for Codex
 With the `SessionStart` hook below, glassbox builds the code graph by itself in the background the first time Codex starts in a git repo without one (parsing only: no model calls, no `AGENTS.md` changes), and adds a short code map to later sessions. For tags and the AGENTS.md block, run the full init once. In the repository you want glassbox to know about:
 
 ```sh
-node /path/to/glassbox/plugin-dist/glassbox.mjs init
+npx -y @nilswidal/glassbox@0.3.1 init
 ```
 
-(After publishing: `npx -y @nilswidal/glassbox init`.) `init` parses the code into a graph of files and functions, asks a small set of tag questions about each one (handles auth, side effects, touches personal data, needs tests, area, risk) and stores the result in `.glassbox/`. That folder gets its own `.gitignore`, so it is not committed.
+(Without npm: `node /path/to/glassbox/plugin-dist/glassbox.mjs init`.) `init` parses the code into a graph of files and functions, asks a small set of tag questions about each one (handles auth, side effects, touches personal data, needs tests, area, risk) and stores the result in `.glassbox/`. That folder gets its own `.gitignore`, so it is not committed.
 
 It then writes a managed block into `AGENTS.md`, which Codex reads automatically:
 

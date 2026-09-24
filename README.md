@@ -22,7 +22,7 @@ id    07a2d2cbb919   (glassbox explain 07a2d2cbb919)
 
 This is the real output format, run on the bundled sample repo with the test backend, so the numbers are illustrative. `Δp` is how much the answer's probability changes when glassbox hides those lines and asks again. The highlights are measured, not the model's say-so. `escalate` is the confidence band: `act`, `confirm` or `escalate`.
 
-> Status (v0.3.1, 2026-09-23): early, working, tested (612 unit tests, plus live runs against the real `claude` and `codex` CLIs). Not yet published to npm. The plugin runs from this repository, so you do not need npm.
+> Status (v0.3.1, 2026-09-24): early, working, tested (612 unit tests, plus live runs against the real `claude` and `codex` CLIs). On npm as [`@nilswidal/glassbox`](https://www.npmjs.com/package/@nilswidal/glassbox). The Claude Code plugin runs from this repository and does not need npm.
 
 ## Install
 
@@ -38,8 +38,7 @@ Then open any git repository in Claude Code. There is no setup step.
 ### Codex
 
 ```sh
-git clone https://github.com/NilsWidal/glassbox ~/glassbox
-codex mcp add glassbox --env GLASSBOX_HOST=codex -- node ~/glassbox/plugin-dist/glassbox.mjs mcp
+codex mcp add glassbox --env GLASSBOX_HOST=codex -- npx -y @nilswidal/glassbox@0.3.1 mcp
 npx skills add NilsWidal/glassbox -g -a codex
 ```
 
